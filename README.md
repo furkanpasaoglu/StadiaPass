@@ -15,8 +15,9 @@ StadiaPass.slnx
 ├── Directory.Packages.props         # Central Package Management - single source of truth for versions
 ├── src
 │   ├── Shared
-│   │   └── StadiaPass.SharedKernel  # permission contracts shared by the API and the MVC front end
-│   │       └── Authorization        # StadiaPassPermissions, dynamic policies, Keycloak role reader
+│   │   ├── StadiaPass.SharedKernel  # permission vocabulary, no framework dependency
+│   │   │   └── Authorization        # StadiaPassPermissions + catalogue, KeycloakRoleReader
+│   │   └── StadiaPass.SharedKernel.AspNetCore  # dynamic policy provider + claims transformation
 │   ├── Core
 │   │   ├── StadiaPass.Domain        # aggregates, value objects, domain events (no infrastructure deps)
 │   │   │   ├── Abstractions         # IRepository, IVenueRepository, IMatchRepository, ITicketRepository, IUnitOfWork
@@ -30,6 +31,7 @@ StadiaPass.slnx
 │   │       │   ├── Abstractions     # IDateTimeProvider, ICacheService, ICurrentUser
 │   │       │   ├── Behaviors        # LoggingBehavior, ValidationBehavior (MediatR pipeline)
 │   │       │   └── Exceptions       # NotFoundException, ConflictException, RequestValidationException
+│   │       ├── Identity             # Keycloak Admin port: Roles / Users slices
 │   │       ├── Venues               # DefineVenue / GetVenues
 │   │       ├── Matches              # CreateMatch / GetUpcomingMatches / GetMatchSeatMap / EventHandlers
 │   │       └── Tickets              # ReserveSeat / ConfirmTicketPurchase / GetMyTickets / GetTicketById
@@ -37,18 +39,18 @@ StadiaPass.slnx
 │   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, repositories, Unit of Work, seeding
 │   │   │   ├── Configurations       # IEntityTypeConfiguration per aggregate
 │   │   │   └── Repositories         # Repository<T>, VenueRepository, MatchRepository, TicketRepository
-│   │   └── StadiaPass.Infrastructure# cross-cutting adapters: Redis cache, system clock
+│   │   └── StadiaPass.Infrastructure# adapters: Redis cache, system clock, Keycloak Admin REST client
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint discovery + Scalar reference
 │       │   ├── Authorization        # Keycloak JWT wiring, KeycloakOptions, CurrentUser
-│       │   ├── Endpoints            # VenueEndpoints, MatchEndpoints, TicketEndpoints, IEndpoint
+│       │   ├── Endpoints            # VenueEndpoints, MatchEndpoints, TicketEndpoints, RoleEndpoints, UserEndpoints
 │       │   └── Extensions           # GlobalExceptionHandler, OAuth2 OpenAPI transformers
 │       └── StadiaPass.WebMVC        # Razor MVC UI - consumes the API over HTTP only
-│           ├── Areas/Admin          # back-office: match creation form
+│           ├── Areas/Admin          # back-office: matches, roles and permissions, users
 │           ├── Authentication       # OIDC login, KeycloakOptions, TokenBearerHandler
 │           ├── Controllers          # MatchesController (seat picker), TicketsController, AccountController
 │           ├── Models               # its own contracts - no reference to Domain/Application
-│           └── Services             # typed HttpClient (IStadiaPassApiClient)
+│           └── Services             # typed HttpClients (ticketing + identity portal)
 ├── orchestrator
 │   ├── StadiaPass.AppHost           # Aspire: PostgreSQL + Redis + Keycloak, project wiring
 │   │   └── realms                   # stadiapass-realm.json - permission roles, clients, demo users
@@ -194,7 +196,7 @@ the token into every request. Each secured operation is annotated with the permi
 
 | User | Password | Role |
 |---|---|---|
-| `mudur` | `mudur` | everything (admin) |
+| `mudur` | `mudur` | everything, including the identity portal (admin) |
 | `gise` | `gise` | box office: sell and cancel, no match creation |
 | `musteri` | `musteri` | customer: browse, hold a seat, buy |
 | `seyirci` | `seyirci` | read-only: cannot hold or buy |
@@ -202,6 +204,45 @@ the token into every request. Each secured operation is annotated with the permi
 Keycloak runs at https://localhost:8080 and the realm is re-imported on every start (no data volume), so the
 realm file is the source of truth. The MVC client secret in `stadiapass-realm.json` is a local development
 value — replace it with a real secret store before any deployment.
+
+## Identity portal
+
+Roles and users are **not** stored in the StadiaPass database. The API brokers every change to the Keycloak
+Admin REST API through `IKeycloakAdminService`, using a service account confined to the `stadiapass` realm -
+the master realm admin password never reaches the application.
+
+```
+WebMVC portal  ->  WebAPI  ->  IKeycloakAdminService  ->  Keycloak Admin REST API
+  checklist UI      MediatR       service account token      /admin/realms/stadiapass/...
+```
+
+- A **business role** is a Keycloak composite realm role; the permissions ticked in the checklist become its
+  composites, so a member token expands to carry every one of those permission strings.
+- The checklist is rendered from `StadiaPassPermissions.Groups`, so adding a constant to the shared kernel
+  makes it appear in the portal with no UI change. Missing permission roles are created in Keycloak on demand.
+- Permission roles cannot be deleted or reused as a business role name - the portal guards both.
+- Keycloak built-ins (`offline_access`, `uma_authorization`, `default-roles-*`) are filtered out.
+
+| Method | Route | Required permission |
+|---|---|---|
+| `GET` | `/api/v1/roles` | `StadiaPass.Roles.Manage` |
+| `POST` | `/api/v1/roles` | `StadiaPass.Roles.Manage` |
+| `PUT` | `/api/v1/roles/{name}/permissions` | `StadiaPass.Roles.Manage` |
+| `DELETE` | `/api/v1/roles/{name}` | `StadiaPass.Roles.Manage` |
+| `GET` | `/api/v1/users` | `StadiaPass.Users.Manage` |
+| `POST` | `/api/v1/users` | `StadiaPass.Users.Manage` |
+| `PUT` | `/api/v1/users/{id}` | `StadiaPass.Users.Manage` |
+| `PUT` | `/api/v1/users/{id}/roles` | `StadiaPass.Users.Manage` |
+| `DELETE` | `/api/v1/users/{id}` | `StadiaPass.Users.Manage` |
+
+Portal screens live under `/Admin/Roles` and `/Admin/Users` and only appear in the navigation when the
+signed-in user carries `Roles.Manage` or `Users.Manage`.
+
+### Session storage
+
+An administrator carries many roles, which makes the OIDC tokens - and therefore the authentication ticket -
+large. The MVC app keeps the ticket in Redis behind an `ITicketStore` and leaves only a session key in the
+cookie, so sign-in works regardless of how many roles a user has and sign-out revokes the session for real.
 
 ## Request pipeline
 
@@ -230,5 +271,7 @@ customer cannot hold or buy a seat in somebody else's name.
 - **MediatR** is pinned to `12.5.0`, the last Apache-2.0 release; v13+ requires a commercial licence.
 - **Aspire Keycloak integration** (`Aspire.Hosting.Keycloak`, `Aspire.Keycloak.Authentication`) is still
   prerelease; the pinned version matches the Aspire 13.5.2 SDK.
+- **`stadiapass-admin-api`** is a confidential client whose service account holds the `realm-management`
+  roles the portal needs. Its secret in `stadiapass-realm.json` is a local development value.
 - **`stadiapass-mvc` has direct access grants enabled** so tokens can be fetched with `curl` for local
   endpoint testing. Turn it off before deploying.

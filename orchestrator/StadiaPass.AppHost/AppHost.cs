@@ -33,6 +33,7 @@ var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
 
 builder.AddProject<Projects.StadiaPass_WebMVC>("webmvc")
     .WithReference(webApi)
+    .WithReference(cache)
     .WithReference(keycloak)
     .WaitFor(webApi)
     .WaitFor(keycloak)

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Domain.Common;
+using StadiaPass.Infrastructure.Identity;
 
 namespace StadiaPass.WebAPI.Extensions;
 
@@ -46,6 +47,21 @@ internal sealed partial class GlobalExceptionHandler(
             Title = "Resource not found",
             Detail = notFound.Message,
             Type = "https://tools.ietf.org/html/rfc9110#section-15.5.5"
+        },
+        KeycloakAdminException { StatusCode: System.Net.HttpStatusCode.Conflict } keycloakConflict => new ProblemDetails
+        {
+            Status = StatusCodes.Status409Conflict,
+            Title = "Conflict",
+            Detail = "The identity provider rejected the change because it conflicts with existing data.",
+            Type = "https://tools.ietf.org/html/rfc9110#section-15.5.10",
+            Extensions = { ["providerMessage"] = keycloakConflict.Message }
+        },
+        KeycloakAdminException => new ProblemDetails
+        {
+            Status = StatusCodes.Status502BadGateway,
+            Title = "Identity provider unavailable",
+            Detail = "The Keycloak Admin API could not complete the request.",
+            Type = "https://tools.ietf.org/html/rfc9110#section-15.6.3"
         },
         ConflictException conflict => new ProblemDetails
         {

@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\StadiaPass.Domain\StadiaPass.Domain.csproj" />
+    <ProjectReference Include="..\..\Shared\StadiaPass.SharedKernel\StadiaPass.SharedKernel.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -18,6 +18,8 @@
   <ItemGroup Label="Infrastructure">
     <PackageVersion Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.5.2" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.11" />
   </ItemGroup>
   <ItemGroup Label="Presentation">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />

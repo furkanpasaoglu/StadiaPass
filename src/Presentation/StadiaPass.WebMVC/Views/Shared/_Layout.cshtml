@@ -33,6 +33,18 @@
                                 <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Match" asp-action="Create">Create match</a>
                             </li>
                         }
+                        @if (User.HasPermission(StadiaPassPermissions.Users.Manage))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Users" asp-action="Index">Users</a>
+                            </li>
+                        }
+                        @if (User.HasPermission(StadiaPassPermissions.Roles.Manage))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Roles" asp-action="Index">Roles &amp; permissions</a>
+                            </li>
+                        }
                     </ul>
                     <partial name="_LoginPartial" />
                 </div>

@@ -17,6 +17,7 @@
     <Project Path="src/Presentation/StadiaPass.WebMVC/StadiaPass.WebMVC.csproj" />
   </Folder>
   <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/StadiaPass.SharedKernel.AspNetCore/StadiaPass.SharedKernel.AspNetCore.csproj" />
     <Project Path="src/Shared/StadiaPass.SharedKernel/StadiaPass.SharedKernel.csproj" />
   </Folder>
 </Solution>

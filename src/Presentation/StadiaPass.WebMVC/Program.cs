@@ -13,6 +13,11 @@ builder.Services
         client.BaseAddress = new Uri("https+http://webapi"))
     .AddHttpMessageHandler<TokenBearerHandler>();
 
+builder.Services
+    .AddHttpClient<IStadiaPassIdentityClient, StadiaPassIdentityClient>(client =>
+        client.BaseAddress = new Uri("https+http://webapi"))
+    .AddHttpMessageHandler<TokenBearerHandler>();
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
