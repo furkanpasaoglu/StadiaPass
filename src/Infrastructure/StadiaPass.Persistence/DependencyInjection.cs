@@ -18,6 +18,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ITicketRepository, TicketRepository>();
         builder.Services.AddScoped<IMatchRepository, MatchRepository>();
         builder.Services.AddScoped<IVenueRepository, VenueRepository>();
+        builder.Services.AddScoped<ISportCategoryRepository, SportCategoryRepository>();
 
         return builder;
     }

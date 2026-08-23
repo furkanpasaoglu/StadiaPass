@@ -4,6 +4,7 @@ namespace StadiaPass.Application.Matches;
 
 public sealed record MatchDto(
     Guid Id,
+    Guid CategoryId,
     string Category,
     Guid VenueId,
     string VenueName,
@@ -39,7 +40,8 @@ internal static class MatchMappings
 {
     public static MatchDto ToDto(this Match match) => new(
         match.Id,
-        match.Category.ToString(),
+        match.CategoryId,
+        match.CategoryName,
         match.VenueId,
         match.VenueName,
         match.HomeTeam,
@@ -53,7 +55,7 @@ internal static class MatchMappings
 
     public static SeatMapDto ToSeatMapDto(this Match match, DateTimeOffset now) => new(
         match.Id,
-        match.Category.ToString(),
+        match.CategoryName,
         match.VenueName,
         match.HomeTeam,
         match.AwayTeam,

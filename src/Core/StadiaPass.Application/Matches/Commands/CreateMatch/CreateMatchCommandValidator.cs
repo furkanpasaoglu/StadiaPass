@@ -1,5 +1,4 @@
 using FluentValidation;
-using StadiaPass.Domain.Matches;
 
 namespace StadiaPass.Application.Matches.Commands.CreateMatch;
 
@@ -7,9 +6,8 @@ internal sealed class CreateMatchCommandValidator : AbstractValidator<CreateMatc
 {
     public CreateMatchCommandValidator()
     {
-        RuleFor(command => command.Category)
-            .Must(category => Enum.TryParse<SportCategory>(category, ignoreCase: true, out _))
-            .WithMessage($"Category must be one of: {string.Join(", ", Enum.GetNames<SportCategory>())}.");
+        RuleFor(command => command.CategoryId)
+            .NotEmpty().WithMessage("A sport category is required.");
 
         RuleFor(command => command.VenueId)
             .NotEmpty().WithMessage("A venue is required.");

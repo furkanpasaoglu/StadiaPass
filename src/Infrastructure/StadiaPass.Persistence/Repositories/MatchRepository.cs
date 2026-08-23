@@ -10,13 +10,19 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
 {
     public async Task<IReadOnlyList<Match>> GetUpcomingAsync(
         DateTimeOffset fromUtc,
-        SportCategory? category = null,
+        string? categoryName = null,
         CancellationToken cancellationToken = default) =>
         await Set.AsNoTracking()
             .Where(match => match.KickOffUtc >= fromUtc && match.Status != MatchStatus.Cancelled)
-            .Where(match => category == null || match.Category == category)
+            .Where(match => categoryName == null || match.CategoryName == categoryName)
             .OrderBy(match => match.KickOffUtc)
             .ToListAsync(cancellationToken);
+
+    public Task<bool> ExistsForVenueAsync(Guid venueId, CancellationToken cancellationToken = default) =>
+        Set.AnyAsync(match => match.VenueId == venueId, cancellationToken);
+
+    public Task<bool> ExistsForCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default) =>
+        Set.AnyAsync(match => match.CategoryId == categoryId, cancellationToken);
 
     public Task<Match?> GetWithSeatMapAsync(Guid matchId, CancellationToken cancellationToken = default) =>
         Set.AsNoTracking()

@@ -3,12 +3,12 @@ using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Domain.Abstractions;
 using StadiaPass.Domain.Venues;
 
-namespace StadiaPass.Application.Venues.Commands.DefineVenue;
+namespace StadiaPass.Application.Venues.Commands.CreateVenue;
 
-internal sealed class DefineVenueCommandHandler(IVenueRepository venueRepository, IUnitOfWork unitOfWork)
-    : IRequestHandler<DefineVenueCommand, VenueDto>
+internal sealed class CreateVenueCommandHandler(IVenueRepository venueRepository, IUnitOfWork unitOfWork)
+    : IRequestHandler<CreateVenueCommand, VenueDto>
 {
-    public async Task<VenueDto> Handle(DefineVenueCommand request, CancellationToken cancellationToken)
+    public async Task<VenueDto> Handle(CreateVenueCommand request, CancellationToken cancellationToken)
     {
         if (await venueRepository.ExistsAsync(request.Name, request.City, cancellationToken))
         {

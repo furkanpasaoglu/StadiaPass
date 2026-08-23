@@ -1,0 +1,125 @@
+@model VenueInput
+@{
+    var isNew = Model.Id is null;
+    ViewData["Title"] = isNew ? "New venue" : $"Edit {Model.Name}";
+    var venueKinds = (string[])ViewBag.VenueKinds;
+}
+
+<h1 class="h4 mb-1">@ViewData["Title"]</h1>
+<p class="text-muted">
+    Each block multiplies the match base price, so a VIP block can cost more than the terraces.
+    @if (!isNew)
+    {
+        <text>Reshaping the plan is refused once a match has been opened against this venue.</text>
+    }
+</p>
+
+<form method="post" asp-action="@(isNew ? "Create" : "Edit")" class="col-lg-8">
+    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+    @if (!isNew)
+    {
+        <input type="hidden" asp-for="Id"/>
+    }
+
+    <div class="row">
+        <div class="col mb-3">
+            <label asp-for="Name" class="form-label"></label>
+            <input asp-for="Name" class="form-control" placeholder="Sukru Saracoglu"/>
+            <span asp-validation-for="Name" class="text-danger"></span>
+        </div>
+        <div class="col mb-3">
+            <label asp-for="City" class="form-label"></label>
+            <input asp-for="City" class="form-control" placeholder="Istanbul"/>
+            <span asp-validation-for="City" class="text-danger"></span>
+        </div>
+        <div class="col mb-3">
+            <label asp-for="Kind" class="form-label"></label>
+            <select asp-for="Kind" class="form-select">
+                @foreach (var kind in venueKinds)
+                {
+                    <option value="@kind">@kind</option>
+                }
+            </select>
+            <span asp-validation-for="Kind" class="text-danger"></span>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Seating plan</strong>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="add-block">Add block</button>
+        </div>
+        <div class="card-body" id="blocks">
+            @for (var index = 0; index < Model.Blocks.Count; index++)
+            {
+                <div class="row g-2 align-items-end block-row mb-2">
+                    <div class="col-3">
+                        <label class="form-label small">Block</label>
+                        <input name="Blocks[@index].Name" value="@Model.Blocks[index].Name" class="form-control"/>
+                    </div>
+                    <div class="col-2">
+                        <label class="form-label small">Rows</label>
+                        <input name="Blocks[@index].RowCount" value="@Model.Blocks[index].RowCount"
+                               type="number" min="1" max="500" class="form-control"/>
+                    </div>
+                    <div class="col-2">
+                        <label class="form-label small">Seats / row</label>
+                        <input name="Blocks[@index].SeatsPerRow" value="@Model.Blocks[index].SeatsPerRow"
+                               type="number" min="1" max="500" class="form-control"/>
+                    </div>
+                    <div class="col-3">
+                        <label class="form-label small">Price multiplier</label>
+                        <input name="Blocks[@index].PriceMultiplier"
+                               value="@Model.Blocks[index].PriceMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                               type="number" inputmode="decimal" step="0.01" min="0.01" max="20" class="form-control"/>
+                    </div>
+                    <div class="col-2">
+                        <button type="button" class="btn btn-outline-danger w-100 remove-block">Remove</button>
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="card-footer text-muted small">
+            Leave the plan untouched to keep it as it is. Total is capped at 25000 seats.
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">@(isNew ? "Create venue" : "Save changes")</button>
+    <a class="btn btn-link" asp-action="Index">Cancel</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial"/>
+    <script>
+        (function () {
+            var container = document.getElementById('blocks');
+
+            function reindex() {
+                container.querySelectorAll('.block-row').forEach(function (row, index) {
+                    row.querySelectorAll('input').forEach(function (input) {
+                        input.name = input.name.replace(/Blocks\[\d+\]/, 'Blocks[' + index + ']');
+                    });
+                });
+            }
+
+            document.getElementById('add-block').addEventListener('click', function () {
+                var first = container.querySelector('.block-row');
+                if (!first) { return; }
+                var clone = first.cloneNode(true);
+                clone.querySelectorAll('input').forEach(function (input) {
+                    if (input.type === 'number') { return; }
+                    input.value = '';
+                });
+                container.appendChild(clone);
+                reindex();
+            });
+
+            container.addEventListener('click', function (event) {
+                if (!event.target.classList.contains('remove-block')) { return; }
+                if (container.querySelectorAll('.block-row').length === 1) { return; }
+                event.target.closest('.block-row').remove();
+                reindex();
+            });
+        })();
+    </script>
+}

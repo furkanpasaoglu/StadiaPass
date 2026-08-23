@@ -70,7 +70,7 @@ internal sealed class StadiaPassApiClient(HttpClient httpClient) : IStadiaPassAp
     {
         var payload = new
         {
-            category = input.Category,
+            categoryId = input.CategoryId,
             venueId = input.VenueId,
             homeTeam = input.HomeTeam,
             awayTeam = input.AwayTeam,

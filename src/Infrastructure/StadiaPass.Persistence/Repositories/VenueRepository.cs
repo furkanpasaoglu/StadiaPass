@@ -19,6 +19,9 @@ internal sealed class VenueRepository(StadiaPassDbContext context)
             .Include(venue => venue.Blocks)
             .FirstOrDefaultAsync(venue => venue.Id == venueId, cancellationToken);
 
+    public Task<Venue?> GetTrackedWithBlocksAsync(Guid venueId, CancellationToken cancellationToken = default) =>
+        Set.Include(venue => venue.Blocks).FirstOrDefaultAsync(venue => venue.Id == venueId, cancellationToken);
+
     public Task<bool> ExistsAsync(string name, string city, CancellationToken cancellationToken = default) =>
         Set.AnyAsync(venue => venue.Name == name && venue.City == city, cancellationToken);
 }

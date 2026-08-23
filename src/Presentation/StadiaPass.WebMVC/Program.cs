@@ -1,3 +1,5 @@
+using System.Globalization;
+using Microsoft.AspNetCore.Localization;
 using StadiaPass.WebMVC.Authentication;
 using StadiaPass.WebMVC.Services;
 
@@ -14,6 +16,11 @@ builder.Services
     .AddHttpMessageHandler<TokenBearerHandler>();
 
 builder.Services
+    .AddHttpClient<IStadiaPassCatalogueClient, StadiaPassCatalogueClient>(client =>
+        client.BaseAddress = new Uri("https+http://webapi"))
+    .AddHttpMessageHandler<TokenBearerHandler>();
+
+builder.Services
     .AddHttpClient<IStadiaPassIdentityClient, StadiaPassIdentityClient>(client =>
         client.BaseAddress = new Uri("https+http://webapi"))
     .AddHttpMessageHandler<TokenBearerHandler>();
@@ -25,6 +32,16 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
 }
+
+// Model binding and Razor rendering must agree with jQuery unobtrusive validation, which parses numbers
+// with an invariant decimal separator. Under a Turkish culture the server rendered "500,00" while the
+// client validator read it as NaN, and a typed "500.50" bound as 50050.
+app.UseRequestLocalization(new RequestLocalizationOptions
+{
+    DefaultRequestCulture = new RequestCulture(CultureInfo.InvariantCulture),
+    SupportedCultures = [CultureInfo.InvariantCulture],
+    SupportedUICultures = [CultureInfo.InvariantCulture]
+});
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();

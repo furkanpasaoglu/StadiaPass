@@ -8,7 +8,7 @@ namespace StadiaPass.Application.Matches.Commands.CreateMatch;
 /// tickets are never issued up front.
 /// </summary>
 public sealed record CreateMatchCommand(
-    string Category,
+    Guid CategoryId,
     Guid VenueId,
     string HomeTeam,
     string AwayTeam,

@@ -108,7 +108,13 @@
             "StadiaPass.Roles.Manage",
             "StadiaPass.Users.View",
             "StadiaPass.Users.Create",
-            "StadiaPass.Users.Manage"
+            "StadiaPass.Users.Manage",
+            "StadiaPass.Venues.Update",
+            "StadiaPass.Venues.Delete",
+            "StadiaPass.Categories.View",
+            "StadiaPass.Categories.Create",
+            "StadiaPass.Categories.Update",
+            "StadiaPass.Categories.Delete"
           ]
         }
       },
@@ -123,7 +129,13 @@
             "StadiaPass.Matches.View",
             "StadiaPass.Matches.Create",
             "StadiaPass.Matches.Postpone",
-            "StadiaPass.Tickets.View"
+            "StadiaPass.Tickets.View",
+            "StadiaPass.Venues.Update",
+            "StadiaPass.Venues.Delete",
+            "StadiaPass.Categories.View",
+            "StadiaPass.Categories.Create",
+            "StadiaPass.Categories.Update",
+            "StadiaPass.Categories.Delete"
           ]
         }
       },
@@ -164,6 +176,34 @@
             "StadiaPass.Tickets.View"
           ]
         }
+      },
+      {
+        "name": "StadiaPass.Venues.Update",
+        "description": "Update a venue"
+      },
+      {
+        "name": "StadiaPass.Venues.Delete",
+        "description": "Delete a venue"
+      },
+      {
+        "name": "StadiaPass.Categories",
+        "description": "Category module"
+      },
+      {
+        "name": "StadiaPass.Categories.View",
+        "description": "Read sport categories"
+      },
+      {
+        "name": "StadiaPass.Categories.Create",
+        "description": "Add a sport category"
+      },
+      {
+        "name": "StadiaPass.Categories.Update",
+        "description": "Update a sport category"
+      },
+      {
+        "name": "StadiaPass.Categories.Delete",
+        "description": "Delete a sport category"
       }
     ]
   },

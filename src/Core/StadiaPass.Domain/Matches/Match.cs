@@ -1,3 +1,4 @@
+using StadiaPass.Domain.Categories;
 using StadiaPass.Domain.Common;
 using StadiaPass.Domain.Common.ValueObjects;
 using StadiaPass.Domain.Matches.Events;
@@ -30,7 +31,8 @@ public sealed class Match : AggregateRoot
         DateTimeOffset kickOffUtc)
         : base(id)
     {
-        Category = category;
+        CategoryId = category.Id;
+        CategoryName = category.Name;
         VenueId = venueId;
         VenueName = venueName;
         HomeTeam = homeTeam;
@@ -39,7 +41,10 @@ public sealed class Match : AggregateRoot
         Status = MatchStatus.OnSale;
     }
 
-    public SportCategory Category { get; private set; }
+    public Guid CategoryId { get; private set; }
+
+    /// <summary>Denormalised so a listing does not have to join the catalogue.</summary>
+    public string CategoryName { get; private set; } = null!;
 
     public Guid VenueId { get; private set; }
 
@@ -92,12 +97,7 @@ public sealed class Match : AggregateRoot
                 "Match.KickOffInPast", "Kick-off must be scheduled in the future.");
         }
 
-        if (!venue.CanHost(category))
-        {
-            throw new DomainRuleViolationException(
-                "Match.VenueCannotHostCategory",
-                $"{venue.Name} is a {venue.Kind} and cannot host {category}.");
-        }
+        category.EnsureCanBePlayedIn(venue);
 
         if (basePrice.Amount <= 0)
         {
@@ -115,7 +115,7 @@ public sealed class Match : AggregateRoot
             kickOffUtc.ToUniversalTime());
 
         match.MaterialiseSeats(venue, basePrice);
-        match.Raise(new MatchCreatedDomainEvent(match.Id, category.ToString(), venue.Id, match.Capacity));
+        match.Raise(new MatchCreatedDomainEvent(match.Id, category.Name, venue.Id, match.Capacity));
 
         return match;
     }

@@ -51,6 +51,18 @@ public static class StadiaPassPermissions
         public const string Default = GroupName + ".Venues";
         public const string View = Default + ".View";
         public const string Create = Default + ".Create";
+        public const string Update = Default + ".Update";
+        public const string Delete = Default + ".Delete";
+    }
+
+    /// <summary>Sport categories a match can be opened for.</summary>
+    public static class Categories
+    {
+        public const string Default = GroupName + ".Categories";
+        public const string View = Default + ".View";
+        public const string Create = Default + ".Create";
+        public const string Update = Default + ".Update";
+        public const string Delete = Default + ".Delete";
     }
 
     public static class Matches

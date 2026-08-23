@@ -4,6 +4,7 @@ namespace StadiaPass.WebMVC.Models;
 
 public sealed record MatchSummary(
     Guid Id,
+    Guid CategoryId,
     string Category,
     Guid VenueId,
     string VenueName,
@@ -84,7 +85,7 @@ public sealed class CreateMatchInput
 {
     [Required]
     [Display(Name = "Sport category")]
-    public string Category { get; set; } = "Football";
+    public Guid CategoryId { get; set; }
 
     [Required]
     [Display(Name = "Venue")]
@@ -103,8 +104,12 @@ public sealed class CreateMatchInput
     [Required]
     [Display(Name = "Kick-off (local time)")]
     [DataType(DataType.DateTime)]
+    // datetime-local expects exactly this shape; the default round-trip format adds milliseconds that some
+    // browsers refuse to pre-fill.
+    [DisplayFormat(DataFormatString = "{0:yyyy-MM-ddTHH:mm}", ApplyFormatInEditMode = true)]
     public DateTime KickOffLocal { get; set; } = DateTime.Now.Date.AddDays(7).AddHours(20);
 
+    [Required]
     [Range(0.01, 100_000)]
     [Display(Name = "Base price")]
     public decimal BasePrice { get; set; } = 500m;

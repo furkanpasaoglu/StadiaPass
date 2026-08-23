@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using StadiaPass.Domain.Categories;
 using StadiaPass.Domain.Common.ValueObjects;
 using StadiaPass.Domain.Matches;
 using StadiaPass.Domain.Venues;
@@ -20,12 +21,19 @@ internal sealed partial class DatabaseInitializer(
         await context.Database.EnsureCreatedAsync(stoppingToken);
         SchemaReady(logger);
 
-        if (await context.Venues.AnyAsync(stoppingToken))
+        if (await context.SportCategories.AnyAsync(stoppingToken))
         {
             return;
         }
 
         var now = DateTimeOffset.UtcNow;
+
+        var football = SportCategory.Define("Football", "Eleven a side on grass", [VenueKind.Stadium]);
+        var basketball = SportCategory.Define("Basketball", "Indoor court", [VenueKind.Arena, VenueKind.Hall]);
+        var volleyball = SportCategory.Define("Volleyball", "Indoor court", [VenueKind.Arena, VenueKind.Hall]);
+        var handball = SportCategory.Define("Handball", "Indoor court", [VenueKind.Arena, VenueKind.Hall]);
+
+        await context.SportCategories.AddRangeAsync([football, basketball, volleyball, handball], stoppingToken);
 
         var stadium = Venue.Define("Sukru Saracoglu", "Istanbul", VenueKind.Stadium,
         [
@@ -45,11 +53,11 @@ internal sealed partial class DatabaseInitializer(
 
         var matches = new[]
         {
-            Match.Create(SportCategory.Football, stadium, "Fenerbahce", "Galatasaray",
+            Match.Create(football, stadium, "Fenerbahce", "Galatasaray",
                 now.AddDays(21), Money.Create(1200m), now),
-            Match.Create(SportCategory.Basketball, arena, "Anadolu Efes", "Fenerbahce Beko",
+            Match.Create(basketball, arena, "Anadolu Efes", "Fenerbahce Beko",
                 now.AddDays(9), Money.Create(600m), now),
-            Match.Create(SportCategory.Volleyball, arena, "VakifBank", "Eczacibasi",
+            Match.Create(volleyball, arena, "VakifBank", "Eczacibasi",
                 now.AddDays(14), Money.Create(350m), now)
         };
 
@@ -57,7 +65,7 @@ internal sealed partial class DatabaseInitializer(
         await context.SaveChangesAsync(stoppingToken);
 
         var seatCount = matches.Sum(match => match.Capacity);
-        SeedCompleted(logger, 2, matches.Length, seatCount);
+        SeedCompleted(logger, 4, 2, matches.Length, seatCount);
     }
 
     [LoggerMessage(EventId = 2000, Level = LogLevel.Information, Message = "StadiaPass database schema is ready")]
@@ -66,6 +74,11 @@ internal sealed partial class DatabaseInitializer(
     [LoggerMessage(
         EventId = 2001,
         Level = LogLevel.Information,
-        Message = "Seeded {VenueCount} venues and {MatchCount} matches with {SeatCount} seats")]
-    private static partial void SeedCompleted(ILogger logger, int venueCount, int matchCount, int seatCount);
+        Message = "Seeded {CategoryCount} categories, {VenueCount} venues and {MatchCount} matches with {SeatCount} seats")]
+    private static partial void SeedCompleted(
+        ILogger logger,
+        int categoryCount,
+        int venueCount,
+        int matchCount,
+        int seatCount);
 }

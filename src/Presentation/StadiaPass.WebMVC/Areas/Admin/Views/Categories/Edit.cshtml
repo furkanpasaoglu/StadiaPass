@@ -1,0 +1,60 @@
+@model CategoryInput
+@{
+    var isNew = Model.Id is null;
+    ViewData["Title"] = isNew ? "New category" : $"Edit {Model.Name}";
+    var venueKinds = (string[])ViewBag.VenueKinds;
+}
+
+<h1 class="h4 mb-1">@ViewData["Title"]</h1>
+<p class="text-muted">Matches can only be opened in the venue kinds ticked below.</p>
+
+<form method="post" asp-action="@(isNew ? "Create" : "Edit")" class="col-lg-6">
+    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+    @if (!isNew)
+    {
+        <input type="hidden" asp-for="Id"/>
+    }
+
+    <div class="mb-3">
+        <label asp-for="Name" class="form-label"></label>
+        <input asp-for="Name" class="form-control" placeholder="Football"/>
+        <span asp-validation-for="Name" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="Description" class="form-label"></label>
+        <input asp-for="Description" class="form-control"/>
+        <span asp-validation-for="Description" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">@Html.DisplayNameFor(model => model.AllowedVenueKinds)</label>
+        <div class="border rounded p-2">
+            @foreach (var kind in venueKinds)
+            {
+                var selected = Model.AllowedVenueKinds.Contains(kind, StringComparer.OrdinalIgnoreCase);
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="AllowedVenueKinds"
+                           value="@kind" id="kind-@kind" checked="@selected"/>
+                    <label class="form-check-label" for="kind-@kind">@kind</label>
+                </div>
+            }
+        </div>
+        <span asp-validation-for="AllowedVenueKinds" class="text-danger"></span>
+    </div>
+
+    @if (!isNew)
+    {
+        <div class="form-check mb-3">
+            <input asp-for="IsActive" class="form-check-input"/>
+            <label asp-for="IsActive" class="form-check-label"></label>
+        </div>
+    }
+
+    <button type="submit" class="btn btn-primary">@(isNew ? "Create category" : "Save changes")</button>
+    <a class="btn btn-link" asp-action="Index">Cancel</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial"/>
+}

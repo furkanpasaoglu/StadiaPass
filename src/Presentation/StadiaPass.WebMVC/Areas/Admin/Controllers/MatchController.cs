@@ -12,9 +12,8 @@ namespace StadiaPass.WebMVC.Areas.Admin.Controllers;
 /// </summary>
 [Area("Admin")]
 [Authorize(Policy = StadiaPassPermissions.Matches.Create)]
-public sealed class MatchController(IStadiaPassApiClient apiClient) : Controller
+public sealed class MatchController(IStadiaPassApiClient apiClient, IStadiaPassCatalogueClient catalogue) : Controller
 {
-    private static readonly string[] Categories = ["Football", "Basketball", "Volleyball", "Handball"];
 
     [HttpGet]
     public async Task<IActionResult> Create(CancellationToken cancellationToken)
@@ -50,7 +49,7 @@ public sealed class MatchController(IStadiaPassApiClient apiClient) : Controller
 
     private async Task PopulateFormAsync(CancellationToken cancellationToken)
     {
-        ViewBag.Categories = Categories;
+        ViewBag.Categories = await catalogue.GetCategoriesAsync(activeOnly: true, cancellationToken);
         ViewBag.Venues = await apiClient.GetVenuesAsync(cancellationToken);
     }
 

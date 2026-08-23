@@ -1,7 +1,6 @@
 using MediatR;
 using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Domain.Abstractions;
-using StadiaPass.Domain.Matches;
 
 namespace StadiaPass.Application.Matches.Queries.GetUpcomingMatches;
 
@@ -16,9 +15,7 @@ internal sealed class GetUpcomingMatchesQueryHandler(
         GetUpcomingMatchesQuery request,
         CancellationToken cancellationToken)
     {
-        SportCategory? category = Enum.TryParse<SportCategory>(request.Category, ignoreCase: true, out var parsed)
-            ? parsed
-            : null;
+        var category = string.IsNullOrWhiteSpace(request.Category) ? null : request.Category.Trim();
 
         var cacheKey = category is null ? MatchCacheKeys.Upcoming : $"{MatchCacheKeys.Upcoming}:{category}";
 

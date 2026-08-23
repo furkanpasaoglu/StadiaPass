@@ -23,6 +23,7 @@ StadiaPass.slnx
 │   │   │   ├── Abstractions         # IRepository, IVenueRepository, IMatchRepository, ITicketRepository, IUnitOfWork
 │   │   │   ├── Common               # Entity, AggregateRoot, DomainEvent, DomainException
 │   │   │   │   └── ValueObjects     # Money, SeatNumber
+│   │   │   ├── Categories           # SportCategory aggregate (which venue kinds it can be played in)
 │   │   │   ├── Venues               # Venue aggregate + VenueBlock + VenueKind (the seating plan)
 │   │   │   ├── Matches              # Match aggregate + MatchSeat + SportCategory + SeatStatus + events
 │   │   │   └── Tickets              # Ticket aggregate + TicketStatus + events
@@ -31,8 +32,9 @@ StadiaPass.slnx
 │   │       │   ├── Abstractions     # IDateTimeProvider, ICacheService, ICurrentUser
 │   │       │   ├── Behaviors        # LoggingBehavior, ValidationBehavior (MediatR pipeline)
 │   │       │   └── Exceptions       # NotFoundException, ConflictException, RequestValidationException
+│   │       ├── Categories           # GetCategories / CreateCategory / UpdateCategory / DeleteCategory
 │   │       ├── Identity             # Keycloak Admin port: Roles / Users slices
-│   │       ├── Venues               # DefineVenue / GetVenues
+│   │       ├── Venues               # GetVenues / CreateVenue / UpdateVenue / DeleteVenue
 │   │       ├── Matches              # CreateMatch / GetUpcomingMatches / GetMatchSeatMap / EventHandlers
 │   │       └── Tickets              # ReserveSeat / ConfirmTicketPurchase / GetMyTickets / GetTicketById
 │   ├── Infrastructure
@@ -46,7 +48,7 @@ StadiaPass.slnx
 │       │   ├── Endpoints            # VenueEndpoints, MatchEndpoints, TicketEndpoints, RoleEndpoints, UserEndpoints
 │       │   └── Extensions           # GlobalExceptionHandler, OAuth2 OpenAPI transformers
 │       └── StadiaPass.WebMVC        # Razor MVC UI - consumes the API over HTTP only
-│           ├── Areas/Admin          # back-office: matches, roles and permissions, users
+│           ├── Areas/Admin          # back-office: matches, venues, categories, roles, users
 │           ├── Authentication       # OIDC login, KeycloakOptions, TokenBearerHandler
 │           ├── Controllers          # MatchesController (seat picker), TicketsController, AccountController
 │           ├── Models               # its own contracts - no reference to Domain/Application
@@ -85,8 +87,9 @@ Venue (aggregate)                  Match (aggregate)                 Ticket (agg
 
 | Aggregate | Invariants enforced in the aggregate |
 |---|---|
-| `Venue` | at least one block, unique block names, plan capped at 25 000 seats, decides which sport categories it can host |
-| `Match` | teams differ, kick-off in the future (normalised to UTC), venue must be able to host the category, seats materialised from the venue plan, seat counters and `SoldOut` kept consistent |
+| `SportCategory` | at least one playable venue kind, unique name, an inactive category accepts no new match |
+| `Venue` | at least one block, unique block names, plan capped at 25 000 seats, plan frozen once a match uses it |
+| `Match` | teams differ, kick-off in the future (normalised to UTC), the category must be playable in the venue kind, seats materialised from the venue plan, seat counters and `SoldOut` kept consistent |
 | `MatchSeat` | `Available` → `Reserve()` → `ConfirmSale()`, 10-minute hold, only the holder may buy, expired holds auto-release |
 | `Ticket` | can only be issued for a seat the match has already moved to `Sold` |
 
@@ -126,8 +129,14 @@ and Scalar are mapped only in the Development environment.
 
 | Method | Route | Required permission |
 |---|---|---|
+| `GET` | `/api/v1/categories` | `StadiaPass.Categories.View` |
+| `POST` | `/api/v1/categories` | `StadiaPass.Categories.Create` |
+| `PUT` | `/api/v1/categories/{id}` | `StadiaPass.Categories.Update` |
+| `DELETE` | `/api/v1/categories/{id}` | `StadiaPass.Categories.Delete` |
 | `GET` | `/api/v1/venues` | `StadiaPass.Venues.View` |
 | `POST` | `/api/v1/venues` | `StadiaPass.Venues.Create` |
+| `PUT` | `/api/v1/venues/{id}` | `StadiaPass.Venues.Update` |
+| `DELETE` | `/api/v1/venues/{id}` | `StadiaPass.Venues.Delete` |
 | `GET` | `/api/v1/matches?category={sport}` | `StadiaPass.Matches.View` |
 | `POST` | `/api/v1/matches` | `StadiaPass.Matches.Create` |
 | `GET` | `/api/v1/matches/{id}/seats` | `StadiaPass.Matches.View` |
@@ -288,6 +297,10 @@ customer cannot hold or buy a seat in somebody else's name.
   prerelease; the pinned version matches the Aspire 13.5.2 SDK.
 - **`stadiapass-admin-api`** is a confidential client whose service account holds the `realm-management`
   roles the portal needs. Its secret in `stadiapass-realm.json` is a local development value.
+- **Culture is pinned to the invariant culture** in the MVC app. Model binding and Razor rendering must
+  agree with jQuery unobtrusive validation, which parses numbers with a dot. Under a Turkish culture the
+  server rendered `500,00` while the client validator read it as `NaN`, and a typed `500.50` bound as
+  `50050`. Decimal inputs are also rendered as `type="number"` so `step` and `min` actually apply.
 - **Everything runs on `localhost`**, and cookies are not scoped by port, so the MVC app, the API, Keycloak
   and the Aspire dashboard share one cookie jar. Abandoned sign-ins used to leave correlation and nonce
   cookies behind until the request header grew past what Keycloak accepts and it answered `431`. Those

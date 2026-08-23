@@ -15,10 +15,8 @@ internal sealed class MatchConfiguration : IEntityTypeConfiguration<Match>
         builder.HasKey(match => match.Id);
         builder.Property(match => match.Id).ValueGeneratedNever();
 
-        builder.Property(match => match.Category)
-            .HasConversion<string>()
-            .HasMaxLength(16)
-            .IsRequired();
+        builder.Property(match => match.CategoryId).IsRequired();
+        builder.Property(match => match.CategoryName).HasMaxLength(60).IsRequired();
 
         builder.Property(match => match.VenueId).IsRequired();
         builder.Property(match => match.VenueName).HasMaxLength(120).IsRequired();
@@ -37,7 +35,12 @@ internal sealed class MatchConfiguration : IEntityTypeConfiguration<Match>
         builder.Property(match => match.SoldSeatCount).IsRequired();
 
         builder.HasIndex(match => match.KickOffUtc);
-        builder.HasIndex(match => match.Category);
+        builder.HasIndex(match => match.CategoryName);
+
+        builder.HasOne<Domain.Categories.SportCategory>()
+            .WithMany()
+            .HasForeignKey(match => match.CategoryId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne<Domain.Venues.Venue>()
             .WithMany()

@@ -33,6 +33,18 @@
                                 <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Match" asp-action="Create">Create match</a>
                             </li>
                         }
+                        @if (User.HasPermission(StadiaPassPermissions.Categories.View))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Categories" asp-action="Index">Categories</a>
+                            </li>
+                        }
+                        @if (User.HasPermission(StadiaPassPermissions.Venues.View))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Venues" asp-action="Index">Venues</a>
+                            </li>
+                        }
                         @if (User.HasPermission(StadiaPassPermissions.Users.Manage))
                         {
                             <li class="nav-item">

@@ -1,5 +1,4 @@
 using StadiaPass.Domain.Common;
-using StadiaPass.Domain.Matches;
 
 namespace StadiaPass.Domain.Venues;
 
@@ -37,32 +36,39 @@ public sealed class Venue : AggregateRoot
 
     public static Venue Define(string name, string city, VenueKind kind, IEnumerable<BlockLayout> blocks)
     {
-        if (string.IsNullOrWhiteSpace(name) || name.Length > 120)
-        {
-            throw new DomainRuleViolationException(
-                "Venue.InvalidName", "Venue name must be between 1 and 120 characters.");
-        }
+        var venue = new Venue(Guid.CreateVersion7(), RequireName(name), RequireCity(city), kind);
 
-        if (string.IsNullOrWhiteSpace(city) || city.Length > 80)
-        {
-            throw new DomainRuleViolationException(
-                "Venue.InvalidCity", "Venue city must be between 1 and 80 characters.");
-        }
+        venue.ReplaceBlocks(blocks);
 
-        var venue = new Venue(Guid.CreateVersion7(), name.Trim(), city.Trim(), kind);
+        return venue;
+    }
+
+    public void Rename(string name, string city)
+    {
+        Name = RequireName(name);
+        City = RequireCity(city);
+    }
+
+    public void ChangeKind(VenueKind kind) => Kind = kind;
+
+    /// <summary>
+    /// Replaces the seating plan. The caller must first prove no match has been opened against this venue:
+    /// such a match already materialised its seats from the old plan and would silently disagree with it.
+    /// </summary>
+    public void ReplaceBlocks(IEnumerable<BlockLayout> blocks)
+    {
+        _blocks.Clear();
 
         foreach (var block in blocks)
         {
-            venue.AddBlock(block);
+            AddBlock(block);
         }
 
-        if (venue._blocks.Count is 0)
+        if (_blocks.Count is 0)
         {
             throw new DomainRuleViolationException(
                 "Venue.NoBlocks", "A venue must define at least one seating block.");
         }
-
-        return venue;
     }
 
     public void AddBlock(BlockLayout layout)
@@ -85,14 +91,17 @@ public sealed class Venue : AggregateRoot
         _blocks.Add(candidate);
     }
 
-    /// <summary>A football pitch is not played in a sports hall; the venue decides what it can host.</summary>
-    public bool CanHost(SportCategory category) => category switch
-    {
-        SportCategory.Football => Kind is VenueKind.Stadium,
-        SportCategory.Basketball or SportCategory.Volleyball or SportCategory.Handball =>
-            Kind is VenueKind.Arena or VenueKind.Hall,
-        _ => false
-    };
+    private static string RequireName(string name) =>
+        string.IsNullOrWhiteSpace(name) || name.Length > 120
+            ? throw new DomainRuleViolationException(
+                "Venue.InvalidName", "Venue name must be between 1 and 120 characters.")
+            : name.Trim();
+
+    private static string RequireCity(string city) =>
+        string.IsNullOrWhiteSpace(city) || city.Length > 80
+            ? throw new DomainRuleViolationException(
+                "Venue.InvalidCity", "Venue city must be between 1 and 80 characters.")
+            : city.Trim();
 }
 
 public sealed record BlockLayout(string Name, int RowCount, int SeatsPerRow, decimal PriceMultiplier = 1m);
