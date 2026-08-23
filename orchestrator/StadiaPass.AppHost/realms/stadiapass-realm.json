@@ -3,7 +3,7 @@
   "displayName": "StadiaPass",
   "enabled": true,
   "sslRequired": "none",
-  "registrationAllowed": false,
+  "registrationAllowed": true,
   "loginWithEmailAllowed": true,
   "accessTokenLifespan": 1800,
   "roles": {
@@ -431,5 +431,20 @@
         "MatchManager"
       ]
     }
+  ],
+  "registrationEmailAsUsername": false,
+  "verifyEmail": false,
+  "groups": [
+    {
+      "name": "Customers",
+      "path": "/Customers",
+      "description": "Everyone who signs up on the public site",
+      "realmRoles": [
+        "Customer"
+      ]
+    }
+  ],
+  "defaultGroups": [
+    "/Customers"
   ]
 }

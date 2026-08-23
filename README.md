@@ -229,6 +229,32 @@ Keycloak runs at https://localhost:8080 and the realm is re-imported on every st
 realm file is the source of truth. The MVC client secret in `stadiapass-realm.json` is a local development
 value — replace it with a real secret store before any deployment.
 
+## Public browsing
+
+Browsing is anonymous, the way a ticketing site works. A visitor lands on the fixtures, opens a match and
+watches the seat map fill up without an account; only holding or buying a seat asks for a sign-in.
+
+| Reached by | Anonymous | Signed in |
+|---|---|---|
+| `GET /api/v1/matches` | yes | yes |
+| `GET /api/v1/matches/{id}/seats` | yes | yes |
+| seat reservation, purchase, back office | no | with the matching permission |
+
+Clicking a free seat as a guest never reaches the API. The seat renders as a plain button and the page
+turns the click into a sign-in round trip whose return URL carries the seat:
+
+```
+/Matches/SeatSelection/{id}              guest clicks seat GUNEY-1-1
+  -> /Account/Login?returnUrl=/Matches/SeatSelection/{id}?seat=GUNEY-1-1
+  -> Keycloak sign-in
+  -> back to the same seat map, which offers "Hold this seat GUNEY-1-1"
+```
+
+The navigation shows **Log in** and **Register** to a guest and the signed-in username otherwise. Register
+retargets the OIDC challenge at Keycloak's registration endpoint, so the handler keeps ownership of state,
+nonce and PKCE. New accounts land in the realm default group, which carries the `Customer` role, so someone
+who just signed up can buy immediately.
+
 ## Identity portal
 
 Roles and users are **not** stored in the StadiaPass database. The API brokers every change to the Keycloak

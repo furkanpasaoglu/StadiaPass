@@ -1,11 +1,14 @@
-@using StadiaPass.SharedKernel.Authorization
-@using StadiaPass.WebMVC.Models
 @model SeatSelectionViewModel
 @{
     ViewData["Title"] = "Seat selection";
     var map = Model.SeatMap;
+    var isAuthenticated = User.Identity?.IsAuthenticated is true;
     var canReserve = User.HasPermission(StadiaPassPermissions.Tickets.Reserve);
     var canPurchase = User.HasPermission(StadiaPassPermissions.Tickets.Purchase);
+
+    // Where Keycloak sends the visitor back to. The seat they clicked rides along so the page can offer it
+    // straight away instead of making them hunt for it again.
+    var returnPath = Url.Action("SeatSelection", "Matches", new { id = map.MatchId })!;
 }
 
 <div class="d-flex justify-content-between align-items-start mb-3">
@@ -21,6 +24,15 @@
 </div>
 
 @await Html.PartialAsync("_Alerts")
+
+@if (!isAuthenticated)
+{
+    <div class="alert alert-secondary d-flex justify-content-between align-items-center">
+        <span>You are browsing as a guest. Pick a seat and we will ask you to sign in.</span>
+        <a class="btn btn-sm btn-primary"
+           asp-controller="Account" asp-action="Login" asp-route-returnUrl="@returnPath">Sign in</a>
+    </div>
+}
 
 <div class="d-flex gap-3 mb-3 small">
     <span><span class="seat seat-available"></span> Available</span>
@@ -46,24 +58,32 @@
                     @foreach (var seat in row.Seats)
                     {
                         var isMine = string.Equals(seat.SeatNumber, Model.SelectedSeatNumber, StringComparison.Ordinal);
+                        var isPending = string.Equals(seat.SeatNumber, Model.PendingSeatNumber, StringComparison.Ordinal);
                         var css = seat.Status switch
                         {
                             "Sold" => "seat-sold",
                             "Reserved" when isMine => "seat-mine",
                             "Reserved" => "seat-reserved",
                             "Blocked" => "seat-sold",
-                            _ => isMine ? "seat-mine" : "seat-available"
+                            _ => isMine || isPending ? "seat-mine" : "seat-available"
                         };
                         var selectable = seat.Status == "Available" || (seat.Status == "Reserved" && isMine);
+                        var title = $"{seat.SeatNumber} - {seat.Price.ToString("N2")} {seat.Currency}";
 
-                        if (selectable && canReserve)
+                        if (selectable && isAuthenticated && canReserve)
                         {
                             <form method="post" asp-action="Reserve" asp-route-id="@map.MatchId" class="d-inline">
                                 @Html.AntiForgeryToken()
                                 <input type="hidden" name="seatNumber" value="@seat.SeatNumber"/>
-                                <button type="submit" class="seat @css"
-                                        title="@seat.SeatNumber - @seat.Price.ToString("N2") @seat.Currency">@seat.Number</button>
+                                <button type="submit" class="seat @css" title="@title">@seat.Number</button>
                             </form>
+                        }
+                        else if (selectable && !isAuthenticated)
+                        {
+                            <button type="button" class="seat @css js-sign-in-required"
+                                    data-seat="@seat.SeatNumber" title="@title - sign in to hold this seat">
+                                @seat.Number
+                            </button>
                         }
                         else
                         {
@@ -76,12 +96,12 @@
     </div>
 }
 
-@if (canPurchase && Model.SelectedSeatNumber is { Length: > 0 } selectedSeat)
+@if (canPurchase && Model.SelectedSeatNumber is { Length: > 0 } heldSeat)
 {
     <div class="card border-success mb-4">
         <div class="card-body d-flex justify-content-between align-items-center">
             <div>
-                <strong>Seat @selectedSeat</strong> is held for you
+                <strong>Seat @heldSeat</strong> is held for you
                 @if (Model.ReservationExpiresAtUtc is { } expiry)
                 {
                     <span class="text-muted">until @expiry.ToLocalTime().ToString("HH:mm:ss")</span>
@@ -89,8 +109,21 @@
             </div>
             <form method="post" asp-action="Purchase" asp-route-id="@map.MatchId">
                 @Html.AntiForgeryToken()
-                <input type="hidden" name="seatNumber" value="@selectedSeat"/>
+                <input type="hidden" name="seatNumber" value="@heldSeat"/>
                 <button type="submit" class="btn btn-success">Buy this seat</button>
+            </form>
+        </div>
+    </div>
+}
+else if (canReserve && Model.PendingSeatNumber is { Length: > 0 } pendingSeat)
+{
+    <div class="card border-primary mb-4">
+        <div class="card-body d-flex justify-content-between align-items-center">
+            <div>Welcome back. You were looking at <strong>seat @pendingSeat</strong>.</div>
+            <form method="post" asp-action="Reserve" asp-route-id="@map.MatchId">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="seatNumber" value="@pendingSeat"/>
+                <button type="submit" class="btn btn-primary">Hold this seat</button>
             </form>
         </div>
     </div>
@@ -109,4 +142,27 @@
         .seat-reserved { background: #ffc107; color: #000; }
         .seat-sold { background: #adb5bd; }
     </style>
+}
+
+@section Scripts {
+    <script>
+        (function () {
+            var isAuthenticated = @(isAuthenticated ? "true" : "false");
+            var loginUrl = '@Url.Action("Login", "Account", new { area = "" })';
+            var returnPath = '@returnPath';
+
+            if (isAuthenticated) { return; }
+
+            // A guest never reaches the API: the click is turned into a sign-in round trip that comes back
+            // to this exact seat.
+            document.querySelectorAll('.js-sign-in-required').forEach(function (button) {
+                button.addEventListener('click', function (event) {
+                    event.preventDefault();
+
+                    var target = returnPath + '?seat=' + encodeURIComponent(button.dataset.seat);
+                    window.location.href = loginUrl + '?returnUrl=' + encodeURIComponent(target);
+                });
+            });
+        })();
+    </script>
 }

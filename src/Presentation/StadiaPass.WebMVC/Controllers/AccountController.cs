@@ -1,10 +1,13 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using StadiaPass.WebMVC.Authentication;
 
 namespace StadiaPass.WebMVC.Controllers;
 
+[AllowAnonymous]
 public sealed class AccountController : Controller
 {
     [HttpGet]
@@ -12,6 +15,19 @@ public sealed class AccountController : Controller
         Challenge(
             new AuthenticationProperties { RedirectUri = LocalOrHome(returnUrl) },
             OpenIdConnectDefaults.AuthenticationScheme);
+
+    /// <summary>
+    /// Same round trip as <see cref="Login"/>, but Keycloak is asked to show its registration form first.
+    /// The realm grants every new account the customer role, so a visitor can buy straight after signing up.
+    /// </summary>
+    [HttpGet]
+    public IActionResult Register(string? returnUrl = null)
+    {
+        var properties = new AuthenticationProperties { RedirectUri = LocalOrHome(returnUrl) };
+        properties.Items[AuthenticationExtensions.RegisterItem] = bool.TrueString;
+
+        return Challenge(properties, OpenIdConnectDefaults.AuthenticationScheme);
+    }
 
     [HttpPost]
     [ValidateAntiForgeryToken]

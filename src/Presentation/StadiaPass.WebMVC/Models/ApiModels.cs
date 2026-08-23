@@ -124,7 +124,11 @@ public sealed class SeatSelectionViewModel
 {
     public required SeatMap SeatMap { get; init; }
 
+    /// <summary>Seat currently held for the signed-in visitor.</summary>
     public string? SelectedSeatNumber { get; init; }
+
+    /// <summary>Seat an anonymous visitor clicked before being sent through the sign-in round trip.</summary>
+    public string? PendingSeatNumber { get; init; }
 
     public DateTimeOffset? ReservationExpiresAtUtc { get; init; }
 }

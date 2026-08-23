@@ -11,6 +11,17 @@ namespace StadiaPass.WebMVC.Authentication;
 
 public static class AuthenticationExtensions
 {
+    /// <summary>
+    /// Marks a challenge as "take me to the sign-up form". Keycloak exposes registration as a sibling of the
+    /// authorization endpoint, so the redirect is retargeted there while the handler keeps ownership of
+    /// state, nonce and PKCE.
+    /// </summary>
+    public const string RegisterItem = "stadiapass:register";
+
+    private const string AuthorizePath = "/protocol/openid-connect/auth";
+
+    private const string RegisterPath = "/protocol/openid-connect/registrations";
+
     public static IHostApplicationBuilder AddKeycloakLogin(this IHostApplicationBuilder builder)
     {
         builder.Services
@@ -65,6 +76,17 @@ public static class AuthenticationExtensions
                     // until the request header exceeds what Keycloak accepts and it answers 431.
                     options.CorrelationCookie.MaxAge = TimeSpan.FromMinutes(5);
                     options.NonceCookie.MaxAge = TimeSpan.FromMinutes(5);
+
+                    options.Events.OnRedirectToIdentityProvider = context =>
+                    {
+                        if (context.Properties.Items.ContainsKey(RegisterItem))
+                        {
+                            context.ProtocolMessage.IssuerAddress = context.ProtocolMessage.IssuerAddress
+                                .Replace(AuthorizePath, RegisterPath, StringComparison.Ordinal);
+                        }
+
+                        return Task.CompletedTask;
+                    };
 
                     options.Events.OnTokenValidated = context =>
                     {

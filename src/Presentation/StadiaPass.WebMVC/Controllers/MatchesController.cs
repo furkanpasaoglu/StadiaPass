@@ -6,29 +6,38 @@ using StadiaPass.WebMVC.Services;
 
 namespace StadiaPass.WebMVC.Controllers;
 
-/// <summary>Customer facing slice: browse matches by sport category, then pick a seat off the map.</summary>
-[Authorize]
+/// <summary>
+/// Customer facing slice. Browsing is deliberately anonymous - a visitor sees the fixtures and the seat map
+/// exactly like a real ticketing site - and only holding or buying a seat requires a sign-in.
+/// </summary>
 public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controller
 {
-    private static readonly string[] Categories = ["Football", "Basketball", "Volleyball", "Handball"];
-
     [HttpGet]
-    [Authorize(Policy = StadiaPassPermissions.Matches.View)]
+    [AllowAnonymous]
     public async Task<IActionResult> Index(string? category, CancellationToken cancellationToken)
     {
         var matches = await apiClient.GetMatchesAsync(category, cancellationToken);
 
+        // The filter tabs come from what is actually on sale rather than a hard-coded list, so a category
+        // added in the back office shows up here on its own.
+        var categories = category is { Length: > 0 }
+            ? await apiClient.GetMatchesAsync(null, cancellationToken)
+            : matches;
+
         return View(new MatchListViewModel
         {
             Matches = matches,
-            Categories = Categories,
+            Categories = [.. categories.Select(match => match.Category).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)],
             SelectedCategory = category
         });
     }
 
     [HttpGet]
-    [Authorize(Policy = StadiaPassPermissions.Matches.View)]
-    public async Task<IActionResult> SeatSelection(Guid id, string? selected, CancellationToken cancellationToken)
+    [AllowAnonymous]
+    public async Task<IActionResult> SeatSelection(
+        Guid id,
+        string? seat,
+        CancellationToken cancellationToken)
     {
         var seatMap = await apiClient.GetSeatMapAsync(id, cancellationToken);
 
@@ -40,7 +49,9 @@ public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controll
         return View(new SeatSelectionViewModel
         {
             SeatMap = seatMap,
-            SelectedSeatNumber = selected ?? TempData["SelectedSeat"] as string,
+            SelectedSeatNumber = TempData["SelectedSeat"] as string,
+            // Carried back from the sign-in round trip so the visitor lands on the seat they clicked.
+            PendingSeatNumber = seat,
             ReservationExpiresAtUtc = TempData["ReservationExpiresAtUtc"] is string expiry
                 ? DateTimeOffset.Parse(expiry, System.Globalization.CultureInfo.InvariantCulture)
                 : null

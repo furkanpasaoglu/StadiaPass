@@ -19,10 +19,12 @@ internal sealed class MatchEndpoints : IEndpoint
             .MapGroup("/api/v1/matches")
             .WithTags("Matches");
 
+        // Browsing is public, the way a ticketing site works: a visitor sees what is on and which seats
+        // are taken, and is only asked to sign in when they try to hold one.
         group.MapGet("/", GetUpcomingAsync)
             .WithName("GetUpcomingMatches")
             .WithSummary("Returns upcoming matches, optionally filtered by sport category.")
-            .RequireAuthorization(StadiaPassPermissions.Matches.View);
+            .AllowAnonymous();
 
         group.MapPost("/", CreateAsync)
             .WithName("CreateMatch")
@@ -36,7 +38,7 @@ internal sealed class MatchEndpoints : IEndpoint
             .WithName("GetMatchSeatMap")
             .WithSummary("Returns the seat map of a match grouped by block and row, with each seat status.")
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization(StadiaPassPermissions.Matches.View);
+            .AllowAnonymous();
 
         group.MapPost("/{matchId:guid}/seats/{seatNumber}/reservation", ReserveSeatAsync)
             .WithName("ReserveSeat")
