@@ -60,6 +60,12 @@ public static class AuthenticationExtensions
                     options.Scope.Add("openid");
                     options.Scope.Add("profile");
 
+                    // Every abandoned sign-in leaves a correlation and a nonce cookie behind. All the local
+                    // services share the "localhost" cookie jar, so without a short lifetime they pile up
+                    // until the request header exceeds what Keycloak accepts and it answers 431.
+                    options.CorrelationCookie.MaxAge = TimeSpan.FromMinutes(5);
+                    options.NonceCookie.MaxAge = TimeSpan.FromMinutes(5);
+
                     options.Events.OnTokenValidated = context =>
                     {
                         CompactSession(context, keycloak.ApiClientId);

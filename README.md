@@ -192,14 +192,29 @@ The OpenAPI document publishes an OAuth2 authorization code flow, so the Scalar 
 **Authorize** button that redirects to Keycloak (PKCE `S256`, public client `stadiapass-scalar`) and injects
 the token into every request. Each secured operation is annotated with the permission it needs.
 
-### Demo users (realm import, development only)
+### Roles and demo users (realm import, development only)
+
+Business roles ship with the realm as composite roles, so a fresh start already has a working permission
+matrix. Editing them in the portal changes Keycloak, not the realm file.
+
+| Role | Permissions |
+|---|---|
+| `Administrator` | everything, including the identity portal |
+| `MatchManager` | venues, match creation and postponement, ticket read |
+| `BoxOffice` | match read, ticket read, hold, buy and cancel |
+| `Customer` | match read, ticket read, hold and buy |
+| `Viewer` | match and ticket read only |
 
 | User | Password | Role |
 |---|---|---|
-| `mudur` | `mudur` | everything, including the identity portal (admin) |
-| `gise` | `gise` | box office: sell and cancel, no match creation |
-| `musteri` | `musteri` | customer: browse, hold a seat, buy |
-| `seyirci` | `seyirci` | read-only: cannot hold or buy |
+| `mudur` | `mudur` | `Administrator` |
+| `organizator` | `organizator` | `MatchManager` |
+| `gise` | `gise` | `BoxOffice` |
+| `musteri` | `musteri` | `Customer` |
+| `seyirci` | `seyirci` | `Viewer` |
+
+Assigning one composite role instead of a dozen individual permission roles also keeps the issued tokens
+small, which matters because everything here shares the `localhost` cookie jar.
 
 Keycloak runs at https://localhost:8080 and the realm is re-imported on every start (no data volume), so the
 realm file is the source of truth. The MVC client secret in `stadiapass-realm.json` is a local development
@@ -273,5 +288,10 @@ customer cannot hold or buy a seat in somebody else's name.
   prerelease; the pinned version matches the Aspire 13.5.2 SDK.
 - **`stadiapass-admin-api`** is a confidential client whose service account holds the `realm-management`
   roles the portal needs. Its secret in `stadiapass-realm.json` is a local development value.
+- **Everything runs on `localhost`**, and cookies are not scoped by port, so the MVC app, the API, Keycloak
+  and the Aspire dashboard share one cookie jar. Abandoned sign-ins used to leave correlation and nonce
+  cookies behind until the request header grew past what Keycloak accepts and it answered `431`. Those
+  cookies now expire after five minutes, and Keycloak runs with a raised header limit. If you ever hit a
+  `431` again, clearing the `localhost` cookies is the fix.
 - **`stadiapass-mvc` has direct access grants enabled** so tokens can be fetched with `curl` for local
   endpoint testing. Turn it off before deploying.

@@ -87,6 +87,83 @@
       {
         "name": "StadiaPass.Users.Manage",
         "description": "Manage users and their role assignments"
+      },
+      {
+        "name": "Administrator",
+        "description": "Full access, including the identity portal",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "StadiaPass.Venues.View",
+            "StadiaPass.Venues.Create",
+            "StadiaPass.Matches.View",
+            "StadiaPass.Matches.Create",
+            "StadiaPass.Matches.Postpone",
+            "StadiaPass.Tickets.View",
+            "StadiaPass.Tickets.Reserve",
+            "StadiaPass.Tickets.Purchase",
+            "StadiaPass.Tickets.Cancel",
+            "StadiaPass.Roles.View",
+            "StadiaPass.Roles.Create",
+            "StadiaPass.Roles.Manage",
+            "StadiaPass.Users.View",
+            "StadiaPass.Users.Create",
+            "StadiaPass.Users.Manage"
+          ]
+        }
+      },
+      {
+        "name": "MatchManager",
+        "description": "Defines venues and opens matches for sale",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "StadiaPass.Venues.View",
+            "StadiaPass.Venues.Create",
+            "StadiaPass.Matches.View",
+            "StadiaPass.Matches.Create",
+            "StadiaPass.Matches.Postpone",
+            "StadiaPass.Tickets.View"
+          ]
+        }
+      },
+      {
+        "name": "BoxOffice",
+        "description": "Sells and cancels tickets at the gate",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "StadiaPass.Matches.View",
+            "StadiaPass.Tickets.View",
+            "StadiaPass.Tickets.Reserve",
+            "StadiaPass.Tickets.Purchase",
+            "StadiaPass.Tickets.Cancel"
+          ]
+        }
+      },
+      {
+        "name": "Customer",
+        "description": "Browses matches, holds a seat and buys it",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "StadiaPass.Matches.View",
+            "StadiaPass.Tickets.View",
+            "StadiaPass.Tickets.Reserve",
+            "StadiaPass.Tickets.Purchase"
+          ]
+        }
+      },
+      {
+        "name": "Viewer",
+        "description": "Read only access to matches and tickets",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "StadiaPass.Matches.View",
+            "StadiaPass.Tickets.View"
+          ]
+        }
       }
     ]
   },
@@ -222,21 +299,7 @@
         }
       ],
       "realmRoles": [
-        "StadiaPass.Venues.View",
-        "StadiaPass.Venues.Create",
-        "StadiaPass.Matches.View",
-        "StadiaPass.Matches.Create",
-        "StadiaPass.Matches.Postpone",
-        "StadiaPass.Tickets.View",
-        "StadiaPass.Tickets.Reserve",
-        "StadiaPass.Tickets.Purchase",
-        "StadiaPass.Tickets.Cancel",
-        "StadiaPass.Roles.View",
-        "StadiaPass.Roles.Create",
-        "StadiaPass.Roles.Manage",
-        "StadiaPass.Users.View",
-        "StadiaPass.Users.Create",
-        "StadiaPass.Users.Manage"
+        "Administrator"
       ]
     },
     {
@@ -254,12 +317,7 @@
         }
       ],
       "realmRoles": [
-        "StadiaPass.Venues.View",
-        "StadiaPass.Matches.View",
-        "StadiaPass.Tickets.View",
-        "StadiaPass.Tickets.Reserve",
-        "StadiaPass.Tickets.Purchase",
-        "StadiaPass.Tickets.Cancel"
+        "BoxOffice"
       ]
     },
     {
@@ -277,10 +335,7 @@
         }
       ],
       "realmRoles": [
-        "StadiaPass.Matches.View",
-        "StadiaPass.Tickets.View",
-        "StadiaPass.Tickets.Reserve",
-        "StadiaPass.Tickets.Purchase"
+        "Customer"
       ]
     },
     {
@@ -298,8 +353,7 @@
         }
       ],
       "realmRoles": [
-        "StadiaPass.Matches.View",
-        "StadiaPass.Tickets.View"
+        "Viewer"
       ]
     },
     {
@@ -318,6 +372,24 @@
           "query-clients"
         ]
       }
+    },
+    {
+      "username": "organizator",
+      "firstName": "Okan",
+      "lastName": "Organizator",
+      "email": "organizator@stadiapass.local",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "organizator",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "MatchManager"
+      ]
     }
   ]
 }

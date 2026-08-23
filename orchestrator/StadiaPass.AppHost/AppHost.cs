@@ -14,7 +14,10 @@ var cache = builder.AddRedis("cache")
 // No data volume on purpose: the realm is re-imported on every start, so realm changes always take effect
 // and the demo users are deterministic.
 var keycloak = builder.AddKeycloak("keycloak", port: 8080)
-    .WithRealmImport("./realms");
+    .WithRealmImport("./realms")
+    // All local services share the "localhost" cookie jar, so the browser can send a large cookie header.
+    // Raise the limit rather than answering 431 while developing.
+    .WithEnvironment("QUARKUS_HTTP_LIMITS_MAX_HEADER_SIZE", "32K");
 
 var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
     .WithReference(database)
