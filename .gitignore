@@ -1,0 +1,52 @@
+## Build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+*.userprefs
+
+## Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.sln.docstates
+*.DotSettings.user
+
+## Test & coverage
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+*.trx
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+## Logs & local secrets
+*.log
+*.binlog
+appsettings.*.local.json
+secrets.json
+.env
+.env.*
+
+## OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+## AI assistant artifacts - never commit
+CLAUDE.md
+**/CLAUDE.md
+AGENTS.md
+**/AGENTS.md
+GEMINI.md
+.claude/
+.cursor/
+.aider*
+*.claude.md

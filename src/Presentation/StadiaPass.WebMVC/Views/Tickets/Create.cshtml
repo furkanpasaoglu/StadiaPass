@@ -1,0 +1,61 @@
+@using StadiaPass.WebMVC.Models
+@model CreateTicketInput
+@{
+    ViewData["Title"] = "Issue ticket";
+    var matches = (IReadOnlyList<MatchSummary>)ViewBag.Matches;
+}
+
+<h1 class="h3 mb-3">Issue ticket</h1>
+
+<form method="post" class="col-lg-6">
+    <div asp-validation-summary="ModelOnly" class="alert alert-danger d-none-empty"></div>
+
+    <div class="mb-3">
+        <label asp-for="MatchId" class="form-label"></label>
+        <select asp-for="MatchId" class="form-select">
+            @foreach (var match in matches)
+            {
+                <option value="@match.Id">@match.HomeTeam - @match.AwayTeam (@match.RemainingCapacity left)</option>
+            }
+        </select>
+        <span asp-validation-for="MatchId" class="text-danger"></span>
+    </div>
+
+    <div class="row">
+        <div class="col mb-3">
+            <label asp-for="Block" class="form-label"></label>
+            <input asp-for="Block" class="form-control" placeholder="A1"/>
+            <span asp-validation-for="Block" class="text-danger"></span>
+        </div>
+        <div class="col mb-3">
+            <label asp-for="Row" class="form-label"></label>
+            <input asp-for="Row" class="form-control"/>
+            <span asp-validation-for="Row" class="text-danger"></span>
+        </div>
+        <div class="col mb-3">
+            <label asp-for="Number" class="form-label"></label>
+            <input asp-for="Number" class="form-control"/>
+            <span asp-validation-for="Number" class="text-danger"></span>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col mb-3">
+            <label asp-for="Price" class="form-label"></label>
+            <input asp-for="Price" class="form-control" step="0.01"/>
+            <span asp-validation-for="Price" class="text-danger"></span>
+        </div>
+        <div class="col mb-3">
+            <label asp-for="Currency" class="form-label"></label>
+            <input asp-for="Currency" class="form-control"/>
+            <span asp-validation-for="Currency" class="text-danger"></span>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Issue</button>
+    <a class="btn btn-link" asp-action="Index" asp-route-matchId="@Model.MatchId">Cancel</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial"/>
+}
