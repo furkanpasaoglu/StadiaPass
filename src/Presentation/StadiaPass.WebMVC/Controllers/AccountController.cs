@@ -15,11 +15,28 @@ public sealed class AccountController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult Logout() =>
-        SignOut(
+    public IActionResult Logout()
+    {
+        // A stale tab can post a sign-out for a session that is already gone. Driving the OIDC sign-out
+        // without an id token only earns an error page from Keycloak, so go straight home instead.
+        if (User.Identity?.IsAuthenticated is not true)
+        {
+            return RedirectToAction("Index", "Matches");
+        }
+
+        return SignOut(
             new AuthenticationProperties { RedirectUri = "/" },
             CookieAuthenticationDefaults.AuthenticationScheme,
             OpenIdConnectDefaults.AuthenticationScheme);
+    }
+
+    /// <summary>
+    /// Sign-out is a POST so it cannot be triggered by a link. A stray GET - a bookmark, the back button, a
+    /// hand-typed URL - would otherwise be answered with a bare 405, so send the caller home.
+    /// </summary>
+    [HttpGet]
+    [ActionName(nameof(Logout))]
+    public IActionResult LogoutFallback() => RedirectToAction("Index", "Matches");
 
     [HttpGet]
     public IActionResult Denied() => View();
