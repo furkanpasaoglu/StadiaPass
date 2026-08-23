@@ -1,97 +1,38 @@
 @using StadiaPass.WebMVC.Models
-@model TicketBoardViewModel
+@model IReadOnlyList<TicketSummary>
 @{
-    ViewData["Title"] = "Ticket board";
-    var matches = (IReadOnlyList<MatchSummary>)ViewBag.Matches;
+    ViewData["Title"] = "My tickets";
 }
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-        <h1 class="h3 mb-1">@Model.Match.HomeTeam vs @Model.Match.AwayTeam</h1>
-        <div class="text-muted">
-            @Model.Match.Stadium &middot; @Model.Match.KickOffUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")
-            &middot; <span class="badge bg-secondary">@Model.Match.Status</span>
-        </div>
-    </div>
-    <a class="btn btn-primary" asp-action="Create" asp-route-matchId="@Model.Match.Id">Issue ticket</a>
-</div>
+<h1 class="h4 mb-3">My tickets</h1>
 
-@if (TempData["Message"] is string message)
-{
-    <div class="alert alert-success">@message</div>
-}
-@if (TempData["Error"] is string error)
-{
-    <div class="alert alert-danger">@error</div>
-}
+@await Html.PartialAsync("_Alerts")
 
-<form method="get" class="row g-2 align-items-end mb-4">
-    <div class="col-auto">
-        <label class="form-label" for="matchId">Match</label>
-        <select class="form-select" id="matchId" name="matchId" onchange="this.form.submit()">
-            @foreach (var match in matches)
-            {
-                <option value="@match.Id" selected="@(match.Id == Model.Match.Id)">
-                    @match.HomeTeam - @match.AwayTeam (@match.RemainingCapacity left)
-                </option>
-            }
-        </select>
-    </div>
-</form>
-
-@if (Model.Tickets.Count is 0)
+@if (Model.Count is 0)
 {
-    <div class="alert alert-info">No tickets have been issued for this match yet.</div>
+    <div class="alert alert-info">You have not bought any tickets yet.</div>
 }
 else
 {
-    <table class="table table-hover align-middle">
+    <table class="table align-middle">
         <thead>
             <tr>
+                <th>Access code</th>
                 <th>Seat</th>
                 <th>Price</th>
+                <th>Issued</th>
                 <th>Status</th>
-                <th>Holder</th>
-                <th class="text-end">Actions</th>
             </tr>
         </thead>
         <tbody>
-        @foreach (var ticket in Model.Tickets)
+        @foreach (var ticket in Model)
         {
             <tr>
-                <td><code>@ticket.SeatNumber</code></td>
+                <td><code>@ticket.AccessCode</code></td>
+                <td>@ticket.SeatNumber</td>
                 <td>@ticket.Price.ToString("N2") @ticket.Currency</td>
-                <td>
-                    <span class="badge @(ticket.Status switch
-                                       {
-                                           "Available" => "bg-success",
-                                           "Reserved" => "bg-warning text-dark",
-                                           "Sold" => "bg-dark",
-                                           _ => "bg-secondary"
-                                       })">@ticket.Status</span>
-                </td>
-                <td>@(ticket.HolderReference ?? "-")</td>
-                <td class="text-end">
-                    @if (ticket.Status == "Available")
-                    {
-                        <form method="post" asp-action="Reserve" class="d-inline-flex gap-1">
-                            @Html.AntiForgeryToken()
-                            <input type="hidden" name="ticketId" value="@ticket.Id"/>
-                            <input type="hidden" name="matchId" value="@Model.Match.Id"/>
-                            <input class="form-control form-control-sm" name="holderReference" placeholder="Holder" required/>
-                            <button class="btn btn-sm btn-outline-primary" type="submit">Reserve</button>
-                        </form>
-                    }
-                    else if (ticket.Status == "Reserved")
-                    {
-                        <form method="post" asp-action="ConfirmSale" class="d-inline">
-                            @Html.AntiForgeryToken()
-                            <input type="hidden" name="ticketId" value="@ticket.Id"/>
-                            <input type="hidden" name="matchId" value="@Model.Match.Id"/>
-                            <button class="btn btn-sm btn-success" type="submit">Confirm sale</button>
-                        </form>
-                    }
-                </td>
+                <td>@ticket.IssuedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                <td><span class="badge bg-dark">@ticket.Status</span></td>
             </tr>
         }
         </tbody>

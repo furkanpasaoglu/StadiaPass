@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\Shared\StadiaPass.SharedKernel\StadiaPass.SharedKernel.csproj" />
     <ProjectReference Include="..\..\..\orchestrator\StadiaPass.ServiceDefaults\StadiaPass.ServiceDefaults.csproj" />
   </ItemGroup>
 

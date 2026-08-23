@@ -4,6 +4,7 @@
     <ProjectReference Include="..\..\Core\StadiaPass.Application\StadiaPass.Application.csproj" />
     <ProjectReference Include="..\..\Infrastructure\StadiaPass.Infrastructure\StadiaPass.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Infrastructure\StadiaPass.Persistence\StadiaPass.Persistence.csproj" />
+    <ProjectReference Include="..\..\Shared\StadiaPass.SharedKernel\StadiaPass.SharedKernel.csproj" />
     <ProjectReference Include="..\..\..\orchestrator\StadiaPass.ServiceDefaults\StadiaPass.ServiceDefaults.csproj" />
   </ItemGroup>
 

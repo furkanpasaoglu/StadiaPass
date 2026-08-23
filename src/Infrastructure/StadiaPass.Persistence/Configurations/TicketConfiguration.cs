@@ -15,6 +15,7 @@ internal sealed class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         builder.Property(ticket => ticket.Id).ValueGeneratedNever();
 
         builder.Property(ticket => ticket.MatchId).IsRequired();
+        builder.Property(ticket => ticket.MatchSeatId).IsRequired();
 
         builder.Property(ticket => ticket.SeatNumber)
             .HasConversion(
@@ -39,18 +40,18 @@ internal sealed class TicketConfiguration : IEntityTypeConfiguration<Ticket>
 
         builder.Navigation(ticket => ticket.Price).IsRequired();
 
+        builder.Property(ticket => ticket.HolderReference).HasMaxLength(128).IsRequired();
+        builder.Property(ticket => ticket.AccessCode).HasMaxLength(16).IsRequired();
+        builder.Property(ticket => ticket.IssuedAtUtc).IsRequired();
+
         builder.Property(ticket => ticket.Status)
             .HasConversion<string>()
             .HasMaxLength(16)
             .IsRequired();
 
-        builder.Property(ticket => ticket.HolderReference).HasMaxLength(64);
-
-        builder.HasIndex(ticket => new { ticket.MatchId, ticket.SeatNumber })
-            .IsUnique()
-            .HasDatabaseName("ix_tickets_match_seat");
-
-        builder.HasIndex(ticket => ticket.Status);
+        builder.HasIndex(ticket => ticket.AccessCode).IsUnique();
+        builder.HasIndex(ticket => ticket.HolderReference);
+        builder.HasIndex(ticket => ticket.MatchSeatId);
 
         builder.HasOne<Domain.Matches.Match>()
             .WithMany()

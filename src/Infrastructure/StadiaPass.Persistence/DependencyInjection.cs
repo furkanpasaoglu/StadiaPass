@@ -17,6 +17,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
         builder.Services.AddScoped<ITicketRepository, TicketRepository>();
         builder.Services.AddScoped<IMatchRepository, MatchRepository>();
+        builder.Services.AddScoped<IVenueRepository, VenueRepository>();
 
         return builder;
     }

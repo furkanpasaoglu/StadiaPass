@@ -1,0 +1,79 @@
+@using StadiaPass.WebMVC.Models
+@model CreateMatchInput
+@{
+    ViewData["Title"] = "Create match";
+    var categories = (string[])ViewBag.Categories;
+    var venues = (IReadOnlyList<VenueSummary>)ViewBag.Venues;
+}
+
+<h1 class="h4 mb-1">Create match</h1>
+<p class="text-muted">The full seating plan of the chosen venue is materialised as available seats.</p>
+
+<form method="post" class="col-lg-7">
+    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+
+    <div class="row">
+        <div class="col mb-3">
+            <label asp-for="Category" class="form-label"></label>
+            <select asp-for="Category" class="form-select">
+                @foreach (var category in categories)
+                {
+                    <option value="@category">@category</option>
+                }
+            </select>
+            <span asp-validation-for="Category" class="text-danger"></span>
+        </div>
+        <div class="col mb-3">
+            <label asp-for="VenueId" class="form-label"></label>
+            <select asp-for="VenueId" class="form-select">
+                @foreach (var venue in venues)
+                {
+                    <option value="@venue.Id">@venue.Name (@venue.Kind, @venue.Capacity seats)</option>
+                }
+            </select>
+            <span asp-validation-for="VenueId" class="text-danger"></span>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col mb-3">
+            <label asp-for="HomeTeam" class="form-label"></label>
+            <input asp-for="HomeTeam" class="form-control"/>
+            <span asp-validation-for="HomeTeam" class="text-danger"></span>
+        </div>
+        <div class="col mb-3">
+            <label asp-for="AwayTeam" class="form-label"></label>
+            <input asp-for="AwayTeam" class="form-control"/>
+            <span asp-validation-for="AwayTeam" class="text-danger"></span>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col mb-3">
+            <label asp-for="KickOffLocal" class="form-label"></label>
+            <input asp-for="KickOffLocal" type="datetime-local" class="form-control"/>
+            <span asp-validation-for="KickOffLocal" class="text-danger"></span>
+        </div>
+        <div class="col mb-3">
+            <label asp-for="BasePrice" class="form-label"></label>
+            <input asp-for="BasePrice" class="form-control" step="0.01"/>
+            <span asp-validation-for="BasePrice" class="text-danger"></span>
+        </div>
+        <div class="col mb-3">
+            <label asp-for="Currency" class="form-label"></label>
+            <input asp-for="Currency" class="form-control"/>
+            <span asp-validation-for="Currency" class="text-danger"></span>
+        </div>
+    </div>
+
+    <p class="text-muted small">
+        Each block applies its own price multiplier to the base price, so a VIP block costs more than the terraces.
+    </p>
+
+    <button type="submit" class="btn btn-primary">Create match</button>
+    <a class="btn btn-link" asp-controller="Matches" asp-action="Index" asp-area="">Cancel</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial"/>
+}

@@ -1,121 +1,104 @@
 using StadiaPass.Domain.Common;
 using StadiaPass.Domain.Common.ValueObjects;
+using StadiaPass.Domain.Matches;
 using StadiaPass.Domain.Tickets.Events;
 
 namespace StadiaPass.Domain.Tickets;
 
+/// <summary>
+/// The artefact of a completed purchase. A ticket is never conjured out of thin air: it can only be issued
+/// for a <see cref="MatchSeat"/> that the match itself has already moved to <see cref="SeatStatus.Sold"/>.
+/// </summary>
 public sealed class Ticket : AggregateRoot
 {
-    public static readonly TimeSpan ReservationWindow = TimeSpan.FromMinutes(15);
-
     private Ticket()
     {
     }
 
-    private Ticket(Guid id, Guid matchId, SeatNumber seatNumber, Money price)
+    private Ticket(
+        Guid id,
+        Guid matchId,
+        Guid matchSeatId,
+        SeatNumber seatNumber,
+        Money price,
+        string holderReference,
+        string accessCode,
+        DateTimeOffset issuedAtUtc)
         : base(id)
     {
         MatchId = matchId;
+        MatchSeatId = matchSeatId;
         SeatNumber = seatNumber;
         Price = price;
-        Status = TicketStatus.Available;
+        HolderReference = holderReference;
+        AccessCode = accessCode;
+        IssuedAtUtc = issuedAtUtc;
+        Status = TicketStatus.Issued;
     }
 
     public Guid MatchId { get; private set; }
+
+    public Guid MatchSeatId { get; private set; }
 
     public SeatNumber SeatNumber { get; private set; } = null!;
 
     public Money Price { get; private set; } = null!;
 
+    public string HolderReference { get; private set; } = null!;
+
+    /// <summary>Value printed on the ticket and scanned at the turnstile.</summary>
+    public string AccessCode { get; private set; } = null!;
+
+    public DateTimeOffset IssuedAtUtc { get; private set; }
+
+    public DateTimeOffset? CancelledAtUtc { get; private set; }
+
     public TicketStatus Status { get; private set; }
 
-    public string? HolderReference { get; private set; }
-
-    public DateTimeOffset? ReservedAtUtc { get; private set; }
-
-    public DateTimeOffset? ReservationExpiresAtUtc { get; private set; }
-
-    public DateTimeOffset? SoldAtUtc { get; private set; }
-
-    public static Ticket Issue(Guid matchId, SeatNumber seatNumber, Money price)
+    public static Ticket IssueFor(Match match, MatchSeat seat, DateTimeOffset now)
     {
-        if (matchId == Guid.Empty)
+        if (seat.Status is not SeatStatus.Sold)
         {
             throw new DomainRuleViolationException(
-                "Ticket.MatchRequired", "A ticket must belong to a match.");
+                "Ticket.SeatNotSold",
+                $"A ticket can only be issued for a sold seat; {seat.SeatNumber} is {seat.Status}.");
         }
 
-        if (price.Amount <= 0)
+        if (string.IsNullOrWhiteSpace(seat.HolderReference))
         {
             throw new DomainRuleViolationException(
-                "Ticket.InvalidPrice", "Ticket price must be greater than zero.");
+                "Ticket.HolderRequired", "The seat carries no holder reference.");
         }
 
-        var ticket = new Ticket(Guid.CreateVersion7(), matchId, seatNumber, price);
-        ticket.Raise(new TicketIssuedDomainEvent(ticket.Id, matchId, seatNumber.ToString(), price.Amount));
+        var ticket = new Ticket(
+            Guid.CreateVersion7(),
+            match.Id,
+            seat.Id,
+            seat.SeatNumber,
+            Money.Create(seat.Price.Amount, seat.Price.Currency),
+            seat.HolderReference,
+            BuildAccessCode(),
+            now);
+
+        ticket.Raise(new TicketIssuedDomainEvent(
+            ticket.Id, match.Id, seat.SeatNumber.ToString(), seat.Price.Amount, seat.HolderReference));
 
         return ticket;
     }
 
-    public void Reserve(string holderReference, DateTimeOffset now)
+    public void Cancel(DateTimeOffset now)
     {
-        if (string.IsNullOrWhiteSpace(holderReference))
+        if (Status is TicketStatus.Cancelled)
         {
             throw new DomainRuleViolationException(
-                "Ticket.HolderRequired", "A holder reference is required to reserve a ticket.");
+                "Ticket.AlreadyCancelled", $"Ticket {AccessCode} is already cancelled.");
         }
 
-        if (Status is not TicketStatus.Available)
-        {
-            throw new DomainRuleViolationException(
-                "Ticket.NotReservable", $"Seat {SeatNumber} is {Status} and cannot be reserved.");
-        }
+        Status = TicketStatus.Cancelled;
+        CancelledAtUtc = now;
 
-        Status = TicketStatus.Reserved;
-        HolderReference = holderReference.Trim();
-        ReservedAtUtc = now;
-        ReservationExpiresAtUtc = now.Add(ReservationWindow);
-
-        Raise(new TicketReservedDomainEvent(Id, MatchId, HolderReference, ReservationExpiresAtUtc.Value));
+        Raise(new TicketCancelledDomainEvent(Id, MatchId, MatchSeatId, now));
     }
 
-    public void ConfirmSale(DateTimeOffset now)
-    {
-        if (Status is not TicketStatus.Reserved)
-        {
-            throw new DomainRuleViolationException(
-                "Ticket.NotReserved", $"Only a reserved ticket can be sold. Seat {SeatNumber} is {Status}.");
-        }
-
-        if (ReservationExpiresAtUtc is { } expiry && expiry < now)
-        {
-            throw new DomainRuleViolationException(
-                "Ticket.ReservationExpired", $"The reservation for seat {SeatNumber} expired at {expiry:u}.");
-        }
-
-        Status = TicketStatus.Sold;
-        SoldAtUtc = now;
-        ReservationExpiresAtUtc = null;
-
-        Raise(new TicketSoldDomainEvent(Id, MatchId, HolderReference!, Price.Amount, now));
-    }
-
-    public void ReleaseReservation(DateTimeOffset now)
-    {
-        if (Status is not TicketStatus.Reserved)
-        {
-            throw new DomainRuleViolationException(
-                "Ticket.NotReserved", $"Seat {SeatNumber} is {Status} and has no reservation to release.");
-        }
-
-        Status = TicketStatus.Available;
-        HolderReference = null;
-        ReservedAtUtc = null;
-        ReservationExpiresAtUtc = null;
-
-        Raise(new TicketReservationReleasedDomainEvent(Id, MatchId, now));
-    }
-
-    public bool IsReservationExpired(DateTimeOffset now) =>
-        Status is TicketStatus.Reserved && ReservationExpiresAtUtc < now;
+    private static string BuildAccessCode() => Guid.CreateVersion7().ToString("N")[..12].ToUpperInvariant();
 }

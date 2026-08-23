@@ -1,9 +1,13 @@
 using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
-using StadiaPass.Application.Common.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using StadiaPass.Application.Matches;
-using StadiaPass.Application.Matches.Commands.ScheduleMatch;
+using StadiaPass.Application.Matches.Commands.CreateMatch;
+using StadiaPass.Application.Matches.Queries.GetMatchSeatMap;
 using StadiaPass.Application.Matches.Queries.GetUpcomingMatches;
+using StadiaPass.Application.Tickets;
+using StadiaPass.Application.Tickets.Commands.ReserveSeat;
+using StadiaPass.SharedKernel.Authorization;
 
 namespace StadiaPass.WebAPI.Endpoints;
 
@@ -17,23 +21,40 @@ internal sealed class MatchEndpoints : IEndpoint
 
         group.MapGet("/", GetUpcomingAsync)
             .WithName("GetUpcomingMatches")
-            .WithSummary("Returns matches that have not kicked off yet.")
+            .WithSummary("Returns upcoming matches, optionally filtered by sport category.")
             .RequireAuthorization(StadiaPassPermissions.Matches.View);
 
-        group.MapPost("/", ScheduleAsync)
-            .WithName("ScheduleMatch")
-            .WithSummary("Schedules a new match and opens ticket sales.")
+        group.MapPost("/", CreateAsync)
+            .WithName("CreateMatch")
+            .WithSummary("Creates a match and materialises the whole venue seating plan as available seats.")
             .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireAuthorization(StadiaPassPermissions.Matches.Create);
+
+        group.MapGet("/{matchId:guid}/seats", GetSeatMapAsync)
+            .WithName("GetMatchSeatMap")
+            .WithSummary("Returns the seat map of a match grouped by block and row, with each seat status.")
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization(StadiaPassPermissions.Matches.View);
+
+        group.MapPost("/{matchId:guid}/seats/{seatNumber}/reservation", ReserveSeatAsync)
+            .WithName("ReserveSeat")
+            .WithSummary("Holds a seat for the signed-in customer until the reservation window expires.")
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireAuthorization(StadiaPassPermissions.Tickets.Reserve);
     }
 
     private static async Task<Ok<IReadOnlyList<MatchDto>>> GetUpcomingAsync(
+        [FromQuery] string? category,
         ISender sender,
         CancellationToken cancellationToken) =>
-        TypedResults.Ok(await sender.Send(new GetUpcomingMatchesQuery(), cancellationToken));
+        TypedResults.Ok(await sender.Send(new GetUpcomingMatchesQuery(category), cancellationToken));
 
-    private static async Task<Created<MatchDto>> ScheduleAsync(
-        ScheduleMatchCommand command,
+    private static async Task<Created<MatchDto>> CreateAsync(
+        CreateMatchCommand command,
         ISender sender,
         CancellationToken cancellationToken)
     {
@@ -41,4 +62,17 @@ internal sealed class MatchEndpoints : IEndpoint
 
         return TypedResults.Created($"/api/v1/matches/{match.Id}", match);
     }
+
+    private static async Task<Ok<SeatMapDto>> GetSeatMapAsync(
+        Guid matchId,
+        ISender sender,
+        CancellationToken cancellationToken) =>
+        TypedResults.Ok(await sender.Send(new GetMatchSeatMapQuery(matchId), cancellationToken));
+
+    private static async Task<Ok<SeatReservationDto>> ReserveSeatAsync(
+        Guid matchId,
+        string seatNumber,
+        ISender sender,
+        CancellationToken cancellationToken) =>
+        TypedResults.Ok(await sender.Send(new ReserveSeatCommand(matchId, seatNumber), cancellationToken));
 }

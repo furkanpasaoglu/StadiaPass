@@ -4,25 +4,65 @@ namespace StadiaPass.WebMVC.Models;
 
 public sealed record MatchSummary(
     Guid Id,
+    string Category,
+    Guid VenueId,
+    string VenueName,
     string HomeTeam,
     string AwayTeam,
-    string Stadium,
     DateTimeOffset KickOffUtc,
+    string Status,
     int Capacity,
-    int IssuedTicketCount,
-    int RemainingCapacity,
-    string Status);
+    int AvailableSeatCount,
+    int ReservedSeatCount,
+    int SoldSeatCount);
 
-public sealed record TicketSummary(
-    Guid Id,
+public sealed record SeatMap(
+    Guid MatchId,
+    string Category,
+    string VenueName,
+    string HomeTeam,
+    string AwayTeam,
+    DateTimeOffset KickOffUtc,
+    string Status,
+    int Capacity,
+    int AvailableSeatCount,
+    IReadOnlyList<SeatBlock> Blocks);
+
+public sealed record SeatBlock(string Block, int AvailableSeatCount, IReadOnlyList<SeatRow> Rows);
+
+public sealed record SeatRow(int Row, IReadOnlyList<Seat> Seats);
+
+public sealed record Seat(string SeatNumber, int Number, decimal Price, string Currency, string Status);
+
+public sealed record SeatReservation(
     Guid MatchId,
     string SeatNumber,
     decimal Price,
     string Currency,
     string Status,
-    string? HolderReference,
-    DateTimeOffset? ReservationExpiresAtUtc,
-    DateTimeOffset? SoldAtUtc);
+    DateTimeOffset ReservationExpiresAtUtc);
+
+public sealed record TicketSummary(
+    Guid Id,
+    Guid MatchId,
+    Guid MatchSeatId,
+    string SeatNumber,
+    decimal Price,
+    string Currency,
+    string HolderReference,
+    string AccessCode,
+    DateTimeOffset IssuedAtUtc,
+    string Status);
+
+public sealed record VenueSummary(
+    Guid Id,
+    string Name,
+    string City,
+    string Kind,
+    int Capacity,
+    IReadOnlyList<VenueBlockSummary> Blocks);
+
+public sealed record VenueBlockSummary(string Name, int RowCount, int SeatsPerRow, decimal PriceMultiplier, int Capacity);
 
 public sealed record ApiResult<T>(
     bool Succeeded,
@@ -40,29 +80,34 @@ public static class ApiResult
         new(false, default, error, validationErrors);
 }
 
-public sealed class CreateTicketInput
+public sealed class CreateMatchInput
 {
     [Required]
-    [Display(Name = "Match")]
-    public Guid MatchId { get; set; }
+    [Display(Name = "Sport category")]
+    public string Category { get; set; } = "Football";
 
     [Required]
-    [StringLength(10)]
-    [RegularExpression("^[A-Za-z0-9-]+$", ErrorMessage = "Block may only contain letters, digits and hyphens.")]
-    [Display(Name = "Block")]
-    public string Block { get; set; } = string.Empty;
+    [Display(Name = "Venue")]
+    public Guid VenueId { get; set; }
 
-    [Range(1, 500)]
-    [Display(Name = "Row")]
-    public int Row { get; set; } = 1;
+    [Required]
+    [StringLength(80)]
+    [Display(Name = "Home team")]
+    public string HomeTeam { get; set; } = string.Empty;
 
-    [Range(1, 500)]
-    [Display(Name = "Seat")]
-    public int Number { get; set; } = 1;
+    [Required]
+    [StringLength(80)]
+    [Display(Name = "Away team")]
+    public string AwayTeam { get; set; } = string.Empty;
+
+    [Required]
+    [Display(Name = "Kick-off (local time)")]
+    [DataType(DataType.DateTime)]
+    public DateTime KickOffLocal { get; set; } = DateTime.Now.Date.AddDays(7).AddHours(20);
 
     [Range(0.01, 100_000)]
-    [Display(Name = "Price")]
-    public decimal Price { get; set; }
+    [Display(Name = "Base price")]
+    public decimal BasePrice { get; set; } = 500m;
 
     [Required]
     [StringLength(3, MinimumLength = 3)]
@@ -70,9 +115,20 @@ public sealed class CreateTicketInput
     public string Currency { get; set; } = "TRY";
 }
 
-public sealed class TicketBoardViewModel
+public sealed class SeatSelectionViewModel
 {
-    public required MatchSummary Match { get; init; }
+    public required SeatMap SeatMap { get; init; }
 
-    public required IReadOnlyList<TicketSummary> Tickets { get; init; }
+    public string? SelectedSeatNumber { get; init; }
+
+    public DateTimeOffset? ReservationExpiresAtUtc { get; init; }
+}
+
+public sealed class MatchListViewModel
+{
+    public required IReadOnlyList<MatchSummary> Matches { get; init; }
+
+    public required IReadOnlyList<string> Categories { get; init; }
+
+    public string? SelectedCategory { get; init; }
 }

@@ -1,6 +1,7 @@
 using MediatR;
 using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Domain.Abstractions;
+using StadiaPass.Domain.Matches;
 
 namespace StadiaPass.Application.Matches.Queries.GetUpcomingMatches;
 
@@ -9,23 +10,27 @@ internal sealed class GetUpcomingMatchesQueryHandler(
     ICacheService cacheService,
     IDateTimeProvider dateTimeProvider) : IRequestHandler<GetUpcomingMatchesQuery, IReadOnlyList<MatchDto>>
 {
-    private const string CacheKey = "matches:upcoming";
-
-    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(15);
 
     public async Task<IReadOnlyList<MatchDto>> Handle(
         GetUpcomingMatchesQuery request,
         CancellationToken cancellationToken)
     {
-        if (await cacheService.GetAsync<MatchDto[]>(CacheKey, cancellationToken) is { } cached)
+        SportCategory? category = Enum.TryParse<SportCategory>(request.Category, ignoreCase: true, out var parsed)
+            ? parsed
+            : null;
+
+        var cacheKey = category is null ? MatchCacheKeys.Upcoming : $"{MatchCacheKeys.Upcoming}:{category}";
+
+        if (await cacheService.GetAsync<MatchDto[]>(cacheKey, cancellationToken) is { } cached)
         {
             return cached;
         }
 
-        var matches = await matchRepository.GetUpcomingAsync(dateTimeProvider.UtcNow, cancellationToken);
+        var matches = await matchRepository.GetUpcomingAsync(dateTimeProvider.UtcNow, category, cancellationToken);
         var result = matches.Select(match => match.ToDto()).ToArray();
 
-        await cacheService.SetAsync(CacheKey, result, CacheDuration, cancellationToken);
+        await cacheService.SetAsync(cacheKey, result, CacheDuration, cancellationToken);
 
         return result;
     }

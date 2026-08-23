@@ -1,0 +1,112 @@
+@using StadiaPass.SharedKernel.Authorization
+@using StadiaPass.WebMVC.Models
+@model SeatSelectionViewModel
+@{
+    ViewData["Title"] = "Seat selection";
+    var map = Model.SeatMap;
+    var canReserve = User.HasPermission(StadiaPassPermissions.Tickets.Reserve);
+    var canPurchase = User.HasPermission(StadiaPassPermissions.Tickets.Purchase);
+}
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h1 class="h4 mb-1">@map.HomeTeam <small class="text-muted">vs</small> @map.AwayTeam</h1>
+        <div class="text-muted">
+            <span class="badge bg-primary">@map.Category</span>
+            @map.VenueName &middot; @map.KickOffUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+            &middot; @map.AvailableSeatCount / @map.Capacity available
+        </div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" asp-action="Index">Back to matches</a>
+</div>
+
+@await Html.PartialAsync("_Alerts")
+
+<div class="d-flex gap-3 mb-3 small">
+    <span><span class="seat seat-available"></span> Available</span>
+    <span><span class="seat seat-mine"></span> Held for you</span>
+    <span><span class="seat seat-reserved"></span> Held by someone else</span>
+    <span><span class="seat seat-sold"></span> Sold</span>
+</div>
+
+<div class="pitch mb-4">PITCH / COURT</div>
+
+@foreach (var block in map.Blocks)
+{
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between">
+            <strong>Block @block.Block</strong>
+            <span class="text-muted small">@block.AvailableSeatCount available</span>
+        </div>
+        <div class="card-body seat-block">
+            @foreach (var row in block.Rows)
+            {
+                <div class="seat-row">
+                    <span class="seat-row-label">@row.Row</span>
+                    @foreach (var seat in row.Seats)
+                    {
+                        var isMine = string.Equals(seat.SeatNumber, Model.SelectedSeatNumber, StringComparison.Ordinal);
+                        var css = seat.Status switch
+                        {
+                            "Sold" => "seat-sold",
+                            "Reserved" when isMine => "seat-mine",
+                            "Reserved" => "seat-reserved",
+                            "Blocked" => "seat-sold",
+                            _ => isMine ? "seat-mine" : "seat-available"
+                        };
+                        var selectable = seat.Status == "Available" || (seat.Status == "Reserved" && isMine);
+
+                        if (selectable && canReserve)
+                        {
+                            <form method="post" asp-action="Reserve" asp-route-id="@map.MatchId" class="d-inline">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="seatNumber" value="@seat.SeatNumber"/>
+                                <button type="submit" class="seat @css"
+                                        title="@seat.SeatNumber - @seat.Price.ToString("N2") @seat.Currency">@seat.Number</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <span class="seat @css" title="@seat.SeatNumber - @seat.Status">@seat.Number</span>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@if (Model.SelectedSeatNumber is { Length: > 0 } selectedSeat && canPurchase)
+{
+    <div class="card border-success mb-4">
+        <div class="card-body d-flex justify-content-between align-items-center">
+            <div>
+                <strong>Seat @selectedSeat</strong> is held for you
+                @if (Model.ReservationExpiresAtUtc is { } expiry)
+                {
+                    <span class="text-muted">until @expiry.ToLocalTime().ToString("HH:mm:ss")</span>
+                }
+            </div>
+            <form method="post" asp-action="Purchase" asp-route-id="@map.MatchId">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="seatNumber" value="@selectedSeat"/>
+                <button type="submit" class="btn btn-success">Buy this seat</button>
+            </form>
+        </div>
+    </div>
+}
+
+@section Styles {
+    <style>
+        .pitch { background: #146c43; color: #fff; text-align: center; padding: .75rem; border-radius: .5rem; letter-spacing: .3em; font-size: .8rem; }
+        .seat-block { overflow-x: auto; }
+        .seat-row { display: flex; align-items: center; gap: 3px; margin-bottom: 3px; white-space: nowrap; }
+        .seat-row-label { width: 2rem; font-size: .7rem; color: #6c757d; text-align: right; padding-right: .3rem; }
+        .seat { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; border-radius: .25rem; border: 0; font-size: .65rem; color: #fff; }
+        .seat-available { background: #198754; cursor: pointer; }
+        .seat-available:hover { background: #146c43; }
+        .seat-mine { background: #0d6efd; }
+        .seat-reserved { background: #ffc107; color: #000; }
+        .seat-sold { background: #adb5bd; }
+    </style>
+}

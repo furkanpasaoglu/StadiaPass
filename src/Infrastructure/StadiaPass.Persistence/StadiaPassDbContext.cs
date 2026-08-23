@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using StadiaPass.Domain.Matches;
 using StadiaPass.Domain.Tickets;
+using StadiaPass.Domain.Venues;
 
 namespace StadiaPass.Persistence;
 
@@ -8,7 +9,11 @@ public sealed class StadiaPassDbContext(DbContextOptions<StadiaPassDbContext> op
 {
     public const string Schema = "stadiapass";
 
+    public DbSet<Venue> Venues => Set<Venue>();
+
     public DbSet<Match> Matches => Set<Match>();
+
+    public DbSet<MatchSeat> MatchSeats => Set<MatchSeat>();
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
 

@@ -1,8 +1,8 @@
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using StadiaPass.Application.Common.Abstractions;
+using StadiaPass.SharedKernel.Authorization;
 
 namespace StadiaPass.WebAPI.Authorization;
 
@@ -28,10 +28,9 @@ public static class AuthorizationExtensions
                 options.MapInboundClaims = false;
             });
 
-        builder.Services.AddAuthorization();
-        builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
-        builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
-        builder.Services.AddSingleton<IClaimsTransformation, KeycloakPermissionClaimsTransformation>();
+        builder.Services.AddStadiaPassPermissions(keycloak.Audience);
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 
         return builder;
     }

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using StadiaPass.SharedKernel.Authorization;
 
 namespace StadiaPass.WebMVC.Authentication;
 
@@ -29,6 +30,7 @@ public static class AuthenticationExtensions
             {
                 options.Cookie.Name = "stadiapass.session";
                 options.SlidingExpiration = true;
+                options.AccessDeniedPath = "/Account/Denied";
             })
             .AddKeycloakOpenIdConnect(
                 keycloak.ServiceName,
@@ -51,7 +53,8 @@ public static class AuthenticationExtensions
                     options.Scope.Add("profile");
                 });
 
-        builder.Services.AddAuthorization();
+        // The MVC app resolves the same permission strings as the API, from the same shared kernel.
+        builder.Services.AddStadiaPassPermissions(keycloak.ApiClientId);
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddTransient<TokenBearerHandler>();
 

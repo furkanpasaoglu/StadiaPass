@@ -18,6 +18,10 @@ public sealed class KeycloakOptions
     [Required]
     public string ClientSecret { get; init; } = "stadiapass-mvc-dev-secret";
 
+    /// <summary>Client id of the API, used when reading client roles out of the token.</summary>
+    [Required]
+    public string ApiClientId { get; init; } = "stadiapass-api";
+
     [Required]
     public string PublicAuthority { get; init; } = "https://localhost:8080";
 }

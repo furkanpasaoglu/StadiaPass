@@ -8,16 +8,18 @@
   "accessTokenLifespan": 1800,
   "roles": {
     "realm": [
-      { "name": "StadiaPass.Tickets", "description": "Ticket module" },
-      { "name": "StadiaPass.Tickets.View", "description": "Read tickets" },
-      { "name": "StadiaPass.Tickets.Create", "description": "Issue a ticket for a seat" },
-      { "name": "StadiaPass.Tickets.Reserve", "description": "Reserve an available ticket" },
-      { "name": "StadiaPass.Tickets.Sell", "description": "Confirm the sale of a reserved ticket" },
-      { "name": "StadiaPass.Tickets.Cancel", "description": "Cancel a ticket" },
+      { "name": "StadiaPass.Venues", "description": "Venue module" },
+      { "name": "StadiaPass.Venues.View", "description": "Read venues and their seating plans" },
+      { "name": "StadiaPass.Venues.Create", "description": "Define a venue seating plan" },
       { "name": "StadiaPass.Matches", "description": "Match module" },
-      { "name": "StadiaPass.Matches.View", "description": "Read matches" },
-      { "name": "StadiaPass.Matches.Create", "description": "Schedule a match" },
-      { "name": "StadiaPass.Matches.Postpone", "description": "Postpone a match" }
+      { "name": "StadiaPass.Matches.View", "description": "Browse matches and seat maps" },
+      { "name": "StadiaPass.Matches.Create", "description": "Create a match and materialise its seats" },
+      { "name": "StadiaPass.Matches.Postpone", "description": "Postpone a match" },
+      { "name": "StadiaPass.Tickets", "description": "Ticket module" },
+      { "name": "StadiaPass.Tickets.View", "description": "Read own tickets" },
+      { "name": "StadiaPass.Tickets.Reserve", "description": "Hold a seat on the seat map" },
+      { "name": "StadiaPass.Tickets.Purchase", "description": "Turn a held seat into a ticket" },
+      { "name": "StadiaPass.Tickets.Cancel", "description": "Cancel an issued ticket" }
     ]
   },
   "clients": [
@@ -43,14 +45,8 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": [
-        "http://localhost:5042/*",
-        "https://localhost:7147/*"
-      ],
-      "webOrigins": [
-        "http://localhost:5042",
-        "https://localhost:7147"
-      ],
+      "redirectUris": ["http://localhost:5042/*", "https://localhost:7147/*"],
+      "webOrigins": ["http://localhost:5042", "https://localhost:7147"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+"
@@ -73,7 +69,7 @@
     {
       "clientId": "stadiapass-mvc",
       "name": "StadiaPass MVC",
-      "description": "Confidential client for the Razor front end (authorization code). Direct access grants are enabled for local endpoint testing only.",
+      "description": "Confidential client for the Razor front end. Direct access grants are enabled for local endpoint testing only.",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
@@ -81,14 +77,8 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
-      "redirectUris": [
-        "https://localhost:7064/*",
-        "http://localhost:5230/*"
-      ],
-      "webOrigins": [
-        "https://localhost:7064",
-        "http://localhost:5230"
-      ],
+      "redirectUris": ["https://localhost:7064/*", "http://localhost:5230/*"],
+      "webOrigins": ["https://localhost:7064", "http://localhost:5230"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+"
@@ -105,6 +95,21 @@
             "access.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "name": "realm roles in id token",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     }
@@ -117,18 +122,17 @@
       "email": "mudur@stadiapass.local",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [
-        { "type": "password", "value": "mudur", "temporary": false }
-      ],
+      "credentials": [{ "type": "password", "value": "mudur", "temporary": false }],
       "realmRoles": [
-        "StadiaPass.Tickets.View",
-        "StadiaPass.Tickets.Create",
-        "StadiaPass.Tickets.Reserve",
-        "StadiaPass.Tickets.Sell",
-        "StadiaPass.Tickets.Cancel",
+        "StadiaPass.Venues.View",
+        "StadiaPass.Venues.Create",
         "StadiaPass.Matches.View",
         "StadiaPass.Matches.Create",
-        "StadiaPass.Matches.Postpone"
+        "StadiaPass.Matches.Postpone",
+        "StadiaPass.Tickets.View",
+        "StadiaPass.Tickets.Reserve",
+        "StadiaPass.Tickets.Purchase",
+        "StadiaPass.Tickets.Cancel"
       ]
     },
     {
@@ -138,15 +142,29 @@
       "email": "gise@stadiapass.local",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [
-        { "type": "password", "value": "gise", "temporary": false }
-      ],
+      "credentials": [{ "type": "password", "value": "gise", "temporary": false }],
       "realmRoles": [
+        "StadiaPass.Venues.View",
+        "StadiaPass.Matches.View",
         "StadiaPass.Tickets.View",
-        "StadiaPass.Tickets.Create",
         "StadiaPass.Tickets.Reserve",
-        "StadiaPass.Tickets.Sell",
-        "StadiaPass.Matches.View"
+        "StadiaPass.Tickets.Purchase",
+        "StadiaPass.Tickets.Cancel"
+      ]
+    },
+    {
+      "username": "musteri",
+      "firstName": "Mert",
+      "lastName": "Musteri",
+      "email": "musteri@stadiapass.local",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "musteri", "temporary": false }],
+      "realmRoles": [
+        "StadiaPass.Matches.View",
+        "StadiaPass.Tickets.View",
+        "StadiaPass.Tickets.Reserve",
+        "StadiaPass.Tickets.Purchase"
       ]
     },
     {
@@ -156,13 +174,8 @@
       "email": "seyirci@stadiapass.local",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [
-        { "type": "password", "value": "seyirci", "temporary": false }
-      ],
-      "realmRoles": [
-        "StadiaPass.Tickets.View",
-        "StadiaPass.Matches.View"
-      ]
+      "credentials": [{ "type": "password", "value": "seyirci", "temporary": false }],
+      "realmRoles": ["StadiaPass.Matches.View", "StadiaPass.Tickets.View"]
     }
   ]
 }
