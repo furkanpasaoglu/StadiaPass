@@ -16,7 +16,12 @@ var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
     .WithReference(cache)
     .WaitFor(database)
     .WaitFor(cache)
-    .WithHttpHealthCheck("/health");
+    .WithHttpHealthCheck("/health")
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/scalar/v1";
+        url.DisplayText = "API Reference (Scalar)";
+    });
 
 builder.AddProject<Projects.StadiaPass_WebMVC>("webmvc")
     .WithReference(webApi)

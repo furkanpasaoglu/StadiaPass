@@ -1,3 +1,4 @@
+using Scalar.AspNetCore;
 using StadiaPass.Application;
 using StadiaPass.Infrastructure;
 using StadiaPass.Persistence;
@@ -13,7 +14,17 @@ builder.AddInfrastructure();
 builder.Services.AddApplication();
 
 builder.Services.AddEndpoints(typeof(Program).Assembly);
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, _, _) =>
+{
+    document.Info = new()
+    {
+        Title = "StadiaPass API",
+        Version = "v1",
+        Description = "Stadium ticketing: match scheduling, ticket issuing, reservations and sales."
+    };
+
+    return Task.CompletedTask;
+}));
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
@@ -25,6 +36,9 @@ app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.MapScalarApiReference(options => options
+        .WithTitle("StadiaPass API")
+        .WithTheme(ScalarTheme.BluePlanet));
 }
 
 app.MapDefaultEndpoints();

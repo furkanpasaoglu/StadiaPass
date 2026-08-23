@@ -30,7 +30,7 @@ StadiaPass.slnx
 │   │   │   └── Repositories         # Repository<T>, TicketRepository, MatchRepository
 │   │   └── StadiaPass.Infrastructure# cross-cutting adapters: Redis cache, system clock
 │   └── Presentation
-│       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint discovery
+│       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint discovery + Scalar reference
 │       │   ├── Contracts            # transport-level request records
 │       │   ├── Endpoints            # TicketEndpoints, MatchEndpoints, IEndpoint, EndpointExtensions
 │       │   └── Extensions           # GlobalExceptionHandler (RFC 9457 ProblemDetails)
@@ -82,8 +82,12 @@ the dashboard. The database schema is created and seeded with two demo matches o
 |---|---|
 | MVC UI | http://localhost:5230 |
 | API | http://localhost:5042 |
+| API reference (Scalar) | http://localhost:5042/scalar/v1 |
 | OpenAPI document | http://localhost:5042/openapi/v1.json |
 | Health | http://localhost:5042/health |
+
+The Aspire dashboard exposes the Scalar reference directly as a link on the `webapi` resource.
+Both the OpenAPI document and Scalar are mapped only in the Development environment.
 
 ## API surface
 
