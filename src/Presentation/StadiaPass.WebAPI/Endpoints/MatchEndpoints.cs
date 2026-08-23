@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
+using StadiaPass.Application.Common.Authorization;
 using StadiaPass.Application.Matches;
 using StadiaPass.Application.Matches.Commands.ScheduleMatch;
 using StadiaPass.Application.Matches.Queries.GetUpcomingMatches;
@@ -16,12 +17,14 @@ internal sealed class MatchEndpoints : IEndpoint
 
         group.MapGet("/", GetUpcomingAsync)
             .WithName("GetUpcomingMatches")
-            .WithSummary("Returns matches that have not kicked off yet.");
+            .WithSummary("Returns matches that have not kicked off yet.")
+            .RequireAuthorization(StadiaPassPermissions.Matches.View);
 
         group.MapPost("/", ScheduleAsync)
             .WithName("ScheduleMatch")
             .WithSummary("Schedules a new match and opens ticket sales.")
-            .ProducesValidationProblem();
+            .ProducesValidationProblem()
+            .RequireAuthorization(StadiaPassPermissions.Matches.Create);
     }
 
     private static async Task<Ok<IReadOnlyList<MatchDto>>> GetUpcomingAsync(

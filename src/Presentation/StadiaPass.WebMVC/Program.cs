@@ -1,13 +1,17 @@
+using StadiaPass.WebMVC.Authentication;
 using StadiaPass.WebMVC.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddKeycloakLogin();
 
 builder.Services.AddControllersWithViews();
 
-builder.Services.AddHttpClient<IStadiaPassApiClient, StadiaPassApiClient>(client =>
-    client.BaseAddress = new Uri("https+http://webapi"));
+builder.Services
+    .AddHttpClient<IStadiaPassApiClient, StadiaPassApiClient>(client =>
+        client.BaseAddress = new Uri("https+http://webapi"))
+    .AddHttpMessageHandler<TokenBearerHandler>();
 
 var app = builder.Build();
 
@@ -20,6 +24,8 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapDefaultEndpoints();

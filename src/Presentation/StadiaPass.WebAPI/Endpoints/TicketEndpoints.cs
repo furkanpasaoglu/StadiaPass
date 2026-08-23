@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using StadiaPass.Application.Common.Authorization;
 using StadiaPass.Application.Tickets;
 using StadiaPass.Application.Tickets.Commands.ConfirmTicketSale;
 using StadiaPass.Application.Tickets.Commands.CreateTicket;
@@ -24,29 +25,34 @@ internal sealed class TicketEndpoints : IEndpoint
             .WithSummary("Issues a new ticket for a match seat.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization(StadiaPassPermissions.Tickets.Create);
 
         group.MapGet("/{ticketId:guid}", GetByIdAsync)
             .WithName("GetTicketById")
             .WithSummary("Returns a single ticket.")
+            .RequireAuthorization(StadiaPassPermissions.Tickets.View)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/", GetByMatchAsync)
             .WithName("GetTicketsByMatch")
-            .WithSummary("Returns every ticket issued for a match.");
+            .WithSummary("Returns every ticket issued for a match.")
+            .RequireAuthorization(StadiaPassPermissions.Tickets.View);
 
         group.MapPost("/{ticketId:guid}/reservation", ReserveAsync)
             .WithName("ReserveTicket")
             .WithSummary("Reserves an available ticket for a holder.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireAuthorization(StadiaPassPermissions.Tickets.Reserve);
 
         group.MapPost("/{ticketId:guid}/sale", ConfirmSaleAsync)
             .WithName("ConfirmTicketSale")
             .WithSummary("Converts a reservation into a completed sale.")
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireAuthorization(StadiaPassPermissions.Tickets.Sell);
     }
 
     private static async Task<Created<TicketDto>> CreateAsync(

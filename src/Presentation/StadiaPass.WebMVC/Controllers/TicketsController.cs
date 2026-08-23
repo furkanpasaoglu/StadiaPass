@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StadiaPass.WebMVC.Models;
 using StadiaPass.WebMVC.Services;
 
 namespace StadiaPass.WebMVC.Controllers;
 
+[Authorize]
 public sealed class TicketsController(IStadiaPassApiClient apiClient) : Controller
 {
     [HttpGet]

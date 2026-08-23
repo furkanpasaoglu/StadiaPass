@@ -4,4 +4,8 @@
     <ProjectReference Include="..\..\..\orchestrator\StadiaPass.ServiceDefaults\StadiaPass.ServiceDefaults.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Aspire.Keycloak.Authentication" />
+  </ItemGroup>
+
 </Project>

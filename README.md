@@ -20,6 +20,7 @@ StadiaPass.slnx
 │   │   └── StadiaPass.Application   # CQRS use cases (MediatR), validation, DTOs
 │   │       ├── Common
 │   │       │   ├── Abstractions     # IDateTimeProvider, ICacheService
+│   │       │   ├── Authorization    # StadiaPassPermissions - the only place a permission is declared
 │   │       │   ├── Behaviors        # LoggingBehavior, ValidationBehavior (MediatR pipeline)
 │   │       │   └── Exceptions       # NotFoundException, ConflictException, RequestValidationException
 │   │       ├── Matches              # Commands / Queries / MatchDto
@@ -31,15 +32,18 @@ StadiaPass.slnx
 │   │   └── StadiaPass.Infrastructure# cross-cutting adapters: Redis cache, system clock
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint discovery + Scalar reference
+│       │   ├── Authorization        # dynamic permission policies + Keycloak claims transformation
 │       │   ├── Contracts            # transport-level request records
 │       │   ├── Endpoints            # TicketEndpoints, MatchEndpoints, IEndpoint, EndpointExtensions
-│       │   └── Extensions           # GlobalExceptionHandler (RFC 9457 ProblemDetails)
+│       │   └── Extensions           # GlobalExceptionHandler, OAuth2 OpenAPI transformers
 │       └── StadiaPass.WebMVC        # Razor MVC UI - consumes the API over HTTP only
-│           ├── Controllers          # TicketsController
+│           ├── Authentication       # OIDC login, KeycloakOptions, TokenBearerHandler
+│           ├── Controllers          # TicketsController, AccountController
 │           ├── Models               # its own contracts - no reference to Domain/Application
 │           └── Services             # typed HttpClient (IStadiaPassApiClient)
 ├── orchestrator
-│   ├── StadiaPass.AppHost           # Aspire: PostgreSQL + Redis containers, project wiring
+│   ├── StadiaPass.AppHost           # Aspire: PostgreSQL + Redis + Keycloak, project wiring
+│   │   └── realms                   # stadiapass-realm.json - roles, clients, demo users
 │   └── StadiaPass.ServiceDefaults   # OpenTelemetry, health checks, resilience, service discovery
 └── tests                            # (reserved for Domain/Application unit tests)
 ```
@@ -75,12 +79,14 @@ Requires the .NET 10 SDK and a container runtime (Docker Desktop or Podman).
 dotnet run --project orchestrator/StadiaPass.AppHost
 ```
 
-Aspire starts PostgreSQL (with pgAdmin), Redis (with RedisInsight), the API and the MVC app, then opens
-the dashboard. The database schema is created and seeded with two demo matches on first start.
+Aspire starts PostgreSQL (with pgAdmin), Redis (with RedisInsight), Keycloak, the API and the MVC app, then
+opens the dashboard. The database schema is created and seeded with two demo matches, and the Keycloak realm
+is imported, on start.
 
 | Resource | Default local URL |
 |---|---|
 | MVC UI | http://localhost:5230 |
+| Keycloak | https://localhost:8080 |
 | API | http://localhost:5042 |
 | API reference (Scalar) | http://localhost:5042/scalar/v1 |
 | OpenAPI document | http://localhost:5042/openapi/v1.json |
@@ -103,6 +109,58 @@ Both the OpenAPI document and Scalar are mapped only in the Development environm
 
 Errors are returned as `ProblemDetails`: `400` validation, `404` not found, `409` seat conflict,
 `422` domain rule violation.
+
+## Authorization
+
+Authentication is delegated to Keycloak; authorization is **permission-based and fully dynamic**. No role
+name appears anywhere in the code.
+
+```
+Keycloak realm role  ──►  KeycloakPermissionClaimsTransformation  ──►  "permission" claim
+   "StadiaPass.Tickets.Create"        (filtered against StadiaPassPermissions)
+                                              │
+        .RequireAuthorization(StadiaPassPermissions.Tickets.Create)
+                                              │
+                              PermissionPolicyProvider  ──► builds the policy on demand
+                                              │
+                              PermissionAuthorizationHandler  ──► 200 / 403
+```
+
+- `StadiaPassPermissions` (Application layer) is the only place a permission string is declared; `All` is
+  discovered by reflection over its nested constants and backed by a `FrozenSet`.
+- `PermissionPolicyProvider` creates an `AuthorizationPolicy` for any known permission the first time it is
+  requested, so `AddPolicy(...)` never has to be written by hand.
+- Roles that the application does not recognise are dropped by the claims transformation instead of being
+  trusted, so adding a role in Keycloak cannot silently widen access.
+- Adding a permission is a two-step change: add the constant, add the matching realm role. No policy
+  registration, no `[Authorize(Roles = ...)]`, no redeploy of the authorization plumbing.
+
+| Endpoint | Required permission |
+|---|---|
+| `GET /api/v1/matches` | `StadiaPass.Matches.View` |
+| `POST /api/v1/matches` | `StadiaPass.Matches.Create` |
+| `GET /api/v1/tickets` | `StadiaPass.Tickets.View` |
+| `POST /api/v1/tickets` | `StadiaPass.Tickets.Create` |
+| `POST /api/v1/tickets/{id}/reservation` | `StadiaPass.Tickets.Reserve` |
+| `POST /api/v1/tickets/{id}/sale` | `StadiaPass.Tickets.Sell` |
+
+### Testing from Scalar
+
+The OpenAPI document publishes an OAuth2 authorization code flow, so the Scalar reference renders an
+**Authorize** button that redirects to Keycloak (PKCE `S256`, public client `stadiapass-scalar`) and injects
+the resulting token into every request. Each secured operation is annotated with the permission it needs.
+
+### Demo users (realm import, development only)
+
+| User | Password | Permissions |
+|---|---|---|
+| `mudur` | `mudur` | everything |
+| `gise` | `gise` | all ticket operations + `Matches.View` |
+| `seyirci` | `seyirci` | `Tickets.View`, `Matches.View` only |
+
+Keycloak runs at https://localhost:8080 and the realm is re-imported on every start (no data volume), so
+the realm file is the source of truth. The MVC client secret in `stadiapass-realm.json` is a local
+development value - replace it with a real secret store before any deployment.
 
 ## Request pipeline
 
