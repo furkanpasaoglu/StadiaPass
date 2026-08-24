@@ -34,6 +34,18 @@ var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
         url.DisplayText = "API Reference (Scalar)";
     });
 
+// The payment provider is chosen outside the repository. Nothing about it is committed: the values come
+// from the AppHost's own configuration - an environment variable today, a secrets manager later - and are
+// forwarded to the API only when they are actually set, so a clone with no configuration still runs on the
+// mock provider.
+foreach (var setting in (string[])["Type", "SecretKey"])
+{
+    if (builder.Configuration[$"PaymentProvider:{setting}"] is { Length: > 0 } value)
+    {
+        webApi.WithEnvironment($"PaymentProvider__{setting}", value);
+    }
+}
+
 builder.AddProject<Projects.StadiaPass_WebMVC>("webmvc")
     .WithReference(webApi)
     .WithReference(cache)

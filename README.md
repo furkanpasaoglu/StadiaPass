@@ -451,10 +451,24 @@ the hold runs out, and they can try another card. A decline comes back as **422*
 "PaymentProvider": { "Type": "Mock", "SecretKey": "" }
 ```
 
+The key is never written into that file - it is tracked, and a credential in a tracked file is a
+credential in everyone's clone. It is supplied from outside instead, and the AppHost forwards whatever it
+was given down to the API:
+
+```powershell
+$env:PaymentProvider__Type = "Stripe"
+$env:PaymentProvider__SecretKey = "sk_test_..."
+dotnet run --project orchestratorStadiaPass.AppHost
+```
+
+Nothing else in the application knows where the value came from, so the same seam takes a secrets manager
+later without a code change. Only a test key is accepted: a `sk_live_` key would charge real cards from a
+development machine, so it is refused at startup.
+
 | `Type` | Adapter | Behaviour |
 |---|---|---|
 | `Mock` (default) | `MockPaymentService` | never leaves the process; `4242…` is accepted, `4000…` comes back as insufficient funds, anything else is declined |
-| `Stripe` | `StripePaymentService` | creates a PaymentMethod and a confirmed PaymentIntent against Stripe's test API, keyed by the seat so a double-click is not a second charge |
+| `Stripe` | `StripePaymentService` | creates and confirms a PaymentIntent against Stripe's test API, keyed by the seat so a double-click is not a second charge |
 
 A `Stripe` provider without a key, or with a key that is not `sk_test_`, fails at **startup** rather than at
 the first checkout - a live key on a development machine would charge real cards.
@@ -474,10 +488,26 @@ wherever something writes one by accident:
 The number is checked against the Luhn digit before a provider is called at all, so a typo costs a round trip
 to the browser instead of a decline on the customer's statement.
 
-> **Not a production integration.** Raw card details reach the server here, which Stripe accepts in test mode
-> but which puts a real deployment inside PCI DSS scope. In production the browser tokenises the card with
-> Stripe.js or Elements and the server only ever sees a payment method id. The port does not change - only
-> `StripePaymentService` and the form do.
+### Why the Stripe adapter never sends the card
+
+Stripe refuses a raw card number from a server - *"Sending credit card numbers directly to the Stripe API is
+generally unsafe"* - unless the account is specifically approved for it. That refusal is the right one, so
+the adapter follows it: `StripeTestCards` maps each of Stripe's published test numbers to the payment
+method token that stands for it, and only the token is sent. A card that is not one of them is answered
+locally, with an explanation, rather than pushed at Stripe to be rejected.
+
+| Card | Result |
+|---|---|
+| `4242 4242 4242 4242` | accepted |
+| `4000 0000 0000 9995` | `insufficient_funds` |
+| `4000 0000 0000 0002` | `generic_decline` |
+| `4000 0000 0000 0069` | `expired_card` |
+| `4000 0000 0000 0127` | `incorrect_cvc` |
+
+> **Still not a production integration.** The card reaches this server before being turned into a token,
+> which puts a real deployment inside PCI DSS scope. In production the browser tokenises it with Stripe.js
+> or Elements and the server only ever handles a payment method id - the same shape the adapter already
+> works in, so the port does not change: only where the token comes from does.
 
 ## Request pipeline
 

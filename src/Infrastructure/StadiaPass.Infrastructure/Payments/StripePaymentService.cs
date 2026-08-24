@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.Extensions.Logging;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using Stripe;
@@ -6,14 +5,13 @@ using Stripe;
 namespace StadiaPass.Infrastructure.Payments;
 
 /// <summary>
-/// Talks to Stripe's test API for real: a PaymentMethod is created from the card, then a PaymentIntent is
-/// created and confirmed in one call. The intent is keyed by the seat, so Stripe treats a double-click or a
-/// retried request as the same charge rather than a second one.
+/// Talks to Stripe's test API for real: a PaymentIntent is created and confirmed in one call, keyed by the
+/// seat so a double-click or a retried request is the same charge rather than a second one.
 /// </summary>
 /// <remarks>
-/// Sending raw card details from a server is accepted in test mode but is not how a production integration
-/// is built: there, Stripe.js or Elements tokenises the card in the browser and the server only ever sees a
-/// payment method id, which keeps the card out of this application and out of PCI scope entirely.
+/// The card never leaves this process. Stripe rejects raw card numbers from a server, so the number is
+/// resolved to the test payment method token that stands for it - which is also the shape a production
+/// integration has, where Stripe.js tokenises the card in the browser and the server only ever handles an id.
 /// </remarks>
 internal sealed partial class StripePaymentService(
     IStripeClient stripeClient,
@@ -25,32 +23,25 @@ internal sealed partial class StripePaymentService(
         PaymentRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (StripeTestCards.TokenFor(request.Card.CardNumber) is not { } paymentMethodToken)
+        {
+            // Better a plain answer than a confusing rejection from Stripe about raw card data.
+            UnknownTestCard(logger, request.Card.MaskedNumber);
+
+            return PaymentResult.Failure(
+                "unsupported_test_card",
+                "Stripe test mode only accepts its own test cards. Use 4242 4242 4242 4242, or switch "
+                + "PaymentProvider:Type to Mock to accept any card number locally.");
+        }
+
         try
         {
-            var paymentMethod = await new PaymentMethodService(stripeClient).CreateAsync(
-                new PaymentMethodCreateOptions
-                {
-                    Type = "card",
-                    Card = new PaymentMethodCardOptions
-                    {
-                        Number = request.Card.CardNumber,
-                        ExpMonth = request.Card.ExpirationMonth,
-                        ExpYear = request.Card.ExpirationYear,
-                        Cvc = request.Card.Cvv
-                    },
-                    BillingDetails = new PaymentMethodBillingDetailsOptions
-                    {
-                        Name = request.Card.CardHolderName
-                    }
-                },
-                cancellationToken: cancellationToken);
-
             var intent = await new PaymentIntentService(stripeClient).CreateAsync(
                 new PaymentIntentCreateOptions
                 {
                     Amount = ToMinorUnits(request.Amount.Amount),
                     Currency = ToStripeCurrency(request.Amount.Currency),
-                    PaymentMethod = paymentMethod.Id,
+                    PaymentMethod = paymentMethodToken,
                     Description = request.Description,
                     Confirm = true,
 
@@ -80,9 +71,14 @@ internal sealed partial class StripePaymentService(
         }
         catch (StripeException exception)
         {
-            // A decline arrives as an exception from the SDK, but it is an ordinary answer to the customer:
-            // it comes back as a failed result rather than a 500.
-            var code = exception.StripeError?.Code ?? exception.StripeError?.Type ?? "stripe_error";
+            // A decline arrives as an exception from the SDK, but to the customer it is an ordinary answer,
+            // so it comes back as a failed result rather than a 500. The decline code is the specific one -
+            // "insufficient_funds" rather than the blanket "card_declined" - because that is what the
+            // customer needs to read.
+            var code = exception.StripeError?.DeclineCode
+                       ?? exception.StripeError?.Code
+                       ?? exception.StripeError?.Type
+                       ?? "stripe_error";
 
             PaymentRejected(logger, request.Card.MaskedNumber, code);
 
@@ -127,4 +123,10 @@ internal sealed partial class StripePaymentService(
         Level = LogLevel.Information,
         Message = "Stripe rejected card {MaskedNumber}: {FailureCode}")]
     private static partial void PaymentRejected(ILogger logger, string maskedNumber, string failureCode);
+
+    [LoggerMessage(
+        EventId = 6103,
+        Level = LogLevel.Warning,
+        Message = "Card {MaskedNumber} is not one of Stripe's test cards, so no charge was attempted")]
+    private static partial void UnknownTestCard(ILogger logger, string maskedNumber);
 }
