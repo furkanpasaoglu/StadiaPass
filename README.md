@@ -58,7 +58,9 @@ StadiaPass.slnx
 │   │   ├── monitoring               # prometheus.yml, Grafana datasource and dashboard provisioning
 │   │   └── realms                   # stadiapass-realm.json - permission roles, clients, demo users
 │   └── StadiaPass.ServiceDefaults   # OpenTelemetry (OTLP + Prometheus), health checks, resilience
-└── tests                            # (reserved for Domain/Application unit tests)
+└── tests
+    ├── StadiaPass.Domain.UnitTests       # aggregate invariants
+    └── StadiaPass.Application.UnitTests  # vertical slice handlers with substituted ports
 ```
 
 ### Dependency rule
@@ -355,6 +357,42 @@ HTTP → Minimal API endpoint → ISender.Send(command)
 The seat holder is taken from `ICurrentUser` (the Keycloak subject), never from the request body, so a
 customer cannot hold or buy a seat in somebody else's name.
 
+## Tests
+
+```powershell
+dotnet test StadiaPass.slnx
+```
+
+| Project | Covers |
+|---|---|
+| `tests/StadiaPass.Domain.UnitTests` | aggregate invariants: match creation, the seat lifecycle, venue seating plans |
+| `tests/StadiaPass.Application.UnitTests` | the `ReserveSeat` vertical slice with its ports substituted |
+
+xUnit, NSubstitute and FluentAssertions, named `Should_X_When_Y` and written Arrange-Act-Assert.
+
+The domain tests build **real** aggregates - a test that stubbed the domain would prove nothing about the
+rule it is meant to guard. Time is injected everywhere, so a test reasoning about the ten-minute hold never
+races the wall clock. The handler tests substitute `IMatchRepository`, `IUnitOfWork`, `ICurrentUser` and
+`IDateTimeProvider` and still drive the genuine `Match` aggregate underneath.
+
+What the suite pins down:
+
+- a match cannot be opened in a venue whose kind the category does not allow, nor for an inactive category
+- creating a match materialises every seat of the venue plan and applies each block's price multiplier
+- reserving an available seat holds it for exactly `Match.ReservationWindow`, moves it out of the available
+  pool and raises `SeatReservedDomainEvent`
+- a seat that is already `Reserved` or `Sold` is refused, and a refused attempt leaves the counters untouched
+- an expired hold is handed to the next buyer; only the holder can turn a hold into a sale, and only in time
+- the handler reserves for the caller from `ICurrentUser`, saves exactly once, and does not save at all when
+  the domain refuses
+
+Those guarantees were checked by mutation rather than taken on trust: deleting the double-booking guard turns
+4 domain tests red, and reading the wrong field off `ICurrentUser` turns 7 handler tests red.
+
+`tests/Directory.Build.props` re-imports the repository settings and relaxes only CA1707 and CA2007, which do
+not apply to test code. `StadiaPass.Application` grants `InternalsVisibleTo` to its test project because
+handlers are internal by design.
+
 ## Notes
 
 - **Migrations**: the starter uses `EnsureCreatedAsync` plus seeding for a one-command run. Switch to
@@ -368,6 +406,8 @@ customer cannot hold or buy a seat in somebody else's name.
 - **Timestamps**: Npgsql only accepts `DateTimeOffset` values with a zero offset for `timestamptz`, so
   `Match` normalises the kick-off to UTC on the way in.
 - **MediatR** is pinned to `12.5.0`, the last Apache-2.0 release; v13+ requires a commercial licence.
+- **FluentAssertions** is pinned to `7.2.0` for the same reason: from v8 it moved to a paid licence for
+  commercial use.
 - **Aspire Keycloak integration** (`Aspire.Hosting.Keycloak`, `Aspire.Keycloak.Authentication`) is still
   prerelease; the pinned version matches the Aspire 13.5.2 SDK.
 - **`stadiapass-admin-api`** is a confidential client whose service account holds the `realm-management`

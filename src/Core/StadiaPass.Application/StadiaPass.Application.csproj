@@ -13,4 +13,9 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Handlers and validators are internal by design; the unit tests exercise them directly. -->
+    <InternalsVisibleTo Include="StadiaPass.Application.UnitTests" />
+  </ItemGroup>
+
 </Project>

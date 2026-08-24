@@ -1,0 +1,16 @@
+<Project>
+
+  <!-- A nested Directory.Build.props stops MSBuild walking up, so the repository settings are pulled in
+       explicitly and only the test specific relaxations are layered on top. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- CA1707: test names are sentences, underscores are the point.
+         CA2007: there is no synchronisation context to capture in a test host. -->
+    <NoWarn>$(NoWarn);CA1707;CA2007</NoWarn>
+  </PropertyGroup>
+
+</Project>
