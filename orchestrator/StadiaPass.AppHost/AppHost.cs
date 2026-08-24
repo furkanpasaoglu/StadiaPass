@@ -13,19 +13,11 @@ var cache = builder.AddRedis("cache")
     .WithRedisInsight()
     .WithLifetime(ContainerLifetime.Persistent);
 
-// No data volume on purpose: the realm is re-imported on every start, so realm changes always take effect
-// and the demo users are deterministic.
 var keycloak = builder.AddKeycloak("keycloak", port: 8080)
     .WithRealmImport("./realms")
-    // All local services share the "localhost" cookie jar, so the browser can send a large cookie header.
-    // Raise the limit rather than answering 431 while developing.
     .WithEnvironment("QUARKUS_HTTP_LIMITS_MAX_HEADER_SIZE", "32K");
 
-// Secrets live in Vault, not in a file. In development the orchestrator runs a dev-mode server - in-memory,
-// unsealed, with a known root token - and writes the values it alone can resolve, such as the connection
-// strings Aspire generates. A deployment swaps this resource for a real Vault and the applications do not
-// notice: they read the same path with a token issued to them.
-// There is no Aspire.Hosting.Vault package, so the official image is orchestrated directly.
+
 const string vaultRootToken = "stadiapass-root-token";
 const string vaultSecretPath = "stadiapass";
 
@@ -74,9 +66,7 @@ builder.AddProject<Projects.StadiaPass_WebMVC>("webmvc")
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
-// Metrics stack. The applications publish an OpenTelemetry scrape endpoint through ServiceDefaults;
-// Prometheus pulls it and Grafana reads Prometheus, both provisioned from files so a clone comes up with
-// the data source and the dashboard already in place.
+
 var prometheus = builder.AddContainer("prometheus", "prom/prometheus", "v3.6.0")
     .WithBindMount("./monitoring/prometheus", "/etc/prometheus", isReadOnly: true)
     .WithArgs(
@@ -99,9 +89,7 @@ builder.AddContainer("grafana", "grafana/grafana", "12.2.0")
     .WithUrlForEndpoint("http", url => url.DisplayText = "Grafana")
     .WaitFor(prometheus);
 
-// Written once the server is up: everything the applications must not carry in a file. The connection
-// strings are resolved here because only the orchestrator knows the ports and passwords Aspire generated;
-// the Stripe key is passed through from the AppHost's own environment and never touches the repository.
+
 builder.Eventing.Subscribe<ResourceReadyEvent>(vault.Resource, async (@event, cancellationToken) =>
 {
     var secrets = new Dictionary<string, string?>(StringComparer.Ordinal)
