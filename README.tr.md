@@ -42,27 +42,29 @@ StadiaPass.slnx
 │   │       │   ├── Exceptions       # NotFound, Conflict, ConcurrencyConflict, PaymentFailed, Validation
 │   │       │   └── Messaging        # IntegrationEventTypes - hatta çıkmasına izin verilen mesajlar
 │   │       ├── Infrastructure
-│   │       │   └── Abstractions     # IPaymentService, IDistributedLock, IOutbox, IEventBus, IEmailService
+│   │       │   └── Abstractions     # IPaymentService, IDistributedLock, IOutbox, IInbox, IEventBus, IEmailService, IPaymentWebhookReader
 │   │       ├── Categories           # GetCategories / CreateCategory / UpdateCategory / DeleteCategory
 │   │       ├── Identity             # Keycloak Admin portu: Roles / Users dilimleri
 │   │       ├── Venues               # GetVenues / CreateVenue / UpdateVenue / DeleteVenue
 │   │       ├── Matches              # CreateMatch / GetUpcomingMatches / GetMatchSeatMap / EventHandlers
+│   │       ├── Payments             # sağlayıcı olay kontratları + ReconcilePayment / VoidPaidTicket
 │   │       └── Tickets              # ReserveSeat / ConfirmTicketPurchase / GetMyTickets / GetTicketById
 │   ├── Infrastructure
 │   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, repository'ler, Unit of Work, seed
 │   │   │   ├── Configurations       # aggregate başına IEntityTypeConfiguration
+│   │   │   ├── Inbox                # InboxMessage + writer + mesajı bus'a koyan sweeper
 │   │   │   ├── Matches              # tutması dolan koltukları geri veren worker
 │   │   │   ├── Outbox               # OutboxMessage, writer, sweeper, derinlik metrikleri
 │   │   │   └── Repositories         # Repository<T>, VenueRepository, MatchRepository, TicketRepository
 │   │   └── StadiaPass.Infrastructure# yukarıdaki portların adaptörleri
 │   │       ├── Email                # SMTP üzerinde MailKit + bilet onay maili şablonu
 │   │       ├── Locking              # Redis SET NX PX + Lua ile compare-and-delete serbest bırakma
-│   │       ├── Messaging            # RabbitMQ üzerinde MassTransit + TicketPurchasedEvent consumer'ı
-│   │       └── Payments             # Mock ve Stripe adaptörleri, sağlayıcı stratejisi
+│   │       ├── Messaging            # RabbitMQ üzerinde MassTransit + bilet ve ödeme consumer'ları
+│   │       └── Payments             # Mock ve Stripe adaptörleri, sağlayıcı stratejisi, webhook doğrulama
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint keşfi + Scalar referansı
 │       │   ├── Authorization        # Keycloak JWT bağlantısı, KeycloakOptions, CurrentUser
-│       │   ├── Endpoints            # VenueEndpoints, MatchEndpoints, TicketEndpoints, RoleEndpoints, UserEndpoints
+│       │   ├── Endpoints            # Venue, Match, Ticket, Payment (webhook), Role ve User endpoint'leri
 │       │   └── Extensions           # GlobalExceptionHandler, OAuth2 OpenAPI transformer'ları
 │       └── StadiaPass.WebMVC        # Razor MVC arayüzü - API'yi yalnızca HTTP üzerinden tüketir
 │           ├── Areas/Admin          # back-office: maçlar, mekânlar, kategoriler, roller, kullanıcılar
@@ -111,8 +113,8 @@ Venue (aggregate)                  Match (aggregate)                 Ticket (agg
 | `SportCategory` | en az bir oynanabilir mekân türü, benzersiz ad, pasif kategori yeni maç kabul etmez |
 | `Venue` | en az bir blok, benzersiz blok adları, plan 25 000 koltukla sınırlı, bir maç kullandıysa plan dondurulur |
 | `Match` | takımlar farklı, başlama saati gelecekte (UTC'ye normalize), kategori mekân türünde oynanabilir olmalı, koltuklar mekân planından üretilir, koltuk sayaçları ve `SoldOut` tutarlı tutulur |
-| `MatchSeat` | `Available` → `Reserve()` → `ConfirmSale()`, 10 dakikalık tutma, yalnızca tutan kişi satın alabilir, süresi dolan tutmalar kendiliğinden serbest kalır |
-| `Ticket` | yalnızca maçın `Sold` durumuna geçirdiği bir koltuk için kesilebilir, ve bir koltuk iptal edilmemiş en fazla bir bilet taşır |
+| `MatchSeat` | `Available` → `Reserve()` → `ConfirmSale()`, 10 dakikalık tutma, yalnızca tutan kişi satın alabilir, süresi dolan tutmalar kendiliğinden serbest kalır, ve `VoidSale()` `Sold`'dan çıkmanın tek yolu |
+| `Ticket` | yalnızca maçın `Sold` durumuna geçirdiği bir koltuk için kesilebilir, kendisini ödeyen çekimi daima kaydeder, ve bir koltuk iptal edilmemiş en fazla bir bilet taşır |
 
 Koltuk geçişleri **yalnızca** maç üzerinden yürür: `MatchSeat.Reserve/ConfirmSale/Release` `internal`'dır,
 dolayısıyla `Match.ReserveSeat(seatNumber, holder, now)` ve `Match.ConfirmSeatSale(...)` tek giriş
@@ -167,6 +169,7 @@ Scalar yalnızca Development ortamında map edilir.
 | `GET` | `/api/v1/matches/{id}/seats` | `StadiaPass.Matches.View` |
 | `POST` | `/api/v1/matches/{id}/seats/{seatNumber}/reservation` | `StadiaPass.Tickets.Reserve` |
 | `POST` | `/api/v1/tickets` | `StadiaPass.Tickets.Purchase` (önce kartı çeker, sonra bileti keser) |
+| `POST` | `/api/v1/payments/webhook` | yok — anonim, imzayla doğrulanır |
 | `GET` | `/api/v1/tickets/mine` | `StadiaPass.Tickets.View` |
 | `GET` | `/api/v1/tickets/{id}` | `StadiaPass.Tickets.View` (kendi bileti) / `StadiaPass.Tickets.ViewAll` (herkesinki) |
 
@@ -468,6 +471,7 @@ eskisi gibi çalışmaya devam eder.
 | `PaymentProvider:Type`, `PaymentProvider:SecretKey` | ödeme sağlayıcı stratejisi |
 | `Smtp:Host`, `Smtp:Port`, `Smtp:SenderName`, `Smtp:SenderEmail` | bilet onay maili |
 | `Smtp:UserName`, `Smtp:Password` | Google hesabı ve App Password |
+| `PaymentProvider:WebhookSecret` | bir webhook'un gerçekten Stripe'tan geldiğini doğrulamak |
 
 ### Fallback yok
 
@@ -829,6 +833,101 @@ yapmak şöyle dursun.
 > mail sunucusu o onayı kalıcı olarak kaybettirir ve yalnızca log hatırlar. Başarısız gönderimden sonra
 > yeniden fırlatmak tek satır ve ikisini de geri açar — kuyruğunu zehirleyebilecek bir mesaj pahasına.
 
+
+### Sağlayıcı geri konuştuğunda
+
+Bir çekim, cevap geldiğinde bitmiş olmuyor. Kart çekilip cevap kaybolabilir — checkout başarısız sanır,
+Stripe başarılı bilir. Para haftalar sonra, buradan kimsenin göremediği bir panelden geri gidebilir. Ve kart
+sahibi aylar sonra bize değil bankasına gidebilir. Bunların hiçbirinin arkasında bizim bir isteğimiz yok,
+dolayısıyla webhook olmadan bu sistem için **hiç var olmuyorlar**.
+
+```
+Stripe ──► POST /api/v1/payments/webhook   anonim, ham gövde, imza kontrolü
+              │
+              ├── imza tutmuyor ──► 400, başka hiçbir şey olmaz
+              │
+              └── doğrulandı ──► inbox_messages satırı ──► 200 (milisaniyeler içinde)
+                                    │
+                                    │  InboxProcessor, 5 sn'de bir
+                                    ▼
+                               RabbitMQ ──► consumer'lar
+```
+
+Bu, API'deki izin arkasında olmayan tek uç — çünkü Stripe'ın burada hesabı yok ve sunacak hiçbir şeyi yok.
+Güvenliği tamamen imza sağlıyor, o yüzden:
+
+- **Gövde ham metin olarak okunuyor**, asla bir modele bağlanmıyor. İmza gönderilen byte'lar üzerinden
+  hesaplanır; girişte onları yeniden şekillendiren her şey imzayı yok eder.
+- **`EventUtility.ConstructEvent` HMAC'i signing secret ile yeniden hesaplıyor** ve tutmayan her şeyi
+  reddediyor — beş dakikadan eski, gerçek bir olayın tekrar oynatılması dahil.
+- **Doğrulanmış bir olay olmayan her şey aynı şekilde reddediliyor**, sadece `StripeException` değil.
+  Eksik bir `Stripe-Signature` başlığı parser'a `NullReferenceException` fırlattırıyor; anonim bir uçta bu,
+  gönderene teslim edilen bir 500 ve bir stack trace demek.
+- **Signing secret yoksa hiçbir şey kabul edilmiyor.** Doğrulanamayan bir webhook, ödemenin başarılı
+  olduğunu iddia eden bir yabancıdır; secret ayarlanmadı diye kabul etmek zafiyetin ta kendisidir.
+
+Sürüm uyuşmazlıkları ise bilerek reddedilmiyor. Bir Stripe hesabının kendi API sürümü vardır, panelden
+ayarlanır ve gayet makul olarak bu SDK'nın derlendiği sürüm değildir; bunun üzerinden reddetmek çalışan bir
+entegrasyonu sessiz bir kesintiye çevirirdi.
+
+### Inbox
+
+Outbox'ın aynası, ve ayrı bir tablo olmasının bir sebebi var. Outbox satırı yerel bir transaction'ın sonucudur
+ve onun kaderini paylaşır. Inbox satırı ise dışarıdan gelir, arkasında bize ait hiçbir transaction yoktur ve
+outbox'ta olmayan bir şeye ihtiyaç duyar:
+
+| Kolon | |
+|---|---|
+| `provider_event_id` | **unique** — Stripe bir olayı üç güne kadar tekrar gönderir |
+| `provider_event_type` | `payment_intent.succeeded` ve arkadaşları, iz kalsın diye |
+| `type` | bizim entegrasyon olayımız, tam tip adıyla |
+| `payload` | çevrilmiş olay, JSON olarak |
+| `received_on_utc`, `processed_on_utc`, `attempts`, `failed_on_utc`, `error` | outbox'takiyle birebir aynı |
+
+O unique index, tekrar teslimi bir **no-op**'a çeviren şey: ikinci insert başarısız olur, endpoint ilk gelenin
+aldığı 200'ün aynısını cevaplar, ve hiçbir bilet iki kez iptal edilmez. Mükerrer engelleme, her consumer'ın
+sormayı hatırlaması gereken bir şey olmaktan çıkıp veritabanının çözdüğü bir gerçek haline gelir.
+
+Stripe'ın şekli **kenarda**, Stripe SDK'sının yaşadığı yerde çevriliyor; böylece endpoint'in aşağısındaki
+hiçbir şey Stripe'ı hiç duymuyor — sweeper, outbox sweeper'ının okuduğunun aynısını okuyor. Stripe pek çok
+olay türü gönderiyor, bu sistem üçünü kullanıyor; geri kalanı doğrulanıp onaylanıyor ve düşürülüyor — hiçbir
+şeyin okumadığı satırlarla bir tabloyu doldurmak yerine.
+
+### Üç olay ne yapıyor
+
+| Olay | |
+|---|---|
+| `payment_intent.succeeded` | **Mutabakat.** Bu çekime ait bir bilet var mı? Neredeyse her zaman var ve hiçbir şey olmuyor. Olmadığında ise biri, sistemin sattığını düşünmediği bir koltuk için ödeme yapmıştır; bu, düzeltmek için gereken metadata ile birlikte `Error` seviyesinde loglanır. |
+| `charge.dispute.created` | **Ters ibraz.** Bilet iptal edilir, koltuk yeniden satışa çıkar, sayaçlar düzeltilir. |
+| `charge.refunded` | Ya biri panelden iade tuşuna basmıştır — bileti iptal et — ya da bu uygulamanın kendi telafisi geri yankılanmaktadır; orada bilet yoktur çünkü satış geri alınmıştı. Aynı handler ikisini de canlı bilete bakarak ve yoksa hiçbir şey yapmayarak cevaplar. |
+
+Bir itiraz henüz bir kayıp değil, bir iddiadır: fonlar bloke edilir ve kazanılabilir. Bilet yine de iptal
+edilir, çünkü koltuk belirli bir akşama ait fiziksel bir şeydir ve ters ibraz ettiği bir koltukta birinin
+oturmasına izin vermek daha büyük hatadır. Kazanmak bileti kendiliğinden geri getirmez — o, bir insanın
+karar vermesini ister.
+
+Bütün bunları mümkün kılan şey **korelasyon**. Bir webhook bir çekimi bilir, başka hiçbir şeyi bilmez; bu
+yüzden `PaymentIntent` maçı, koltuğu ve alıcıyı metadata'sında taşıyarak oluşturuluyor, bilet de kendisini
+ödeyen çekimi kaydediyor. İkisi olmadan haftalar sonra gelen bir olay, kimsenin üzerine iş yapamayacağı bir
+numaradan ibarettir.
+
+### Yerelde test etmek
+
+```powershell
+winget install --id Stripe.StripeCli --exact
+stripe login
+stripe listen --forward-to localhost:5042/api/v1/payments/webhook
+```
+
+`stripe listen` bir signing secret yazdırır — `PaymentProvider:WebhookSecret` odur. **Her başlatıldığında
+yenisini yazdırır**; sabit bir secret, Stripe panelinden tanımlanan bir endpoint'ten gelir. Sonra başka bir
+terminalde:
+
+```powershell
+stripe trigger payment_intent.succeeded
+stripe trigger charge.dispute.created
+stripe trigger charge.refunded
+```
 
 ## Arka plan işleri
 

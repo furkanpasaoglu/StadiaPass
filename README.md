@@ -42,27 +42,29 @@ StadiaPass.slnx
 │   │       │   ├── Exceptions       # NotFound, Conflict, ConcurrencyConflict, PaymentFailed, Validation
 │   │       │   └── Messaging        # IntegrationEventTypes - the messages allowed on the wire
 │   │       ├── Infrastructure
-│   │       │   └── Abstractions     # IPaymentService, IDistributedLock, IOutbox, IEventBus, IEmailService
+│   │       │   └── Abstractions     # IPaymentService, IDistributedLock, IOutbox, IInbox, IEventBus, IEmailService, IPaymentWebhookReader
 │   │       ├── Categories           # GetCategories / CreateCategory / UpdateCategory / DeleteCategory
 │   │       ├── Identity             # Keycloak Admin port: Roles / Users slices
 │   │       ├── Venues               # GetVenues / CreateVenue / UpdateVenue / DeleteVenue
 │   │       ├── Matches              # CreateMatch / GetUpcomingMatches / GetMatchSeatMap / EventHandlers
+│   │       ├── Payments             # provider event contracts + ReconcilePayment / VoidPaidTicket
 │   │       └── Tickets              # ReserveSeat / ConfirmTicketPurchase / GetMyTickets / GetTicketById
 │   ├── Infrastructure
 │   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, repositories, Unit of Work, seeding
 │   │   │   ├── Configurations       # IEntityTypeConfiguration per aggregate
+│   │   │   ├── Inbox                # InboxMessage + writer + the sweeper that puts it on the bus
 │   │   │   ├── Matches              # the worker that gives back seats whose hold ran out
 │   │   │   ├── Outbox               # OutboxMessage, writer, sweeper, depth metrics
 │   │   │   └── Repositories         # Repository<T>, VenueRepository, MatchRepository, TicketRepository
 │   │   └── StadiaPass.Infrastructure# adapters for the ports above
 │   │       ├── Email                # MailKit over SMTP + the ticket confirmation template
 │   │       ├── Locking              # Redis SET NX PX + a Lua compare-and-delete release
-│   │       ├── Messaging            # MassTransit over RabbitMQ + the TicketPurchasedEvent consumer
-│   │       └── Payments             # Mock and Stripe adapters, provider strategy
+│   │       ├── Messaging            # MassTransit over RabbitMQ + the ticket and payment consumers
+│   │       └── Payments             # Mock and Stripe adapters, provider strategy, webhook verification
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint discovery + Scalar reference
 │       │   ├── Authorization        # Keycloak JWT wiring, KeycloakOptions, CurrentUser
-│       │   ├── Endpoints            # VenueEndpoints, MatchEndpoints, TicketEndpoints, RoleEndpoints, UserEndpoints
+│       │   ├── Endpoints            # Venue, Match, Ticket, Payment (webhook), Role and User endpoints
 │       │   └── Extensions           # GlobalExceptionHandler, OAuth2 OpenAPI transformers
 │       └── StadiaPass.WebMVC        # Razor MVC UI - consumes the API over HTTP only
 │           ├── Areas/Admin          # back-office: matches, venues, categories, roles, users
@@ -111,8 +113,8 @@ Venue (aggregate)                  Match (aggregate)                 Ticket (agg
 | `SportCategory` | at least one playable venue kind, unique name, an inactive category accepts no new match |
 | `Venue` | at least one block, unique block names, plan capped at 25 000 seats, plan frozen once a match uses it |
 | `Match` | teams differ, kick-off in the future (normalised to UTC), the category must be playable in the venue kind, seats materialised from the venue plan, seat counters and `SoldOut` kept consistent |
-| `MatchSeat` | `Available` → `Reserve()` → `ConfirmSale()`, 10-minute hold, only the holder may buy, expired holds auto-release |
-| `Ticket` | can only be issued for a seat the match has already moved to `Sold`, and a seat carries at most one ticket that is not cancelled |
+| `MatchSeat` | `Available` → `Reserve()` → `ConfirmSale()`, 10-minute hold, only the holder may buy, expired holds auto-release, and `VoidSale()` is the one way back out of `Sold` |
+| `Ticket` | can only be issued for a seat the match has already moved to `Sold`, always records the charge that paid for it, and a seat carries at most one ticket that is not cancelled |
 
 Seat transitions are driven **only** through the match: `MatchSeat.Reserve/ConfirmSale/Release` are
 `internal`, so `Match.ReserveSeat(seatNumber, holder, now)` and `Match.ConfirmSeatSale(...)` are the sole
@@ -167,6 +169,7 @@ and Scalar are mapped only in the Development environment.
 | `GET` | `/api/v1/matches/{id}/seats` | `StadiaPass.Matches.View` |
 | `POST` | `/api/v1/matches/{id}/seats/{seatNumber}/reservation` | `StadiaPass.Tickets.Reserve` |
 | `POST` | `/api/v1/tickets` | `StadiaPass.Tickets.Purchase` (charges the card, then issues) |
+| `POST` | `/api/v1/payments/webhook` | none - anonymous, verified by signature |
 | `GET` | `/api/v1/tickets/mine` | `StadiaPass.Tickets.View` |
 | `GET` | `/api/v1/tickets/{id}` | `StadiaPass.Tickets.View` (own ticket) / `StadiaPass.Tickets.ViewAll` (anybody's) |
 
@@ -467,6 +470,7 @@ carry on exactly as before.
 | `PaymentProvider:Type`, `PaymentProvider:SecretKey` | the payment provider strategy |
 | `Smtp:Host`, `Smtp:Port`, `Smtp:SenderName`, `Smtp:SenderEmail` | the ticket confirmation mail |
 | `Smtp:UserName`, `Smtp:Password` | the Google account and its App Password |
+| `PaymentProvider:WebhookSecret` | verifying that a webhook really came from Stripe |
 
 ### No fallbacks
 
@@ -826,6 +830,99 @@ team name with an ampersand in it cannot break the layout, let alone anything wo
 > thirty seconds loses that confirmation for good and only the log remembers it. Rethrowing after a failed
 > send is one line and turns both back on, at the cost of a message that can poison its queue.
 
+
+### When the provider talks back
+
+A charge is not over when the response arrives. The card can be charged and the response lost, so the
+checkout believes it failed while Stripe believes it succeeded. Money can go back weeks later, from a
+dashboard nobody here can see. And a cardholder can go to their bank instead of to us, months on. None of
+those has a request of ours behind it, so without a webhook they simply do not exist for this system.
+
+```
+Stripe ──► POST /api/v1/payments/webhook   anonymous, raw body, signature checked
+              │
+              ├── signature does not hold ──► 400, and nothing else happens
+              │
+              └── verified ──► inbox_messages row ──► 200 (in milliseconds)
+                                    │
+                                    │  InboxProcessor, every 5s
+                                    ▼
+                               RabbitMQ ──► consumers
+```
+
+The endpoint is the only one in this API that is not behind a permission, because Stripe has no account here
+and nothing to present. Its security is entirely the signature, so:
+
+- **The body is read as raw text**, never bound to a model. A signature is over the bytes that were sent, and
+  anything that reshapes them on the way in destroys it.
+- **`EventUtility.ConstructEvent` recomputes the HMAC** with the signing secret and refuses anything that
+  does not match - including a replay of a genuine event more than five minutes old.
+- **Everything that is not a verified event is refused the same way**, not just `StripeException`. A missing
+  `Stripe-Signature` header makes the parser throw a `NullReferenceException`; on an anonymous endpoint that
+  is a 500 and a stack trace handed to whoever sent it.
+- **A missing signing secret refuses everything.** An unverifiable webhook is a stranger claiming a payment
+  succeeded, and accepting one because the secret was not configured is the whole vulnerability.
+
+Version mismatches are deliberately *not* refused. A Stripe account has its own API version, set in the
+dashboard and quite reasonably not the one this SDK was built against; refusing over that would turn a
+working integration into a silent outage.
+
+### The inbox
+
+The outbox's mirror, and a separate table for a reason. An outbox row is a consequence of a local transaction
+and shares its fate. An inbox row arrives from outside with no transaction of ours behind it, and needs one
+thing the outbox does not:
+
+| Column | |
+|---|---|
+| `provider_event_id` | **unique** - Stripe redelivers an event for up to three days |
+| `provider_event_type` | `payment_intent.succeeded` and friends, kept for the trail |
+| `type` | our integration event, by full type name |
+| `payload` | the translated event as JSON |
+| `received_on_utc`, `processed_on_utc`, `attempts`, `failed_on_utc`, `error` | exactly as the outbox |
+
+That unique index is what turns a redelivery into a no-op: the second insert fails, the endpoint answers with
+the same 200 the first one got, and no ticket is voided twice. Deduplication becomes a fact the database
+settles rather than something every consumer has to remember to ask about.
+
+Stripe's shape is translated at the edge, where the Stripe SDK lives, so nothing downstream of the endpoint
+has ever heard of Stripe - the sweeper reads exactly what the outbox sweeper reads. Stripe sends a great many
+event types and this system uses three; the rest are verified, acknowledged and dropped rather than filling a
+table with rows nothing reads.
+
+### What the three events do
+
+| Event | |
+|---|---|
+| `payment_intent.succeeded` | **Reconciliation.** Is there a ticket for this charge? Almost always yes and nothing happens. When there is not, somebody has paid for a seat this system does not think it sold, and that is logged at `Error` with the metadata needed to put it right. |
+| `charge.dispute.created` | **Chargeback.** The ticket is cancelled, the seat goes back on offer and the counters are corrected. |
+| `charge.refunded` | Either somebody pressed refund in the dashboard - void it - or this application's own compensation echoing back, where there is no ticket because the sale rolled back. The same handler answers both by looking for a live ticket and doing nothing when there is not one. |
+
+A dispute is a claim, not yet a loss: the funds are held and it can be won. The ticket is voided anyway,
+because a seat is a physical thing on a specific evening and letting somebody sit in one they have charged
+back is the worse mistake. Winning does not put the ticket back on its own - that wants a person to decide.
+
+Correlation is what makes any of this possible. A webhook knows a charge and nothing else, so the
+`PaymentIntent` is created carrying the match, the seat and the buyer in its metadata, and the ticket records
+the charge that paid for it. Without both, an event arriving weeks later is a number nobody can act on.
+
+### Testing it locally
+
+```powershell
+winget install --id Stripe.StripeCli --exact
+stripe login
+stripe listen --forward-to localhost:5042/api/v1/payments/webhook
+```
+
+`stripe listen` prints a signing secret - that is `PaymentProvider:WebhookSecret`. **It prints a new one every
+time it starts**; a fixed secret comes from an endpoint defined in the Stripe dashboard instead. Then, in
+another terminal:
+
+```powershell
+stripe trigger payment_intent.succeeded
+stripe trigger charge.dispute.created
+stripe trigger charge.refunded
+```
 
 ## Background work
 

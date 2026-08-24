@@ -45,6 +45,11 @@ internal sealed partial class StripePaymentService(
                     Description = request.Description,
                     Confirm = true,
 
+                    // What a webhook carries back. An event arriving weeks later says nothing but "this
+                    // charge"; without these it cannot be turned into a seat, and a dispute becomes a number
+                    // somebody has to look up by hand.
+                    Metadata = new Dictionary<string, string>(request.Correlation, StringComparer.Ordinal),
+
                     // Nobody is watching a browser at this point, so a redirect-based method would strand the
                     // purchase half finished.
                     AutomaticPaymentMethods = new PaymentIntentAutomaticPaymentMethodsOptions

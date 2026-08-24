@@ -90,6 +90,26 @@ public sealed class MatchSeat : Entity
         ReservationExpiresAtUtc = null;
     }
 
+    /// <summary>
+    /// Undoes a completed sale. Nothing in the ordinary run of the system does this: it exists because a
+    /// payment can be taken back long after the fact - a chargeback, or a refund issued from the provider's
+    /// own dashboard - and the seat has to become sellable again when it is.
+    /// </summary>
+    internal void VoidSale()
+    {
+        if (Status is not SeatStatus.Sold)
+        {
+            throw new DomainRuleViolationException(
+                "Seat.NotSold", $"Seat {SeatNumber} is {Status}; only a sold seat can be voided.");
+        }
+
+        Status = SeatStatus.Available;
+        HolderReference = null;
+        ReservedAtUtc = null;
+        ReservationExpiresAtUtc = null;
+        SoldAtUtc = null;
+    }
+
     internal void Release()
     {
         Status = SeatStatus.Available;

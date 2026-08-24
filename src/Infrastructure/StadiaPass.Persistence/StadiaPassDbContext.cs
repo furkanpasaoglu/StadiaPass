@@ -3,6 +3,7 @@ using StadiaPass.Domain.Categories;
 using StadiaPass.Domain.Matches;
 using StadiaPass.Domain.Tickets;
 using StadiaPass.Domain.Venues;
+using StadiaPass.Persistence.Inbox;
 using StadiaPass.Persistence.Outbox;
 
 namespace StadiaPass.Persistence;
@@ -22,6 +23,8 @@ public sealed class StadiaPassDbContext(DbContextOptions<StadiaPassDbContext> op
     public DbSet<Ticket> Tickets => Set<Ticket>();
 
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+
+    public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

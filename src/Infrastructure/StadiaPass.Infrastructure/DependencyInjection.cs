@@ -100,6 +100,9 @@ public static class DependencyInjection
             bus.SetKebabCaseEndpointNameFormatter();
 
             bus.AddConsumer<TicketPurchasedEventConsumer>();
+            bus.AddConsumer<PaymentSucceededConsumer>();
+            bus.AddConsumer<PaymentDisputedConsumer>();
+            bus.AddConsumer<PaymentRefundedConsumer>();
 
             bus.UsingRabbitMq((context, rabbit) =>
             {
@@ -125,6 +128,10 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         builder.Services.AddSingleton<IValidateOptions<PaymentOptions>, PaymentOptionsValidator>();
+
+        // Registered whichever provider is chosen. An endpoint that quietly stops existing when somebody
+        // flips a config value is a worse surprise than one that answers and refuses.
+        builder.Services.AddScoped<IPaymentWebhookReader, StripeWebhookReader>();
 
         var payments = builder.Configuration.GetSection(PaymentOptions.SectionName).Get<PaymentOptions>()
                        ?? new PaymentOptions();

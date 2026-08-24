@@ -19,4 +19,11 @@ internal sealed class TicketRepository(StadiaPassDbContext context)
         Set.FirstOrDefaultAsync(
             ticket => ticket.MatchSeatId == matchSeatId && ticket.Status == TicketStatus.Issued,
             cancellationToken);
+
+    public Task<Ticket?> GetByPaymentIntentAsync(
+        string paymentIntentId,
+        CancellationToken cancellationToken = default) =>
+        Set.FirstOrDefaultAsync(
+            ticket => ticket.PaymentIntentId == paymentIntentId && ticket.Status == TicketStatus.Issued,
+            cancellationToken);
 }

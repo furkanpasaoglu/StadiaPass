@@ -22,7 +22,7 @@ public sealed class TicketAccessCodeTests
         // Act
         var codes = Enumerable
             .Range(0, 500)
-            .Select(_ => Ticket.IssueFor(match, seat, TestData.Now).AccessCode)
+            .Select(_ => Ticket.IssueFor(match, seat, "pi_test", TestData.Now).AccessCode)
             .ToArray();
 
         // Assert - a code derived from the issue time would collapse to a single value here.
@@ -36,7 +36,7 @@ public sealed class TicketAccessCodeTests
         var (match, seat) = SoldSeat();
 
         // Act
-        var accessCode = Ticket.IssueFor(match, seat, TestData.Now).AccessCode;
+        var accessCode = Ticket.IssueFor(match, seat, "pi_test", TestData.Now).AccessCode;
 
         // Assert - no character a person confuses at a turnstile, and enough of them to be unguessable.
         accessCode.Should().HaveLength(12);

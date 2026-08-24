@@ -24,6 +24,14 @@ public sealed class PaymentOptions
     /// </summary>
     public string? SecretKey { get; init; }
 
+    /// <summary>
+    /// The signing secret for the webhook endpoint, which starts with <c>whsec_</c>. It is what makes an
+    /// anonymous public endpoint safe; without it nothing is accepted. Comes from Vault, and note that
+    /// <c>stripe listen</c> prints a fresh one every time it starts - a fixed one comes from an endpoint
+    /// defined in the Stripe dashboard.
+    /// </summary>
+    public string? WebhookSecret { get; init; }
+
     [Range(1, 120)]
     public int TimeoutSeconds { get; init; } = 30;
 }

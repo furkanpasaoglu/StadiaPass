@@ -46,6 +46,15 @@ public interface IMatchRepository : IRepository<Match>
         int releasedCount,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Puts a voided sale back into the counters - a chargeback or a refund taking a seat off somebody. The
+    /// same relative update as a sale and a release, pointing the third way.
+    /// </summary>
+    Task ApplySeatVoidToCountersAsync(
+        Match match,
+        int voidedCount,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Guards catalogue deletes: a venue or category in use by a match cannot be removed.</summary>
     Task<bool> ExistsForVenueAsync(Guid venueId, CancellationToken cancellationToken = default);
 

@@ -23,3 +23,13 @@ public sealed record SeatSoldDomainEvent(
 
 public sealed record SeatReleasedDomainEvent(Guid MatchId, Guid SeatId, string SeatNumber, DateTimeOffset ReleasedAtUtc)
     : DomainEvent;
+
+/// <summary>
+/// A sale was taken back - a chargeback, or a refund somebody issued outside the application - and the seat
+/// is on offer again. Distinct from a release, which only ever undoes a hold.
+/// </summary>
+public sealed record SeatSaleVoidedDomainEvent(
+    Guid MatchId,
+    Guid SeatId,
+    string SeatNumber,
+    DateTimeOffset VoidedAtUtc) : DomainEvent;

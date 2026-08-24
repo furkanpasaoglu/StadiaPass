@@ -99,6 +99,38 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
                 cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task ApplySeatVoidToCountersAsync(
+        Match match,
+        int voidedCount,
+        CancellationToken cancellationToken = default)
+    {
+        var entry = Context.Entry(match);
+        entry.Property(candidate => candidate.SoldSeatCount).IsModified = false;
+        entry.Property(candidate => candidate.AvailableSeatCount).IsModified = false;
+        entry.Property(candidate => candidate.Status).IsModified = false;
+
+        // A sale taken back: the seat leaves the sold count and rejoins the available one, and a match that
+        // had sold out is on sale again. Asked of the row rather than of the counters this request happened
+        // to read, for the same reason every other one of these is.
+        await Set
+            .Where(candidate => candidate.Id == match.Id)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(
+                        candidate => candidate.SoldSeatCount,
+                        candidate => candidate.SoldSeatCount - voidedCount)
+                    .SetProperty(
+                        candidate => candidate.AvailableSeatCount,
+                        candidate => candidate.AvailableSeatCount + voidedCount)
+                    .SetProperty(
+                        candidate => candidate.Status,
+                        candidate => candidate.Status == MatchStatus.SoldOut
+                            ? MatchStatus.OnSale
+                            : candidate.Status),
+                cancellationToken);
+    }
+
     public Task<bool> ExistsForVenueAsync(Guid venueId, CancellationToken cancellationToken = default) =>
         Set.AnyAsync(match => match.VenueId == venueId, cancellationToken);
 

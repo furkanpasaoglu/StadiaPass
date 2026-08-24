@@ -184,6 +184,31 @@ public sealed class Match : AggregateRoot
         return seat;
     }
 
+    /// <summary>
+    /// Takes a completed sale back and puts the seat on offer again. A chargeback or a refund issued from the
+    /// provider's dashboard arrives long after the request that made the sale, so this deliberately does not
+    /// ask whether sales are open: refusing to void a seat on a postponed or finished match would leave the
+    /// money returned and the seat still marked sold, which is the worst of both.
+    /// </summary>
+    public MatchSeat VoidSeatSale(string seatNumber, DateTimeOffset now)
+    {
+        var seat = RequireSeat(seatNumber);
+
+        seat.VoidSale();
+
+        SoldSeatCount--;
+        AvailableSeatCount++;
+
+        if (Status is MatchStatus.SoldOut)
+        {
+            Status = MatchStatus.OnSale;
+        }
+
+        Raise(new SeatSaleVoidedDomainEvent(Id, seat.Id, seat.SeatNumber.ToString(), now));
+
+        return seat;
+    }
+
     public void ReleaseSeat(string seatNumber, DateTimeOffset now)
     {
         var seat = RequireSeat(seatNumber);

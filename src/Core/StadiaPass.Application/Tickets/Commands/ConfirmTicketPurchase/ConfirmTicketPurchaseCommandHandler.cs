@@ -68,7 +68,7 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
 
         match.ConfirmSeatSale(request.SeatNumber, currentUser.Reference, now);
 
-        var ticket = Ticket.IssueFor(match, seat, now);
+        var ticket = Ticket.IssueFor(match, seat, payment.TransactionId!, now);
 
         await ticketRepository.AddAsync(ticket, cancellationToken);
 
@@ -174,7 +174,7 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
     /// would be a rather serious hole. The reference is stable per seat, which is what lets a provider treat
     /// a repeated call as the same charge.
     /// </summary>
-    private static PaymentRequest BuildPaymentRequest(
+    private PaymentRequest BuildPaymentRequest(
         ConfirmTicketPurchaseCommand request,
         Match match,
         MatchSeat seat) =>
@@ -189,7 +189,14 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
             string.Create(CultureInfo.InvariantCulture, $"stadiapass:{match.Id}:{seat.SeatNumber}"),
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"{match.HomeTeam} vs {match.AwayTeam} - seat {seat.SeatNumber}"));
+                $"{match.HomeTeam} vs {match.AwayTeam} - seat {seat.SeatNumber}"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["matchId"] = match.Id.ToString(),
+                ["seatNumber"] = seat.SeatNumber.ToString(),
+                ["holderReference"] = currentUser.Reference
+            });
+
 
     /// <summary>
     /// Everything a consumer could want about the purchase, so nothing downstream has to come back to the

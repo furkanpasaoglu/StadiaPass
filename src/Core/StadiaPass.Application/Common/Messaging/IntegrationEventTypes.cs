@@ -1,11 +1,13 @@
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
+using StadiaPass.Application.Payments.Events;
 using StadiaPass.Application.Tickets.Events;
 
 namespace StadiaPass.Application.Common.Messaging;
 
 /// <summary>
-/// Every message this system is willing to write to the outbox and read back out of it.
+/// Every message this system is willing to put on the wire - written to the outbox on the way out, or
+/// recorded in the inbox on the way in - and read back off it.
 /// </summary>
 /// <remarks>
 /// A row in a database is data, and turning the name in that row into a type by asking the runtime for
@@ -18,7 +20,10 @@ public static class IntegrationEventTypes
     private static readonly FrozenDictionary<string, Type> ByName =
         new Dictionary<string, Type>(StringComparer.Ordinal)
         {
-            [typeof(TicketPurchasedEvent).FullName!] = typeof(TicketPurchasedEvent)
+            [typeof(TicketPurchasedEvent).FullName!] = typeof(TicketPurchasedEvent),
+            [typeof(PaymentSucceeded).FullName!] = typeof(PaymentSucceeded),
+            [typeof(PaymentDisputed).FullName!] = typeof(PaymentDisputed),
+            [typeof(PaymentRefunded).FullName!] = typeof(PaymentRefunded)
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>

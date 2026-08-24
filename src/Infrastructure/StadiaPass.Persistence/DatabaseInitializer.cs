@@ -19,7 +19,7 @@ internal sealed partial class DatabaseInitializer(
         var context = scope.ServiceProvider.GetRequiredService<StadiaPassDbContext>();
 
         await context.Database.EnsureCreatedAsync(stoppingToken);
-        await EnsureOutboxTableAsync(context, stoppingToken);
+        await ApplySchemaStopgapsAsync(context, stoppingToken);
         SchemaReady(logger);
 
         if (await context.SportCategories.AnyAsync(stoppingToken))
@@ -70,13 +70,16 @@ internal sealed partial class DatabaseInitializer(
     }
 
     /// <summary>
-    /// <see cref="RelationalDatabaseFacadeExtensions"/>' EnsureCreated builds the schema once and never looks
-    /// at it again, so a table added to the model afterwards simply never appears on a database that already
-    /// exists - and the outbox is exactly that. This is a stopgap and reads like one: it is the price of not
-    /// having migrations, and adding them is what makes it go away. Written to be harmless on a fresh
-    /// database too, where EnsureCreated will have built the table a moment ago.
+    /// Every schema change made since the first run, said again in SQL. EnsureCreated builds the schema once
+    /// and never looks at it again, so a table, a column or an index added to the model afterwards simply
+    /// never appears on a database that already exists. Each statement here is written to be harmless on a
+    /// fresh database too, where EnsureCreated will have built the same thing a moment ago.
+    /// <para>
+    /// This is a stopgap and reads like one. It is the price of not having migrations, it grows every time
+    /// the schema moves, and adding migrations is what deletes the whole method.
+    /// </para>
     /// </summary>
-    private static async Task EnsureOutboxTableAsync(
+    private static async Task ApplySchemaStopgapsAsync(
         StadiaPassDbContext context,
         CancellationToken cancellationToken) =>
         await context.Database.ExecuteSqlRawAsync(
@@ -104,6 +107,14 @@ internal sealed partial class DatabaseInitializer(
                  ON {StadiaPassDbContext.Schema}.outbox_messages (occurred_on_utc)
                  WHERE processed_on_utc IS NULL;
 
+             -- A ticket now records the charge that paid for it: without it a webhook arriving weeks later
+             -- carries a payment id and nothing to match it against.
+             ALTER TABLE {StadiaPassDbContext.Schema}.tickets
+                 ADD COLUMN IF NOT EXISTS "PaymentIntentId" character varying(128) NOT NULL DEFAULT '';
+
+             CREATE INDEX IF NOT EXISTS "IX_tickets_PaymentIntentId"
+                 ON {StadiaPassDbContext.Schema}.tickets ("PaymentIntentId");
+
              -- One live ticket per seat, at the level that cannot be talked out of it. Filtered on Issued
              -- because a cancelled ticket is history: the seat goes back on sale and the next buyer needs a
              -- ticket of their own. The plain index EF used to create is dropped so a database that has been
@@ -113,6 +124,29 @@ internal sealed partial class DatabaseInitializer(
              CREATE UNIQUE INDEX IF NOT EXISTS ix_tickets_match_seat_issued
                  ON {StadiaPassDbContext.Schema}.tickets ("MatchSeatId")
                  WHERE "Status" = 'Issued';
+
+             -- The inbox: what a provider told us, written down before anything is done about it. The unique
+             -- index on the provider event id is what makes a redelivery a no-op instead of a second refund.
+             CREATE TABLE IF NOT EXISTS {StadiaPassDbContext.Schema}.inbox_messages (
+                 id uuid NOT NULL,
+                 provider_event_id character varying(128) NOT NULL,
+                 provider_event_type character varying(120) NOT NULL,
+                 type character varying(300) NOT NULL,
+                 payload text NOT NULL,
+                 received_on_utc timestamp with time zone NOT NULL,
+                 processed_on_utc timestamp with time zone NULL,
+                 error text NULL,
+                 attempts integer NOT NULL DEFAULT 0,
+                 failed_on_utc timestamp with time zone NULL,
+                 CONSTRAINT pk_inbox_messages PRIMARY KEY (id)
+             );
+
+             CREATE UNIQUE INDEX IF NOT EXISTS ix_inbox_messages_provider_event
+                 ON {StadiaPassDbContext.Schema}.inbox_messages (provider_event_id);
+
+             CREATE INDEX IF NOT EXISTS ix_inbox_messages_unprocessed
+                 ON {StadiaPassDbContext.Schema}.inbox_messages (received_on_utc)
+                 WHERE processed_on_utc IS NULL;
              """,
             cancellationToken);
 

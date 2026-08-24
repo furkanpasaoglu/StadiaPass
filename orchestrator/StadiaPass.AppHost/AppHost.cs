@@ -110,6 +110,7 @@ builder.Eventing.Subscribe<ResourceReadyEvent>(vault.Resource, async (@event, ca
         ["Keycloak:ClientSecret"] = "stadiapass-mvc-dev-secret",
         ["PaymentProvider:Type"] = builder.Configuration["PaymentProvider:Type"],
         ["PaymentProvider:SecretKey"] = builder.Configuration["PaymentProvider:SecretKey"],
+        ["PaymentProvider:WebhookSecret"] = builder.Configuration["PaymentProvider:WebhookSecret"],
 
         // Google account and a 16-character App Password, handed through from the AppHost environment the
         // same way the Stripe key is. Neither is written down in this repository.

@@ -24,6 +24,7 @@ public sealed class Ticket : AggregateRoot
         Money price,
         string holderReference,
         string accessCode,
+        string paymentIntentId,
         DateTimeOffset issuedAtUtc)
         : base(id)
     {
@@ -33,6 +34,7 @@ public sealed class Ticket : AggregateRoot
         Price = price;
         HolderReference = holderReference;
         AccessCode = accessCode;
+        PaymentIntentId = paymentIntentId;
         IssuedAtUtc = issuedAtUtc;
         Status = TicketStatus.Issued;
     }
@@ -50,14 +52,29 @@ public sealed class Ticket : AggregateRoot
     /// <summary>Value printed on the ticket and scanned at the turnstile.</summary>
     public string AccessCode { get; private set; } = null!;
 
+    /// <summary>
+    /// The provider's identifier for the charge that paid for this seat. Kept because a payment can come
+    /// back to us long after the request that made it - a chargeback, a refund issued from the provider's
+    /// own dashboard, or an acknowledgement whose response we never saw - and without it there is no way to
+    /// answer the only question that matters then: which ticket is this about?
+    /// </summary>
+    public string PaymentIntentId { get; private set; } = null!;
+
     public DateTimeOffset IssuedAtUtc { get; private set; }
 
     public DateTimeOffset? CancelledAtUtc { get; private set; }
 
     public TicketStatus Status { get; private set; }
 
-    public static Ticket IssueFor(Match match, MatchSeat seat, DateTimeOffset now)
+    public static Ticket IssueFor(Match match, MatchSeat seat, string paymentIntentId, DateTimeOffset now)
     {
+        if (string.IsNullOrWhiteSpace(paymentIntentId))
+        {
+            throw new DomainRuleViolationException(
+                "Ticket.PaymentRequired",
+                "A ticket carries the charge that paid for it; there is no such thing as one without.");
+        }
+
         if (seat.Status is not SeatStatus.Sold)
         {
             throw new DomainRuleViolationException(
@@ -79,6 +96,7 @@ public sealed class Ticket : AggregateRoot
             Money.Create(seat.Price.Amount, seat.Price.Currency),
             seat.HolderReference,
             BuildAccessCode(),
+            paymentIntentId,
             now);
 
         ticket.Raise(new TicketIssuedDomainEvent(

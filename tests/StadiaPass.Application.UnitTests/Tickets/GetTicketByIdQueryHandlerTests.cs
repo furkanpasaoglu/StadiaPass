@@ -80,7 +80,7 @@ public sealed class GetTicketByIdQueryHandlerTests
         match.ReserveSeat(TestData.SeatNumber, holderReference, TestData.Now);
 
         var seat = match.ConfirmSeatSale(TestData.SeatNumber, holderReference, TestData.Now);
-        var ticket = Ticket.IssueFor(match, seat, TestData.Now);
+        var ticket = Ticket.IssueFor(match, seat, "pi_test", TestData.Now);
 
         _ticketRepository.GetByIdAsync(ticket.Id, Arg.Any<CancellationToken>()).Returns(ticket);
 

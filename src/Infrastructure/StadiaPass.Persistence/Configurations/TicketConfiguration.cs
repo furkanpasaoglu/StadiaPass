@@ -42,6 +42,7 @@ internal sealed class TicketConfiguration : IEntityTypeConfiguration<Ticket>
 
         builder.Property(ticket => ticket.HolderReference).HasMaxLength(128).IsRequired();
         builder.Property(ticket => ticket.AccessCode).HasMaxLength(16).IsRequired();
+        builder.Property(ticket => ticket.PaymentIntentId).HasMaxLength(128).IsRequired();
         builder.Property(ticket => ticket.IssuedAtUtc).IsRequired();
 
         builder.Property(ticket => ticket.Status)
@@ -51,6 +52,9 @@ internal sealed class TicketConfiguration : IEntityTypeConfiguration<Ticket>
 
         builder.HasIndex(ticket => ticket.AccessCode).IsUnique();
         builder.HasIndex(ticket => ticket.HolderReference);
+
+        // How a webhook finds its way back to a ticket: an event arrives carrying nothing but the charge.
+        builder.HasIndex(ticket => ticket.PaymentIntentId);
         // The seat may only ever carry one live ticket. Filtered rather than a plain unique index, because
         // a cancelled ticket is history and not a claim on the seat: the seat goes back to Available, gets
         // sold again, and the new ticket would collide with the old one under a blanket constraint. The
