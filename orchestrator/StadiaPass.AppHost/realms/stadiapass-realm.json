@@ -57,6 +57,10 @@
         "description": "Cancel an issued ticket"
       },
       {
+        "name": "StadiaPass.Tickets.ViewAll",
+        "description": "Read any ticket, including one issued to another customer"
+      },
+      {
         "name": "StadiaPass.Roles",
         "description": "Role module"
       },
@@ -103,6 +107,7 @@
             "StadiaPass.Tickets.Reserve",
             "StadiaPass.Tickets.Purchase",
             "StadiaPass.Tickets.Cancel",
+            "StadiaPass.Tickets.ViewAll",
             "StadiaPass.Roles.View",
             "StadiaPass.Roles.Create",
             "StadiaPass.Roles.Manage",
@@ -149,7 +154,8 @@
             "StadiaPass.Tickets.View",
             "StadiaPass.Tickets.Reserve",
             "StadiaPass.Tickets.Purchase",
-            "StadiaPass.Tickets.Cancel"
+            "StadiaPass.Tickets.Cancel",
+            "StadiaPass.Tickets.ViewAll"
           ]
         }
       },

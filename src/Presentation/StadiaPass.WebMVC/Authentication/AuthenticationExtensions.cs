@@ -51,6 +51,10 @@ public static class AuthenticationExtensions
                 options.Cookie.Name = "stadiapass.session";
                 options.SlidingExpiration = true;
                 options.AccessDeniedPath = "/Account/Denied";
+
+                // The session outlives the access token it carries, so every request re-checks whether
+                // that token is about to expire and renews it against Keycloak.
+                options.EventsType = typeof(TokenRefreshingCookieEvents);
             })
             .AddKeycloakOpenIdConnect(
                 keycloak.ServiceName,
@@ -100,15 +104,15 @@ public static class AuthenticationExtensions
         builder.Services.AddStadiaPassPermissions(keycloak.ApiClientId);
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddTransient<TokenBearerHandler>();
+        builder.Services.AddScoped<TokenRefreshingCookieEvents>();
 
         return builder;
     }
 
     /// <summary>
-    /// The auth ticket is round-tripped in a cookie, so it has to stay small. Roles are expanded into
-    /// permission claims once at sign-in, the bulky protocol claims are dropped, and only the tokens the app
-    /// actually replays are stored. Without this an administrator with many roles produces a ticket that
-    /// needs more chunks than the browser will carry back.
+    /// Roles are expanded into permission claims once at sign-in and the bulky protocol claims are dropped,
+    /// so the ticket stays small and every later request reads permissions instead of re-parsing Keycloak
+    /// JSON. Only the tokens the app actually needs are carried forward.
     /// </summary>
     private static void CompactSession(TokenValidatedContext context, string apiClientId)
     {
@@ -155,9 +159,14 @@ public static class AuthenticationExtensions
             identity.AddClaim(new Claim(StadiaPassClaimTypes.Permission, permission));
         }
 
+        // The refresh token and the expiry stay: without them the session cannot be renewed and the user
+        // would silently lose access to the API half an hour in. They cost nothing in the cookie because
+        // the ticket itself lives in Redis.
         var kept = context.Properties!.GetTokens()
             .Where(token => token.Name is OpenIdConnectParameterNames.AccessToken
-                                       or OpenIdConnectParameterNames.IdToken)
+                                       or OpenIdConnectParameterNames.IdToken
+                                       or OpenIdConnectParameterNames.RefreshToken
+                                       or TokenRefreshingCookieEvents.ExpiresAtTokenName)
             .ToArray();
 
         context.Properties!.StoreTokens(kept);

@@ -12,4 +12,10 @@ public interface ICurrentUser
     string Reference { get; }
 
     string DisplayName { get; }
+
+    /// <summary>
+    /// Permission strings come from <c>StadiaPassPermissions</c>; a handler asks this when the endpoint
+    /// policy alone cannot decide, such as reading a ticket that may or may not belong to the caller.
+    /// </summary>
+    bool HasPermission(string permission);
 }

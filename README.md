@@ -149,7 +149,12 @@ and Scalar are mapped only in the Development environment.
 | `POST` | `/api/v1/matches/{id}/seats/{seatNumber}/reservation` | `StadiaPass.Tickets.Reserve` |
 | `POST` | `/api/v1/tickets` | `StadiaPass.Tickets.Purchase` |
 | `GET` | `/api/v1/tickets/mine` | `StadiaPass.Tickets.View` |
-| `GET` | `/api/v1/tickets/{id}` | `StadiaPass.Tickets.View` |
+| `GET` | `/api/v1/tickets/{id}` | `StadiaPass.Tickets.View` (own ticket) / `StadiaPass.Tickets.ViewAll` (anybody's) |
+
+A permission alone cannot secure `GET /api/v1/tickets/{id}`: every customer holds `Tickets.View`, because
+that is what opening their own ticket takes. The handler therefore checks the holder as well, and answers
+404 rather than 403 for somebody else's ticket - "forbidden" would confirm that a guessed id is real.
+`Tickets.ViewAll` is what lets the box office look up the ticket in front of it.
 
 `GET /api/v1/matches/{id}/seats` returns the map already grouped by block and row, which is exactly what a
 seat picker needs to draw:
@@ -194,6 +199,15 @@ Keycloak realm role  ──►  KeycloakPermissionClaimsTransformation  ──�
   anyway — the admin menu and the seat buttons simply do not render for a customer.
 - Adding a permission is a two-step change: add the constant, add the matching realm role.
 
+### Session and token lifetime
+
+Keycloak issues an access token good for half an hour; the session that carries it lasts hours. The MVC
+app replays that token on every call to the API, so the two have to be kept in step or the user would go
+on looking signed in while everything they click came back 401. `TokenRefreshingCookieEvents` validates
+the cookie on each request and, two minutes before the token expires, exchanges the refresh token for a
+fresh one; the renewed ticket is written back to Redis. If Keycloak refuses - the refresh token is spent,
+revoked, or the session ended on its side - the local session is ended too rather than left half alive.
+
 ### Admin versus customer
 
 | | Admin (`Matches.Create`, `Venues.*`) | Customer (`Tickets.Reserve`, `Tickets.Purchase`) |
@@ -216,7 +230,7 @@ matrix. Editing them in the portal changes Keycloak, not the realm file.
 |---|---|
 | `Administrator` | everything, including the identity portal |
 | `MatchManager` | venues, match creation and postponement, ticket read |
-| `BoxOffice` | match read, ticket read, hold, buy and cancel |
+| `BoxOffice` | match read, ticket read including other people's, hold, buy and cancel |
 | `Customer` | match read, ticket read, hold and buy |
 | `Viewer` | match and ticket read only |
 

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using StadiaPass.Application.Common.Abstractions;
+using StadiaPass.SharedKernel.Authorization;
 
 namespace StadiaPass.WebAPI.Authorization;
 
@@ -17,4 +18,6 @@ internal sealed class CurrentUser(IHttpContextAccessor httpContextAccessor) : IC
         ?? throw new InvalidOperationException("The current request is not authenticated.");
 
     public string DisplayName => Principal?.FindFirstValue(PreferredUsernameClaim) ?? Reference;
+
+    public bool HasPermission(string permission) => Principal?.HasPermission(permission) is true;
 }

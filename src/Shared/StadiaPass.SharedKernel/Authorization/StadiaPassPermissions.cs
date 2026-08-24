@@ -77,6 +77,10 @@ public static class StadiaPassPermissions
     {
         public const string Default = GroupName + ".Tickets";
         public const string View = Default + ".View";
+
+        /// <summary>Read a ticket that belongs to somebody else - the box office, not the customer.</summary>
+        public const string ViewAll = Default + ".ViewAll";
+
         public const string Reserve = Default + ".Reserve";
         public const string Purchase = Default + ".Purchase";
         public const string Cancel = Default + ".Cancel";

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using StadiaPass.Domain.Common;
 using StadiaPass.Domain.Common.ValueObjects;
 using StadiaPass.Domain.Matches;
@@ -100,5 +101,15 @@ public sealed class Ticket : AggregateRoot
         Raise(new TicketCancelledDomainEvent(Id, MatchId, MatchSeatId, now));
     }
 
-    private static string BuildAccessCode() => Guid.CreateVersion7().ToString("N")[..12].ToUpperInvariant();
+    /// <summary>
+    /// Alphabet without the characters a person misreads at a turnstile: I and 1, O and 0. Twelve of them
+    /// carry sixty bits of entropy, drawn from a cryptographic source - a code derived from the clock or a
+    /// counter would let anyone who knows roughly when a ticket was bought walk in on it.
+    /// </summary>
+    private const string AccessCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+    private const int AccessCodeLength = 12;
+
+    private static string BuildAccessCode() =>
+        RandomNumberGenerator.GetString(AccessCodeAlphabet, AccessCodeLength);
 }
