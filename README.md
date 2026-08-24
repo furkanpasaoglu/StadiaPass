@@ -1,5 +1,7 @@
 # StadiaPass
 
+**English** · [Türkçe](README.tr.md)
+
 Stadium and arena ticketing built as a reference-grade **.NET 10 / C# 14** Clean Architecture solution:
 Minimal API backend, MVC front end, DDD domain model, CQRS with MediatR, Keycloak-backed dynamic permission
 authorization, and .NET Aspire orchestration.
