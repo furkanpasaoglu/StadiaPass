@@ -19,6 +19,9 @@ public static class DependencyInjection
 
     public const string KeycloakServiceName = "keycloak";
 
+    /// <summary>Named client so the Stripe timeout is a configuration value rather than a default.</summary>
+    public const string StripeHttpClientName = "stripe";
+
     public static IHostApplicationBuilder AddInfrastructure(this IHostApplicationBuilder builder)
     {
         builder.AddRedisDistributedCache(CacheConnectionName);
@@ -71,10 +74,17 @@ public static class DependencyInjection
         switch (payments.Type)
         {
             case PaymentProviderType.Stripe:
-                builder.Services.AddSingleton<IStripeClient>(_ => new StripeClient(
+                builder.Services
+                    .AddHttpClient(StripeHttpClientName)
+                    .ConfigureHttpClient(client =>
+                        client.Timeout = TimeSpan.FromSeconds(payments.TimeoutSeconds));
+
+                // Stripe retries on its own and replays the idempotency key while doing so, which is what
+                // makes a retry safe on an endpoint that moves money.
+                builder.Services.AddSingleton<IStripeClient>(provider => new StripeClient(
                     payments.SecretKey,
                     httpClient: new SystemNetHttpClient(
-                        httpClient: null,
+                        provider.GetRequiredService<IHttpClientFactory>().CreateClient(StripeHttpClientName),
                         maxNetworkRetries: 2,
                         enableTelemetry: false)));
 

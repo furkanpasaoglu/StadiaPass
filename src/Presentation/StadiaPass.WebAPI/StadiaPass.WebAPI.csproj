@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <PropertyGroup>
+    <!-- Keeps the Stripe test key out of the repository: user secrets live in the user profile. -->
+    <UserSecretsId>stadiapass-webapi</UserSecretsId>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\Core\StadiaPass.Application\StadiaPass.Application.csproj" />
     <ProjectReference Include="..\..\Infrastructure\StadiaPass.Infrastructure\StadiaPass.Infrastructure.csproj" />
