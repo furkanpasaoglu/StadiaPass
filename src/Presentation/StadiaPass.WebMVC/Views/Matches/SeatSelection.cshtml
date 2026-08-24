@@ -98,8 +98,15 @@
 
 @if (canPurchase && Model.SelectedSeatNumber is { Length: > 0 } heldSeat)
 {
+    var heldSeatDetails = map.Blocks
+        .SelectMany(block => block.Rows)
+        .SelectMany(row => row.Seats)
+        .FirstOrDefault(seat => string.Equals(seat.SeatNumber, heldSeat, StringComparison.Ordinal));
+
+    var currentYear = DateTime.Now.Year;
+
     <div class="card border-success mb-4">
-        <div class="card-body d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex justify-content-between align-items-center">
             <div>
                 <strong>Seat @heldSeat</strong> is held for you
                 @if (Model.ReservationExpiresAtUtc is { } expiry)
@@ -107,11 +114,66 @@
                     <span class="text-muted">until @expiry.ToLocalTime().ToString("HH:mm:ss")</span>
                 }
             </div>
-            <form method="post" asp-action="Purchase" asp-route-id="@map.MatchId">
+            @if (heldSeatDetails is not null)
+            {
+                <span class="fs-5 fw-semibold">
+                    @heldSeatDetails.Price.ToString("N2") @heldSeatDetails.Currency
+                </span>
+            }
+        </div>
+        <div class="card-body">
+            <form method="post" asp-action="Purchase" asp-route-id="@map.MatchId" autocomplete="off" novalidate>
                 @Html.AntiForgeryToken()
-                <input type="hidden" name="seatNumber" value="@heldSeat"/>
-                <button type="submit" class="btn btn-success">Buy this seat</button>
+                <input type="hidden" name="SeatNumber" value="@heldSeat"/>
+
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="CardHolderName">Name on card</label>
+                        <input class="form-control" id="CardHolderName" name="CardHolderName"
+                               type="text" maxlength="128" autocomplete="off" required
+                               placeholder="FURKAN PASAOGLU"/>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="CardNumber">Card number</label>
+                        <input class="form-control" id="CardNumber" name="CardNumber"
+                               type="text" inputmode="numeric" maxlength="23" autocomplete="off" required
+                               placeholder="4242 4242 4242 4242"/>
+                    </div>
+                    <div class="col-4 col-md-3">
+                        <label class="form-label" for="ExpirationMonth">Month</label>
+                        <select class="form-select" id="ExpirationMonth" name="ExpirationMonth">
+                            @for (var month = 1; month <= 12; month++)
+                            {
+                                <option value="@month">@month.ToString("00")</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-4 col-md-3">
+                        <label class="form-label" for="ExpirationYear">Year</label>
+                        <select class="form-select" id="ExpirationYear" name="ExpirationYear">
+                            @for (var year = currentYear; year <= currentYear + 15; year++)
+                            {
+                                <option value="@year">@year</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-4 col-md-3">
+                        <label class="form-label" for="Cvv">CVV</label>
+                        <input class="form-control" id="Cvv" name="Cvv"
+                               type="password" inputmode="numeric" maxlength="4" autocomplete="off" required
+                               placeholder="123"/>
+                    </div>
+                    <div class="col-12 col-md-3 d-flex align-items-end">
+                        <button type="submit" class="btn btn-success w-100">Pay and get ticket</button>
+                    </div>
+                </div>
             </form>
+
+            <p class="form-text mt-3 mb-0">
+                Test cards: <code>4242 4242 4242 4242</code> is accepted,
+                <code>4000 0000 0000 0002</code> comes back as insufficient funds.
+                Card details are used for this one charge and are never stored.
+            </p>
         </div>
     </div>
 }

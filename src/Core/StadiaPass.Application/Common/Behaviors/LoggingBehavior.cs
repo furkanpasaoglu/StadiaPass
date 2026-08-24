@@ -78,7 +78,8 @@ internal sealed partial class LoggingBehavior<TRequest, TResponse>(
             ];
 
     private static bool IsExpected(Exception exception) =>
-        exception is RequestValidationException or NotFoundException or ConflictException or DomainException;
+        exception is RequestValidationException or NotFoundException or ConflictException
+            or PaymentFailedException or DomainException;
 
     private static string Describe(Exception exception) => exception switch
     {

@@ -147,6 +147,22 @@ public sealed class Match : AggregateRoot
         return seat;
     }
 
+    /// <summary>
+    /// Runs every rule <see cref="ConfirmSeatSale"/> would run and changes nothing, returning the seat so a
+    /// caller can read its price. Taking money for a seat that cannot be sold - one held by somebody else,
+    /// or a hold that has already run out - is far worse than refusing before the card is charged.
+    /// </summary>
+    public MatchSeat EnsureSeatCanBeSoldTo(string seatNumber, string holderReference, DateTimeOffset now)
+    {
+        EnsureSalesAreOpen();
+
+        var seat = RequireSeat(seatNumber);
+
+        seat.EnsureCanBeSoldTo(holderReference, now);
+
+        return seat;
+    }
+
     public MatchSeat ConfirmSeatSale(string seatNumber, string holderReference, DateTimeOffset now)
     {
         EnsureSalesAreOpen();

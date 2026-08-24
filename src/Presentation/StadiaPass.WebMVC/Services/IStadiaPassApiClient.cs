@@ -10,7 +10,10 @@ public interface IStadiaPassApiClient
 
     Task<ApiResult<SeatReservation>> ReserveSeatAsync(Guid matchId, string seatNumber, CancellationToken cancellationToken = default);
 
-    Task<ApiResult<TicketSummary>> PurchaseAsync(Guid matchId, string seatNumber, CancellationToken cancellationToken = default);
+    Task<ApiResult<TicketSummary>> PurchaseAsync(
+        Guid matchId,
+        PurchaseInput input,
+        CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<TicketSummary>> GetMyTicketsAsync(CancellationToken cancellationToken = default);
 

@@ -80,17 +80,31 @@ public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controll
         return RedirectToAction(nameof(SeatSelection), new { id });
     }
 
+    /// <summary>
+    /// The card is read off the form, handed to the API and forgotten. Only the seat number goes into
+    /// TempData on failure - carrying card details through a redirect would put them in a cookie.
+    /// </summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [Authorize(Policy = StadiaPassPermissions.Tickets.Purchase)]
-    public async Task<IActionResult> Purchase(Guid id, string seatNumber, CancellationToken cancellationToken)
+    public async Task<IActionResult> Purchase(Guid id, PurchaseInput input, CancellationToken cancellationToken)
     {
-        var result = await apiClient.PurchaseAsync(id, seatNumber, cancellationToken);
+        if (!ModelState.IsValid)
+        {
+            TempData["Error"] = "Check the card details and try again.";
+            TempData["SelectedSeat"] = input.SeatNumber;
+
+            return RedirectToAction(nameof(SeatSelection), new { id });
+        }
+
+        var result = await apiClient.PurchaseAsync(id, input, cancellationToken);
 
         if (!result.Succeeded)
         {
+            // A decline is not a dead end: the seat is still held, so the customer lands back on the seat
+            // map with the panel open and can try another card while the hold lasts.
             TempData["Error"] = result.Error;
-            TempData["SelectedSeat"] = seatNumber;
+            TempData["SelectedSeat"] = input.SeatNumber;
 
             return RedirectToAction(nameof(SeatSelection), new { id });
         }

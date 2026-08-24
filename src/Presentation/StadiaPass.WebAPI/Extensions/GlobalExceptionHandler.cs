@@ -63,6 +63,14 @@ internal sealed partial class GlobalExceptionHandler(
             Detail = "The Keycloak Admin API could not complete the request.",
             Type = "https://tools.ietf.org/html/rfc9110#section-15.6.3"
         },
+        PaymentFailedException payment => new ProblemDetails
+        {
+            Status = StatusCodes.Status422UnprocessableEntity,
+            Title = "Payment declined",
+            Detail = payment.Message,
+            Type = "https://tools.ietf.org/html/rfc9110#section-15.5.21",
+            Extensions = { ["paymentFailureCode"] = payment.Code }
+        },
         ConflictException conflict => new ProblemDetails
         {
             Status = StatusCodes.Status409Conflict,

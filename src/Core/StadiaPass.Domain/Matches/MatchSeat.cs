@@ -58,7 +58,8 @@ public sealed class MatchSeat : Entity
         ReservationExpiresAtUtc = now.Add(window);
     }
 
-    internal void ConfirmSale(string holderReference, DateTimeOffset now)
+    /// <summary>The guards of a sale, separated so they can be run before anything irreversible happens.</summary>
+    internal void EnsureCanBeSoldTo(string holderReference, DateTimeOffset now)
     {
         if (Status is not SeatStatus.Reserved)
         {
@@ -78,6 +79,11 @@ public sealed class MatchSeat : Entity
                 "Seat.ReservationExpired",
                 $"The reservation for seat {SeatNumber} expired at {ReservationExpiresAtUtc:u}.");
         }
+    }
+
+    internal void ConfirmSale(string holderReference, DateTimeOffset now)
+    {
+        EnsureCanBeSoldTo(holderReference, now);
 
         Status = SeatStatus.Sold;
         SoldAtUtc = now;

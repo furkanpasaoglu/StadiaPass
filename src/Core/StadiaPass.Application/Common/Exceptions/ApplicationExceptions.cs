@@ -22,3 +22,13 @@ public sealed class RequestValidationException : Exception
 
     public IReadOnlyDictionary<string, string[]> Errors { get; }
 }
+
+/// <summary>
+/// The payment provider declined the charge. The seat is left exactly as it was - still held for the caller
+/// until the hold runs out - so they can try again with another card.
+/// </summary>
+public sealed class PaymentFailedException(string code, string message) : Exception(message)
+{
+    /// <summary>The provider's decline code, e.g. <c>insufficient_funds</c>.</summary>
+    public string Code { get; } = code;
+}

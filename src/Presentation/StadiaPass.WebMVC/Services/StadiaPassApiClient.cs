@@ -41,13 +41,27 @@ internal sealed class StadiaPassApiClient(HttpClient httpClient) : IStadiaPassAp
         return await ReadAsync<SeatReservation>(response, cancellationToken);
     }
 
+    /// <summary>
+    /// The card is relayed to the API over the internal service-to-service call and nothing about it is
+    /// kept on this side: the payload is built inline and goes out of scope with the request.
+    /// </summary>
     public async Task<ApiResult<TicketSummary>> PurchaseAsync(
         Guid matchId,
-        string seatNumber,
+        PurchaseInput input,
         CancellationToken cancellationToken = default)
     {
-        var response = await httpClient.PostAsJsonAsync(
-            "/api/v1/tickets", new { matchId, seatNumber }, cancellationToken);
+        var payload = new
+        {
+            matchId,
+            seatNumber = input.SeatNumber,
+            cardHolderName = input.CardHolderName,
+            cardNumber = input.CardNumber,
+            expirationMonth = input.ExpirationMonth,
+            expirationYear = input.ExpirationYear,
+            cvv = input.Cvv
+        };
+
+        var response = await httpClient.PostAsJsonAsync("/api/v1/tickets", payload, cancellationToken);
 
         return await ReadAsync<TicketSummary>(response, cancellationToken);
     }

@@ -21,6 +21,9 @@ internal static class TestData
 
     public const string SeatNumber = "MARATON-1-1";
 
+    public static MatchSeat SeatOf(Match match, string seatNumber) =>
+        match.Seats.Single(seat => seat.SeatNumber.ToString() == seatNumber);
+
     public static Match FootballMatch() =>
         Match.Create(
             SportCategory.Define("Football", null, [VenueKind.Stadium]),

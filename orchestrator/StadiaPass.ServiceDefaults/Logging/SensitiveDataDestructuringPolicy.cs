@@ -15,7 +15,10 @@ internal sealed class SensitiveDataDestructuringPolicy : IDestructuringPolicy
     public const string Mask = "***redacted***";
 
     private static readonly string[] SensitiveFragments =
-        ["password", "secret", "token", "credential", "apikey", "accesscode"];
+    [
+        "password", "secret", "token", "credential", "apikey", "accesscode",
+        "cardnumber", "securitycode", "cvv", "cvc"
+    ];
 
     public bool TryDestructure(
         object value,

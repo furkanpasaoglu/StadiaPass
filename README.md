@@ -41,7 +41,7 @@ StadiaPass.slnx
 │   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, repositories, Unit of Work, seeding
 │   │   │   ├── Configurations       # IEntityTypeConfiguration per aggregate
 │   │   │   └── Repositories         # Repository<T>, VenueRepository, MatchRepository, TicketRepository
-│   │   └── StadiaPass.Infrastructure# adapters: Redis cache, system clock, Keycloak Admin REST client
+│   │   └── StadiaPass.Infrastructure# adapters: Redis cache, clock, Keycloak Admin REST, payments
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint discovery + Scalar reference
 │       │   ├── Authorization        # Keycloak JWT wiring, KeycloakOptions, CurrentUser
@@ -147,7 +147,7 @@ and Scalar are mapped only in the Development environment.
 | `POST` | `/api/v1/matches` | `StadiaPass.Matches.Create` |
 | `GET` | `/api/v1/matches/{id}/seats` | `StadiaPass.Matches.View` |
 | `POST` | `/api/v1/matches/{id}/seats/{seatNumber}/reservation` | `StadiaPass.Tickets.Reserve` |
-| `POST` | `/api/v1/tickets` | `StadiaPass.Tickets.Purchase` |
+| `POST` | `/api/v1/tickets` | `StadiaPass.Tickets.Purchase` (charges the card, then issues) |
 | `GET` | `/api/v1/tickets/mine` | `StadiaPass.Tickets.View` |
 | `GET` | `/api/v1/tickets/{id}` | `StadiaPass.Tickets.View` (own ticket) / `StadiaPass.Tickets.ViewAll` (anybody's) |
 
@@ -420,12 +420,71 @@ container network, which keeps the data source independent of whichever host por
 | Exceptions and lock contention | `dotnet_exceptions_total`, `dotnet_monitor_lock_contentions_total` |
 | PostgreSQL command duration | `db_client_operation_duration_seconds_bucket` |
 
+## Payments
+
+A seat is only sold once the card behind it has been charged. The application layer knows one port,
+`IPaymentService`; which adapter answers is a configuration line, so the whole checkout - the decline path
+included - runs on a laptop with no Stripe account, no key and no network.
+
+```
+ConfirmTicketPurchaseCommandHandler
+  ├── 1. match.EnsureSeatCanBeSoldTo(...)   every rule of the sale, nothing changed yet
+  ├── 2. IPaymentService.ProcessPaymentAsync(...)   ──► Mock  (local)
+  │                                                 └─► Stripe (test API)
+  ├── 3. match.ConfirmSeatSale(...) + Ticket.IssueFor(...)
+  └── 4. UnitOfWork.SaveChangesAsync()      one transaction
+```
+
+The order is the whole design. The rules run **before** the card is touched, because charging someone and
+only then discovering their hold had expired leaves them paid up and seatless. Nothing is written until the
+charge succeeds, so a decline needs no compensation: the seat is still `Reserved` for that customer until
+the hold runs out, and they can try another card. A decline comes back as **422** with the provider's code:
+
+```json
+{ "title": "Payment declined", "status": 422,
+  "detail": "The card has insufficient funds.", "paymentFailureCode": "insufficient_funds" }
+```
+
+### Choosing a provider
+
+```json
+"PaymentProvider": { "Type": "Mock", "SecretKey": "" }
+```
+
+| `Type` | Adapter | Behaviour |
+|---|---|---|
+| `Mock` (default) | `MockPaymentService` | never leaves the process; `4242…` is accepted, `4000…` comes back as insufficient funds, anything else is declined |
+| `Stripe` | `StripePaymentService` | creates a PaymentMethod and a confirmed PaymentIntent against Stripe's test API, keyed by the seat so a double-click is not a second charge |
+
+A `Stripe` provider without a key, or with a key that is not `sk_test_`, fails at **startup** rather than at
+the first checkout - a live key on a development machine would charge real cards.
+
+### What happens to the card
+
+Nothing keeps it. The details go from the form to the provider and out of scope with the request: no column,
+no cache, no TempData across the redirect. The command's `CardNumber` and `Cvv` are masked by the log
+destructuring policy before any event is written, and `PaymentCard` renders as `**** **** **** 4242`
+wherever something writes one by accident:
+
+```json
+"Request": { "SeatNumber": "GUNEY-1-3", "CardHolderName": "FURKAN PASAOGLU",
+             "CardNumber": "***redacted***", "Cvv": "***redacted***" }
+```
+
+The number is checked against the Luhn digit before a provider is called at all, so a typo costs a round trip
+to the browser instead of a decline on the customer's statement.
+
+> **Not a production integration.** Raw card details reach the server here, which Stripe accepts in test mode
+> but which puts a real deployment inside PCI DSS scope. In production the browser tokenises the card with
+> Stripe.js or Elements and the server only ever sees a payment method id. The port does not change - only
+> `StripePaymentService` and the form do.
+
 ## Request pipeline
 
 ```
 HTTP → Minimal API endpoint → ISender.Send(command)
      → LoggingBehavior → ValidationBehavior (FluentValidation)
-     → Handler → Aggregate behaviour → Repository
+     → Handler → Aggregate behaviour → IPaymentService → Repository
      → UnitOfWork.SaveChangesAsync → publish domain events (MediatR notifications)
 ```
 

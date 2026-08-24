@@ -120,6 +120,40 @@ public sealed class CreateMatchInput
     public string Currency { get; set; } = "TRY";
 }
 
+/// <summary>
+/// What the checkout panel posts. These values are relayed to the API for a single charge and are never
+/// written anywhere: not to TempData, not to the model state that survives a redirect, and not to the log -
+/// the number and the security code are masked by name before any log event is written.
+/// </summary>
+public sealed class PurchaseInput
+{
+    [Required]
+    public string SeatNumber { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "The name printed on the card is required.")]
+    [StringLength(128)]
+    [Display(Name = "Name on card")]
+    public string CardHolderName { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "A card number is required.")]
+    [StringLength(23, MinimumLength = 13)]
+    [Display(Name = "Card number")]
+    public string CardNumber { get; set; } = string.Empty;
+
+    [Range(1, 12)]
+    [Display(Name = "Month")]
+    public int ExpirationMonth { get; set; } = DateTime.Now.Month;
+
+    [Range(2000, 2100)]
+    [Display(Name = "Year")]
+    public int ExpirationYear { get; set; } = DateTime.Now.Year + 1;
+
+    [Required(ErrorMessage = "The security code is required.")]
+    [RegularExpression("^[0-9]{3,4}$", ErrorMessage = "The security code is three or four digits.")]
+    [Display(Name = "CVV")]
+    public string Cvv { get; set; } = string.Empty;
+}
+
 public sealed class SeatSelectionViewModel
 {
     public required SeatMap SeatMap { get; init; }
