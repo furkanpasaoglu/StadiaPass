@@ -57,7 +57,8 @@ StadiaPass.slnx
 │   ├── StadiaPass.AppHost           # Aspire: PostgreSQL + Redis + Keycloak + Prometheus + Grafana
 │   │   ├── monitoring               # prometheus.yml, Grafana datasource and dashboard provisioning
 │   │   └── realms                   # stadiapass-realm.json - permission roles, clients, demo users
-│   └── StadiaPass.ServiceDefaults   # OpenTelemetry (OTLP + Prometheus), health checks, resilience
+│   └── StadiaPass.ServiceDefaults   # Serilog, OpenTelemetry (OTLP + Prometheus), health checks, resilience
+│       └── Logging                  # Serilog wiring, request-context enricher, credential masking
 └── tests
     ├── StadiaPass.Domain.UnitTests       # aggregate invariants
     └── StadiaPass.Application.UnitTests  # vertical slice handlers with substituted ports
@@ -298,6 +299,66 @@ signed-in user carries `Roles.Manage` or `Users.Manage`.
 An administrator carries many roles, which makes the OIDC tokens - and therefore the authentication ticket -
 large. The MVC app keeps the ticket in Redis behind an `ITicketStore` and leaves only a session key in the
 cookie, so sign-in works regardless of how many roles a user has and sign-out revokes the session for real.
+
+## Logging
+
+Serilog owns the logging pipeline of both applications. It is wired once, inside `AddServiceDefaults`, so a
+new service gets the same configuration by referencing ServiceDefaults - there is no `UseSerilog()` call to
+remember in a `Program.cs` and no second registration to drift.
+
+```
+ILogger<T>  (Microsoft.Extensions.Logging API - the call sites never mention Serilog)
+  └── Serilog
+        ├── Console          human-readable, invariant culture
+        └── OpenTelemetry    OTLP -> Aspire dashboard, structured attributes intact
+```
+
+Every event carries `ApplicationName`, `Environment` and `ThreadId`, and while an HTTP request is in flight
+also `CorrelationId` plus the `UserId` and `UserName` resolved from the Keycloak token. The correlation id is
+taken from an `X-Correlation-ID` header when the caller supplies one and otherwise from the current
+`Activity`, so a log line and a distributed trace point at the same id.
+
+The MediatR `LoggingBehavior` pushes the command or query itself onto Serilog's `LogContext`, destructured.
+Every event raised anywhere inside the handler - including the ones the handler writes itself - therefore
+carries the parameters that produced it and the caller who asked for it:
+
+```json
+{
+  "message": "Handled CreateUserCommand in 185.2638 ms",
+  "RequestName": "CreateUserCommand",
+  "UserId": "1808c6d6-c5f3-414b-b3bd-62ce83cf7373",
+  "UserName": "mudur",
+  "CorrelationId": "9d02279fd3dfdc7bd0868d2d2b759e05",
+  "Request": {
+    "Username": "serilogprobe",
+    "Email": "serilogprobe@example.com",
+    "Password": "***redacted***",
+    "Roles": ["Customer"]
+  }
+}
+```
+
+`CreateUserCommand` carries a password, which is what makes blanket destructuring a liability. A
+destructuring policy in ServiceDefaults masks every member whose name contains `password`, `secret`, `token`,
+`credential`, `apikey` or `accesscode` before the event is written, so a credential cannot reach a sink even
+when a future command adds one.
+
+Noise is kept out on purpose - a log nobody can read is a log nobody reads:
+
+| Source | Level | Why |
+|---|---|---|
+| `Microsoft.*`, `System.*` | Warning | the framework narrates every request three times |
+| `Microsoft.EntityFrameworkCore.Database.Command` | Warning | otherwise every SQL statement, at Information |
+| `Polly` | Warning | one line per attempt for every outbound call to Keycloak |
+| `/health`, `/alive`, `/metrics` | Verbose | Prometheus scrapes every 5 s; these would dominate the log |
+
+`UseSerilogRequestLogging` replaces the framework's three lines per request with one carrying the method,
+route, status code and duration. In the API it is the outermost middleware, so the line reports the status
+the caller actually received; in the MVC app it sits after the static file handler, so a page view stays one
+line instead of a dozen.
+
+Both `Program.cs` files create a bootstrap logger before the host exists, so a failure during startup - a bad
+connection string, an unreachable Keycloak - is written out instead of disappearing with the process.
 
 ## Metrics and dashboards
 

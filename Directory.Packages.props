@@ -1,6 +1,11 @@
 <Project>
   <ItemGroup Label="Domain">
     <PackageVersion Include="MediatR.Contracts" Version="2.0.1" />
+    
+    
+    
+    
+    
   </ItemGroup>
   <ItemGroup Label="Application">
     <PackageVersion Include="MediatR" Version="12.5.0" />
@@ -8,6 +13,7 @@
     <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Serilog" Version="4.4.0" />
   </ItemGroup>
   <ItemGroup Label="Persistence">
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
@@ -40,6 +46,10 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
+    <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageVersion Include="Serilog.Enrichers.Thread" Version="4.0.0" />
+    <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageVersion Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
   </ItemGroup>
   <ItemGroup Label="Tests">
     <PackageVersion Include="FluentAssertions" Version="7.2.0" />
