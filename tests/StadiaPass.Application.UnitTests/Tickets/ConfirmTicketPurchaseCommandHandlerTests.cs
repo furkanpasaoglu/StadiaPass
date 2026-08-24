@@ -27,6 +27,10 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
 
     private readonly IPaymentService _paymentService = Substitute.For<IPaymentService>();
 
+    private readonly IDistributedLock _distributedLock = Substitute.For<IDistributedLock>();
+
+    private readonly IDistributedLockHandle _seatLock = Substitute.For<IDistributedLockHandle>();
+
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
     private readonly IPublisher _publisher = Substitute.For<IPublisher>();
@@ -49,10 +53,17 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
             .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
             .Returns(call => call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>()));
 
+        // Nobody else is buying this seat unless a test says so; a substitute left to itself would answer
+        // null, which is the handler's signal that the seat is taken.
+        _distributedLock
+            .TryAcquireAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(_seatLock);
+
         _handler = new ConfirmTicketPurchaseCommandHandler(
             _matchRepository,
             _ticketRepository,
             _paymentService,
+            _distributedLock,
             _unitOfWork,
             _publisher,
             _currentUser,
@@ -148,6 +159,68 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
         await _paymentService
             .DidNotReceive()
             .ProcessPaymentAsync(Arg.Any<PaymentRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_TurnTheRequestAwayAtTheDoor_When_TheSeatIsAlreadyBeingBought()
+    {
+        // Arrange
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+        _distributedLock
+            .TryAcquireAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns((IDistributedLockHandle?)null);
+
+        // Act
+        var buying = () => _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - the point of the lock is the work that does not happen: no seat map read, no charge, and
+        // therefore no refund to make afterwards.
+        await buying.Should().ThrowAsync<ConcurrencyConflictException>();
+        await _matchRepository
+            .DidNotReceive()
+            .GetWithSeatAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _paymentService
+            .DidNotReceive()
+            .ProcessPaymentAsync(Arg.Any<PaymentRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_LockTheSeatByItsCanonicalNumber_When_ThePurchaseIsAttempted()
+    {
+        // Arrange - the same seat written the way a careless caller might write it.
+        var command = Command() with { SeatNumber = TestData.SeatNumber.ToLowerInvariant() };
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+
+        // Act
+        await _handler.Handle(command, CancellationToken.None);
+
+        // Assert - two spellings of one seat have to reach the same key, or the lock guards nothing.
+        await _distributedLock
+            .Received(1)
+            .TryAcquireAsync(
+                $"lock:seat:{command.MatchId}:{TestData.SeatNumber}",
+                Arg.Any<TimeSpan>(),
+                Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_ReleaseTheSeatLock_When_ThePurchaseFails()
+    {
+        // Arrange
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        _paymentService
+            .ProcessPaymentAsync(Arg.Any<PaymentRequest>(), Arg.Any<CancellationToken>())
+            .Returns(PaymentResult.Failure("insufficient_funds", "The card has insufficient funds."));
+
+        // Act
+        var buying = () => _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - a declined card must not leave the seat locked until the lease runs out; the customer is
+        // expected to come straight back with another one.
+        await buying.Should().ThrowAsync<PaymentFailedException>();
+        await _seatLock.Received(1).DisposeAsync();
     }
 
     [Fact]
@@ -270,8 +343,10 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
 
         match.ReserveSeat(TestData.SeatNumber, holderReference, TestData.Now);
 
+        // Any spelling of the seat: the real repository parses the number before it looks it up, so a
+        // substitute matching the exact string would be stricter than the thing it stands in for.
         _matchRepository
-            .GetWithSeatAsync(Arg.Any<Guid>(), TestData.SeatNumber, Arg.Any<CancellationToken>())
+            .GetWithSeatAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(match);
 
         return match;

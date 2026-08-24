@@ -7,6 +7,7 @@ using StadiaPass.Application.Identity;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Infrastructure.Caching;
 using StadiaPass.Infrastructure.Identity;
+using StadiaPass.Infrastructure.Locking;
 using StadiaPass.Infrastructure.Payments;
 using StadiaPass.Infrastructure.Time;
 using Stripe;
@@ -29,6 +30,10 @@ public static class DependencyInjection
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
         builder.Services.AddScoped<ICacheService, RedisCacheService>();
+
+        // The multiplexer comes from the Aspire Redis component that AddRedisDistributedCache already set up,
+        // so the lock shares one connection with the cache rather than opening a second.
+        builder.Services.AddSingleton<IDistributedLock, RedisDistributedLock>();
 
         builder.Services
             .AddOptions<KeycloakAdminOptions>()

@@ -6,6 +6,7 @@ using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Application.Tickets.Events;
 using StadiaPass.Domain.Abstractions;
+using StadiaPass.Domain.Common.ValueObjects;
 using StadiaPass.Domain.Matches;
 using StadiaPass.Domain.Tickets;
 
@@ -15,6 +16,7 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
     IMatchRepository matchRepository,
     ITicketRepository ticketRepository,
     IPaymentService paymentService,
+    IDistributedLock distributedLock,
     IUnitOfWork unitOfWork,
     IPublisher publisher,
     ICurrentUser currentUser,
@@ -22,8 +24,27 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
     ILogger<ConfirmTicketPurchaseCommandHandler> logger)
     : IRequestHandler<ConfirmTicketPurchaseCommand, TicketDto>
 {
+    /// <summary>
+    /// Long enough to cover a slow provider and the write that follows, and no longer. This is not the ten
+    /// minute reservation window: a hold is a promise to a customer, whereas this lease only has to outlive
+    /// one attempt to pay. Set it to the window and a process that dies mid-purchase would make the seat
+    /// unbuyable for ten minutes - including to the very person still holding it, whose hold would expire
+    /// while they waited.
+    /// </summary>
+    private static readonly TimeSpan SeatLockLease = TimeSpan.FromMinutes(1);
+
     public async Task<TicketDto> Handle(ConfirmTicketPurchaseCommand request, CancellationToken cancellationToken)
     {
+        // Turned away at the door. The seat's concurrency token is what makes a double sale impossible, but
+        // it only says so at the very end - by which point the loser has had their card charged and refunded
+        // for a seat they were never going to get. A charge and a refund on somebody's statement for nothing
+        // is worth avoiding, and this is what avoids it.
+        await using var seatLock =
+            await distributedLock.TryAcquireAsync(SeatLockKey(request), SeatLockLease, cancellationToken)
+            ?? throw new ConcurrencyConflictException(
+                $"Seat {request.SeatNumber} is being bought by somebody else at this very moment. "
+                + "Please try again in a few seconds.");
+
         var match = await matchRepository.GetWithSeatAsync(request.MatchId, request.SeatNumber, cancellationToken)
             ?? throw new NotFoundException(nameof(Match), request.MatchId);
 
@@ -193,6 +214,20 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
     /// <summary>Card numbers are typed with spaces and dashes; providers want the digits alone.</summary>
     private static string Digits(string cardNumber) =>
         string.Concat(cardNumber.Where(char.IsAsciiDigit));
+
+    /// <summary>
+    /// The seat's own id would be the obvious key, and getting it would mean the database round trip this
+    /// lock exists to avoid. The match and the seat number identify a seat just as exactly - there is a
+    /// unique index on precisely that pair - and both arrive with the request.
+    /// </summary>
+    /// <remarks>
+    /// Parsed rather than used as typed, because <c>maraton-01-7</c> and <c>MARATON-1-7</c> are the same seat
+    /// and would otherwise be two different keys, which is a lock that quietly guards nothing.
+    /// </remarks>
+    private static string SeatLockKey(ConfirmTicketPurchaseCommand request) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"lock:seat:{request.MatchId}:{SeatNumber.Parse(request.SeatNumber)}");
 
     [LoggerMessage(
         EventId = 3100,
