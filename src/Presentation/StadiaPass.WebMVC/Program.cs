@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Localization;
 using Serilog;
+using StadiaPass.ServiceDefaults.Configuration;
 using StadiaPass.ServiceDefaults.Logging;
 using StadiaPass.WebMVC.Authentication;
 using StadiaPass.WebMVC.Services;
@@ -15,6 +16,10 @@ Log.Logger = new LoggerConfiguration()
 try
 {
     var builder = WebApplication.CreateBuilder(args);
+
+    // Vault first: a connection string is read while the container is being built, so a configuration
+    // source added any later would arrive after the thing that needed it.
+    builder.AddVaultConfiguration();
 
     builder.AddServiceDefaults();
     builder.AddKeycloakLogin();

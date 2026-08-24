@@ -16,6 +16,10 @@ public sealed class KeycloakAdminOptions
     [Required]
     public string AdminClientId { get; init; } = "stadiapass-admin-api";
 
-    [Required]
-    public string AdminClientSecret { get; init; } = "stadiapass-admin-dev-secret";
+    /// <summary>
+    /// Read from configuration, which in a running system means Vault - there is deliberately no default.
+    /// A secret with a fallback is a secret that quietly keeps working after someone forgets to set it.
+    /// </summary>
+    [Required(ErrorMessage = "Keycloak:AdminClientSecret is not set. It is expected to come from Vault.")]
+    public string AdminClientSecret { get; init; } = string.Empty;
 }

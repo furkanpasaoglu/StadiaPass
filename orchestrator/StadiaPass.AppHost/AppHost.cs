@@ -1,3 +1,5 @@
+using System.Net.Http.Json;
+
 var builder = DistributedApplication.CreateBuilder(args);
 
 var postgres = builder.AddPostgres("postgres")
@@ -19,6 +21,24 @@ var keycloak = builder.AddKeycloak("keycloak", port: 8080)
     // Raise the limit rather than answering 431 while developing.
     .WithEnvironment("QUARKUS_HTTP_LIMITS_MAX_HEADER_SIZE", "32K");
 
+// Secrets live in Vault, not in a file. In development the orchestrator runs a dev-mode server - in-memory,
+// unsealed, with a known root token - and writes the values it alone can resolve, such as the connection
+// strings Aspire generates. A deployment swaps this resource for a real Vault and the applications do not
+// notice: they read the same path with a token issued to them.
+// There is no Aspire.Hosting.Vault package, so the official image is orchestrated directly.
+const string vaultRootToken = "stadiapass-root-token";
+const string vaultSecretPath = "stadiapass";
+
+var vault = builder.AddContainer("vault", "hashicorp/vault", "1.21")
+    .WithEnvironment("VAULT_DEV_ROOT_TOKEN_ID", vaultRootToken)
+    .WithEnvironment("VAULT_DEV_LISTEN_ADDRESS", "0.0.0.0:8200")
+    .WithArgs("server", "-dev")
+    .WithHttpEndpoint(port: 8200, targetPort: 8200, name: "http")
+    .WithUrlForEndpoint("http", url => url.DisplayText = "Vault UI")
+    .WithHttpHealthCheck("/v1/sys/health", endpointName: "http");
+
+var vaultEndpoint = vault.GetEndpoint("http");
+
 var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
     .WithReference(database)
     .WithReference(cache)
@@ -26,6 +46,11 @@ var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
     .WaitFor(database)
     .WaitFor(cache)
     .WaitFor(keycloak)
+    .WithReference(vaultEndpoint)
+    .WaitFor(vault)
+    .WithEnvironment("Vault__Address", vaultEndpoint)
+    .WithEnvironment("Vault__Token", vaultRootToken)
+    .WithEnvironment("Vault__Path", vaultSecretPath)
     .WithEnvironment("Keycloak__PublicAuthority", keycloak.GetEndpoint("http"))
     .WithHttpHealthCheck("/health")
     .WithUrlForEndpoint("http", url =>
@@ -34,24 +59,17 @@ var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
         url.DisplayText = "API Reference (Scalar)";
     });
 
-// The payment provider is chosen outside the repository. Nothing about it is committed: the values come
-// from the AppHost's own configuration - an environment variable today, a secrets manager later - and are
-// forwarded to the API only when they are actually set, so a clone with no configuration still runs on the
-// mock provider.
-foreach (var setting in (string[])["Type", "SecretKey"])
-{
-    if (builder.Configuration[$"PaymentProvider:{setting}"] is { Length: > 0 } value)
-    {
-        webApi.WithEnvironment($"PaymentProvider__{setting}", value);
-    }
-}
-
 builder.AddProject<Projects.StadiaPass_WebMVC>("webmvc")
     .WithReference(webApi)
     .WithReference(cache)
     .WithReference(keycloak)
     .WaitFor(webApi)
     .WaitFor(keycloak)
+    .WithReference(vaultEndpoint)
+    .WaitFor(vault)
+    .WithEnvironment("Vault__Address", vaultEndpoint)
+    .WithEnvironment("Vault__Token", vaultRootToken)
+    .WithEnvironment("Vault__Path", vaultSecretPath)
     .WithEnvironment("Keycloak__PublicAuthority", keycloak.GetEndpoint("http"))
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
@@ -80,5 +98,37 @@ builder.AddContainer("grafana", "grafana/grafana", "12.2.0")
     .WithHttpEndpoint(port: 3000, targetPort: 3000, name: "http")
     .WithUrlForEndpoint("http", url => url.DisplayText = "Grafana")
     .WaitFor(prometheus);
+
+// Written once the server is up: everything the applications must not carry in a file. The connection
+// strings are resolved here because only the orchestrator knows the ports and passwords Aspire generated;
+// the Stripe key is passed through from the AppHost's own environment and never touches the repository.
+builder.Eventing.Subscribe<ResourceReadyEvent>(vault.Resource, async (@event, cancellationToken) =>
+{
+    var secrets = new Dictionary<string, string?>(StringComparer.Ordinal)
+    {
+        ["ConnectionStrings:stadiapassdb"] =
+            await database.Resource.ConnectionStringExpression.GetValueAsync(cancellationToken),
+        ["ConnectionStrings:cache"] =
+            await cache.Resource.ConnectionStringExpression.GetValueAsync(cancellationToken),
+        ["Keycloak:AdminClientSecret"] = "stadiapass-admin-dev-secret",
+        ["Keycloak:ClientSecret"] = "stadiapass-mvc-dev-secret",
+        ["PaymentProvider:Type"] = builder.Configuration["PaymentProvider:Type"],
+        ["PaymentProvider:SecretKey"] = builder.Configuration["PaymentProvider:SecretKey"]
+    };
+
+    var payload = new
+    {
+        data = secrets.Where(entry => entry.Value is { Length: > 0 }).ToDictionary(StringComparer.Ordinal)
+    };
+
+    using var client = new HttpClient { BaseAddress = new Uri(vaultEndpoint.Url) };
+    client.DefaultRequestHeaders.Add("X-Vault-Token", vaultRootToken);
+
+    using var response = await client.PostAsJsonAsync(
+        $"/v1/secret/data/{vaultSecretPath}", payload, cancellationToken);
+
+    response.EnsureSuccessStatusCode();
+});
+
 
 await builder.Build().RunAsync();

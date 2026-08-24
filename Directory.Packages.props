@@ -51,6 +51,7 @@
     <PackageVersion Include="Serilog.Enrichers.Thread" Version="4.0.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
+    <PackageVersion Include="VaultSharp" Version="1.17.5.1" />
   </ItemGroup>
   <ItemGroup Label="Tests">
     <PackageVersion Include="FluentAssertions" Version="7.2.0" />

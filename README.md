@@ -54,10 +54,10 @@ StadiaPass.slnx
 │           ├── Models               # its own contracts - no reference to Domain/Application
 │           └── Services             # typed HttpClients (ticketing + identity portal)
 ├── orchestrator
-│   ├── StadiaPass.AppHost           # Aspire: PostgreSQL + Redis + Keycloak + Prometheus + Grafana
+│   ├── StadiaPass.AppHost           # Aspire: PostgreSQL + Redis + Keycloak + Vault + Prometheus + Grafana
 │   │   ├── monitoring               # prometheus.yml, Grafana datasource and dashboard provisioning
 │   │   └── realms                   # stadiapass-realm.json - permission roles, clients, demo users
-│   └── StadiaPass.ServiceDefaults   # Serilog, OpenTelemetry (OTLP + Prometheus), health checks, resilience
+│   └── StadiaPass.ServiceDefaults   # Vault configuration, Serilog, OpenTelemetry, health checks
 │       └── Logging                  # Serilog wiring, request-context enricher, credential masking
 └── tests
     ├── StadiaPass.Domain.UnitTests       # aggregate invariants
@@ -121,6 +121,7 @@ realm is imported.
 |---|---|
 | MVC UI | http://localhost:5230 |
 | Keycloak | https://localhost:8080 |
+| Vault UI | http://localhost:8200 |
 | API | http://localhost:5042 |
 | API reference (Scalar) | http://localhost:5042/scalar/v1 |
 | OpenAPI document | http://localhost:5042/openapi/v1.json |
@@ -419,6 +420,70 @@ container network, which keeps the data source independent of whichever host por
 | CPU and thread pool | `dotnet_process_cpu_time_seconds_total`, `dotnet_thread_pool_thread_count_total` |
 | Exceptions and lock contention | `dotnet_exceptions_total`, `dotnet_monitor_lock_contentions_total` |
 | PostgreSQL command duration | `db_client_operation_duration_seconds_bucket` |
+
+## Secrets
+
+No secret is written down anywhere in this repository. The database password, the Keycloak client secrets and
+the Stripe key all live in **HashiCorp Vault**, and the only thing an application is given is an address and
+a token.
+
+```
+AppHost                         Vault (KV v2)                 WebAPI / WebMVC
+  resolves what only it knows  ──►  secret/stadiapass  ──►  IConfiguration
+  (generated ports, passwords)                              (added last, so it wins)
+```
+
+`AddVaultConfiguration()` is the first line of both `Program.cs` files, before anything reads configuration -
+a connection string is resolved while the container is being built, so a source added later would arrive
+after the thing that needed it. It registers an ordinary `ConfigurationProvider`, which is what keeps the
+rest of the codebase unaware that Vault exists: `IOptions<T>`, `GetConnectionString` and everything else
+carry on exactly as before.
+
+| Key in Vault | Used by |
+|---|---|
+| `ConnectionStrings:stadiapassdb` | EF Core |
+| `ConnectionStrings:cache` | Redis cache and the MVC ticket store |
+| `Keycloak:AdminClientSecret` | `KeycloakAdminService` service account |
+| `Keycloak:ClientSecret` | MVC OpenID Connect login |
+| `PaymentProvider:Type`, `PaymentProvider:SecretKey` | the payment provider strategy |
+
+### No fallbacks
+
+The options that carry a secret have **no default value** and are `[Required]` with `ValidateOnStart`. A
+secret with a working default is a secret that keeps quietly working after someone forgets to configure it,
+and then travels into production. Start the API without Vault and it stops immediately:
+
+```
+OptionsValidationException: DataAnnotation validation failed for 'KeycloakAdminOptions' members:
+'AdminClientSecret' with the error: 'Keycloak:AdminClientSecret is not set. It is expected to come from Vault.'
+```
+
+### Development
+
+There is no `Aspire.Hosting.Vault` package, so the AppHost orchestrates the official image directly: a
+dev-mode server, in memory and unsealed, with the root token `stadiapass-root-token`. Once it reports ready
+the AppHost writes the values it alone can resolve - the ports and passwords Aspire generated for Postgres
+and Redis - and passes the Stripe key through from its own environment:
+
+```powershell
+$env:PaymentProvider__Type = "Stripe"
+$env:PaymentProvider__SecretKey = "sk_test_..."
+dotnet run --project orchestrator\StadiaPass.AppHost
+```
+
+The UI is on the Aspire dashboard as **Vault UI** (http://localhost:8200), token `stadiapass-root-token`.
+Nothing survives a restart, which is the point: a dev secret store that persists is a dev secret store that
+eventually holds something real.
+
+### Moving to a deployment
+
+Three things change, none of them in application code:
+
+1. The dev container becomes a real Vault cluster, and `Vault__Address` points at it.
+2. `Vault__Token` stops being a root token. Vault issues a scoped one through AppRole, Kubernetes auth or the
+   agent sidecar; the provider takes a token however it is obtained.
+3. Nothing seeds Vault from the orchestrator any more - Vault is the source of truth, and the AppHost's
+   seeding step exists only so a clone comes up working.
 
 ## Payments
 
