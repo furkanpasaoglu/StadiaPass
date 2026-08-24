@@ -7,6 +7,12 @@ authorization, and .NET Aspire orchestration.
 Matches belong to a sport category and are opened against a venue seating plan. Customers pick a seat off an
 interactive map, the seat is held for them, and the purchase turns that hold into a ticket.
 
+Most of what is interesting here is in that last sentence. Two people want the same seat, money moves at a
+company on the other side of the internet, and the things that happen afterwards must not be able to fail the
+checkout — so the seat is guarded by [optimistic concurrency](#concurrency), the charge is
+[compensated when the sale does not land](#when-the-money-moved-and-the-sale-did-not), and the announcement
+leaves through a [transactional outbox](#messaging).
+
 ## Architecture
 
 ```
@@ -31,7 +37,10 @@ StadiaPass.slnx
 │   │       ├── Common
 │   │       │   ├── Abstractions     # IDateTimeProvider, ICacheService, ICurrentUser
 │   │       │   ├── Behaviors        # LoggingBehavior, ValidationBehavior (MediatR pipeline)
-│   │       │   └── Exceptions       # NotFoundException, ConflictException, RequestValidationException
+│   │       │   ├── Exceptions       # NotFound, Conflict, ConcurrencyConflict, PaymentFailed, Validation
+│   │       │   └── Messaging        # IntegrationEventTypes - the messages allowed on the wire
+│   │       ├── Infrastructure
+│   │       │   └── Abstractions     # IPaymentService, IDistributedLock, IOutbox, IEventBus
 │   │       ├── Categories           # GetCategories / CreateCategory / UpdateCategory / DeleteCategory
 │   │       ├── Identity             # Keycloak Admin port: Roles / Users slices
 │   │       ├── Venues               # GetVenues / CreateVenue / UpdateVenue / DeleteVenue
@@ -40,8 +49,12 @@ StadiaPass.slnx
 │   ├── Infrastructure
 │   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, repositories, Unit of Work, seeding
 │   │   │   ├── Configurations       # IEntityTypeConfiguration per aggregate
+│   │   │   ├── Outbox               # OutboxMessage + writer + the sweeper that carries it to the broker
 │   │   │   └── Repositories         # Repository<T>, VenueRepository, MatchRepository, TicketRepository
-│   │   └── StadiaPass.Infrastructure# adapters: Redis cache, clock, Keycloak Admin REST, payments
+│   │   └── StadiaPass.Infrastructure# adapters for the ports above
+│   │       ├── Locking              # Redis SET NX PX + a Lua compare-and-delete release
+│   │       ├── Messaging            # MassTransit over RabbitMQ + the TicketPurchasedEvent consumer
+│   │       └── Payments             # Mock and Stripe adapters, provider strategy
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint discovery + Scalar reference
 │       │   ├── Authorization        # Keycloak JWT wiring, KeycloakOptions, CurrentUser
@@ -54,7 +67,7 @@ StadiaPass.slnx
 │           ├── Models               # its own contracts - no reference to Domain/Application
 │           └── Services             # typed HttpClients (ticketing + identity portal)
 ├── orchestrator
-│   ├── StadiaPass.AppHost           # Aspire: PostgreSQL + Redis + Keycloak + Vault + Prometheus + Grafana
+│   ├── StadiaPass.AppHost           # Aspire: PostgreSQL, Redis, RabbitMQ, Keycloak, Vault, Prometheus, Grafana
 │   │   ├── monitoring               # prometheus.yml, Grafana datasource and dashboard provisioning
 │   │   └── realms                   # stadiapass-realm.json - permission roles, clients, demo users
 │   └── StadiaPass.ServiceDefaults   # Vault configuration, Serilog, OpenTelemetry, health checks
@@ -113,15 +126,16 @@ Requires the .NET 10 SDK and a container runtime (Docker Desktop or Podman).
 dotnet run --project orchestrator/StadiaPass.AppHost
 ```
 
-Aspire starts PostgreSQL (with pgAdmin), Redis (with RedisInsight), Keycloak, the API and the MVC app. On
-first start the schema is created and seeded with two venues and three matches (742 seats), and the Keycloak
-realm is imported.
+Aspire starts PostgreSQL (with pgAdmin), Redis (with RedisInsight), RabbitMQ (with the management plugin),
+Keycloak, Vault, the API and the MVC app. On first start the schema is created and seeded with two venues and
+three matches (742 seats), and the Keycloak realm is imported.
 
 | Resource | Default local URL |
 |---|---|
 | MVC UI | http://localhost:5230 |
 | Keycloak | https://localhost:8080 |
 | Vault UI | http://localhost:8200 |
+| RabbitMQ management | shown on the `messaging` resource in the Aspire dashboard |
 | API | http://localhost:5042 |
 | API reference (Scalar) | http://localhost:5042/scalar/v1 |
 | OpenAPI document | http://localhost:5042/openapi/v1.json |
@@ -443,6 +457,7 @@ carry on exactly as before.
 |---|---|
 | `ConnectionStrings:stadiapassdb` | EF Core |
 | `ConnectionStrings:cache` | Redis cache and the MVC ticket store |
+| `ConnectionStrings:messaging` | MassTransit / RabbitMQ |
 | `Keycloak:AdminClientSecret` | `KeycloakAdminService` service account |
 | `Keycloak:ClientSecret` | MVC OpenID Connect login |
 | `PaymentProvider:Type`, `PaymentProvider:SecretKey` | the payment provider strategy |
@@ -462,8 +477,8 @@ OptionsValidationException: DataAnnotation validation failed for 'KeycloakAdminO
 
 There is no `Aspire.Hosting.Vault` package, so the AppHost orchestrates the official image directly: a
 dev-mode server, in memory and unsealed, with the root token `stadiapass-root-token`. Once it reports ready
-the AppHost writes the values it alone can resolve - the ports and passwords Aspire generated for Postgres
-and Redis - and passes the Stripe key through from its own environment:
+the AppHost writes the values it alone can resolve - the ports and passwords Aspire generated for Postgres,
+Redis and RabbitMQ - and passes the Stripe key through from its own environment:
 
 ```powershell
 $env:PaymentProvider__Type = "Stripe"
@@ -485,6 +500,90 @@ Three things change, none of them in application code:
 3. Nothing seeds Vault from the orchestrator any more - Vault is the source of truth, and the AppHost's
    seeding step exists only so a clone comes up working.
 
+## Concurrency
+
+Two people want the same seat. Everything below exists for that one sentence.
+
+### The seat: PostgreSQL `xmin`
+
+Both requests read the seat, both find it theirs to buy, both write. Without a guard the second write simply
+lands on top of the first: one seat, two tickets, two people at the same turnstile.
+
+PostgreSQL already stamps every row with the id of the transaction that last wrote it, in a hidden system
+column called `xmin`. Mapping that as the concurrency token turns every UPDATE into a conditional one:
+
+```sql
+UPDATE stadiapass.match_seats SET "HolderReference" = @p0, "Status" = @p1
+WHERE "Id" = @p2 AND xmin = @p3
+```
+
+Whoever writes second matches zero rows, and EF Core raises `DbUpdateConcurrencyException`. There is no extra
+column, no migration and no lock held for the length of a request — which matters here, because this project
+creates its schema with `EnsureCreated` and a real version column would never reach a database that already
+exists.
+
+`DbUpdateConcurrencyException` is translated into `ConcurrencyConflictException` in `UnitOfWork`, not in the
+handler: the application layer does not reference EF Core, and this is the seam that keeps it that way.
+
+### The counters: a relative update
+
+The token protects a seat, not the match. Two people buying two *different* seats of the same match never
+touch the same seat row — but both would write back the seat counts they happened to read, and one of the two
+sales would quietly vanish from the totals.
+
+The aggregate still moves its own counters in memory, because that is what keeps the domain rules and the
+tests that pin them down honest. Those values simply never reach the database. They are marked unmodified and
+the totals are worked out by PostgreSQL instead:
+
+```sql
+UPDATE stadiapass.matches AS m
+SET "ReservedSeatCount" = m."ReservedSeatCount" - 1,
+    "SoldSeatCount"     = m."SoldSeatCount" + 1,
+    "Status" = CASE WHEN m."AvailableSeatCount" = 0 AND m."ReservedSeatCount" = 1
+                    THEN 'SoldOut' ELSE m."Status" END
+WHERE "Id" = @match_Id
+```
+
+The sold-out test asks whether the reservation being sold is the *last* one, rather than whether the count is
+already zero, because every `SET` expression reads the row as it was before the statement. This runs first
+inside the transaction, before the seat is touched: it takes the coarsest row, so concurrent sales of one
+match queue up here rather than reaching for two rows in opposite orders, which is how deadlocks are made.
+
+### The door: a Redis lock
+
+The token makes a double sale impossible, but it only says so at the very end — by which point the losing
+request has had a card charged and refunded for a seat it was never going to get. A charge and a refund on
+somebody's statement, for nothing.
+
+So the request is turned away at the door instead, before the seat map is read and before Stripe is called:
+
+```
+SET lock:seat:{matchId}:{seatNumber} <token> NX PX 60000
+```
+
+Three decisions in that one line are worth more than the line itself.
+
+**Releasing is a compare-and-delete, not a delete.** Once a lease has expired and somebody else holds the
+key, a plain `DEL` throws away *their* lock and lets a third caller in beside them. The value stored is a
+one-off token, and the release asks about it in a single script, because Redis runs a script without
+interleaving anything else:
+
+```lua
+if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end
+```
+
+**The lease is a minute, not the ten of the reservation window.** A hold is a promise to a customer; this
+lease only has to outlive one attempt to pay. Set it to the window and a process that dies mid-purchase makes
+the seat unbuyable for ten minutes — including to the very person still holding the reservation, whose hold
+would expire while they waited.
+
+**Redis being unreachable is not a reason to stop selling tickets.** The lock fails open with a warning,
+because correctness lives in the seat's concurrency token and not here. A cache outage must not become a
+sales outage. `null` therefore always means *somebody else holds it*, never *the lock could not be reached*.
+
+> This lock adds no safety the database did not already provide. What it adds is the work that does not
+> happen: no seat map read, no charge, no refund, and no confusing pair of lines on a statement.
+
 ## Payments
 
 A seat is only sold once the card behind it has been charged. The application layer knows one port,
@@ -493,11 +592,15 @@ included - runs on a laptop with no Stripe account, no key and no network.
 
 ```
 ConfirmTicketPurchaseCommandHandler
-  ├── 1. match.EnsureSeatCanBeSoldTo(...)   every rule of the sale, nothing changed yet
-  ├── 2. IPaymentService.ProcessPaymentAsync(...)   ──► Mock  (local)
+  ├── 1. IDistributedLock.TryAcquireAsync("lock:seat:{match}:{seat}")   409 if somebody is mid-purchase
+  ├── 2. match.EnsureSeatCanBeSoldTo(...)   every rule of the sale, nothing changed yet
+  ├── 3. IPaymentService.ProcessPaymentAsync(...)   ──► Mock  (local)
   │                                                 └─► Stripe (test API)
-  ├── 3. match.ConfirmSeatSale(...) + Ticket.IssueFor(...)
-  └── 4. UnitOfWork.SaveChangesAsync()      one transaction
+  ├── 4. match.ConfirmSeatSale(...) + Ticket.IssueFor(...)
+  └── 5. one transaction ─┬── atomic counter update on the match row
+                          ├── seat + ticket, guarded by the seat's xmin
+                          └── the TicketPurchasedEvent, into the outbox
+                              └── on failure: RefundPaymentAsync, then 409
 ```
 
 The order is the whole design. The rules run **before** the card is touched, because charging someone and
@@ -510,25 +613,40 @@ the hold runs out, and they can try another card. A decline comes back as **422*
   "detail": "The card has insufficient funds.", "paymentFailureCode": "insufficient_funds" }
 ```
 
+### When the money moved and the sale did not
+
+Step 3 and step 5 cannot be made one atomic act: a card is charged at a company on the other side of the
+internet, and a seat is sold in a database here. Between them the sale can still fail — the seat can go to
+somebody who got to the row first, or the connection can drop. The customer would be paid up and seatless,
+which is the one outcome worth writing code to avoid.
+
+So every exit from step 5 that is not success gives the money back before the exception travels any further,
+and only then answers **409**. Two details make that safe rather than merely well-intentioned:
+
+- **The refund is not given the request's cancellation token.** By then the customer may well have closed the
+  tab, and that is no reason to keep their money. It runs on `CancellationToken.None`.
+- **The refund carries an idempotency key** of `refund:{transactionId}`, so an attempt that is retried gives
+  the money back once. Stripe answers a repeat with the same refund id rather than making a second one.
+
+The charge is keyed the same way — `stadiapass:{matchId}:{seatNumber}` — which is what makes a double-click
+one charge instead of two.
+
+A refund that itself fails is logged at `Error` with the provider's transaction id rather than thrown: the
+caller is already on its way to an error, and replacing that error with this one would hide what actually
+went wrong. That log line is what a person needs to give the money back by hand.
+
+> **This is compensation, not atomicity.** Nothing can make a charge and a database write commit together.
+> What is claimed here is narrower and testable: money never stays taken for a seat that was never sold, and
+> no retry of that unwind takes or returns it twice.
+
 ### Choosing a provider
 
-```json
-"PaymentProvider": { "Type": "Mock", "SecretKey": "" }
-```
+Both values come from **Vault**, under `PaymentProvider:Type` and `PaymentProvider:SecretKey` — see
+[Secrets](#secrets) for how they get there and how to change them. Nothing in the application knows where
+they came from: the provider strategy reads ordinary configuration.
 
-The key is never written into that file - it is tracked, and a credential in a tracked file is a
-credential in everyone's clone. It is supplied from outside instead, and the AppHost forwards whatever it
-was given down to the API:
-
-```powershell
-$env:PaymentProvider__Type = "Stripe"
-$env:PaymentProvider__SecretKey = "sk_test_..."
-dotnet run --project orchestratorStadiaPass.AppHost
-```
-
-Nothing else in the application knows where the value came from, so the same seam takes a secrets manager
-later without a code change. Only a test key is accepted: a `sk_live_` key would charge real cards from a
-development machine, so it is refused at startup.
+Only a test key is accepted. A `sk_live_` key would charge real cards from a development machine, so it is
+refused at **startup** rather than at the first checkout.
 
 | `Type` | Adapter | Behaviour |
 |---|---|---|
@@ -574,14 +692,109 @@ locally, with an explanation, rather than pushed at Stripe to be rejected.
 > or Elements and the server only ever handles a payment method id - the same shape the adapter already
 > works in, so the port does not change: only where the token comes from does.
 
+## Messaging
+
+Selling a ticket is where the customer's request ends and several other things begin: render the ticket, send
+the confirmation, update whatever wants to know. None of that should be able to slow down a checkout, and
+none of it should be able to fail one.
+
+The obvious arrangement — commit the sale, then publish an event — has a gap in the middle of it. The process
+can stop between the two, and then a ticket is sold that nobody downstream is ever told about: no ticket, no
+mail, and nothing in the system that knows it is missing. Publishing first is worse: it announces a sale that
+a rollback can still take away.
+
+### The outbox
+
+So the message is not published at all. It is **written into the same transaction as the sale**, and the two
+share one fate:
+
+```
+ConfirmTicketPurchaseCommandHandler
+  └── UnitOfWork.ExecuteInTransactionAsync
+        ├── counters       (relative update)
+        ├── seat + ticket  (guarded by xmin)
+        └── outbox_messages row   ◄── the TicketPurchasedEvent, as JSON
+                    │
+                    │  OutboxProcessor, every 5s
+                    ▼
+              RabbitMQ ──► ticket-purchased-event ──► TicketPurchasedEventConsumer
+```
+
+| Column | |
+|---|---|
+| `id` | UUIDv7, so the rows are written in roughly the order they happened |
+| `occurred_on_utc` | ordering, and the partial index the sweeper reads |
+| `type` | the full type name, which is what says how to read the content back |
+| `content` | the message as JSON |
+| `processed_on_utc` | null until the broker has taken it — this column *is* the queue |
+| `error` | why the last attempt did not work, so a stuck message can be explained |
+
+A rollback takes the message with the sale. A broker that is down is a **delay**, not a lost ticket: the row
+waits, the reason is written next to it, and the next sweep tries again.
+
+### The sweeper
+
+```sql
+SELECT * FROM stadiapass.outbox_messages
+WHERE processed_on_utc IS NULL
+ORDER BY occurred_on_utc
+LIMIT 20
+FOR UPDATE SKIP LOCKED
+```
+
+`FOR UPDATE SKIP LOCKED` is what lets a second instance of the API run this worker too. It takes the *next*
+batch rather than waiting for this one, and never the same rows — without it, two instances would publish
+every message twice. The batch is small on purpose: the rows are locked for as long as it takes, and a large
+batch holds rows another worker could have been getting on with.
+
+The whole sweep runs inside `Database.CreateExecutionStrategy()`. The Aspire Npgsql component configures a
+*retrying* strategy, and a retrying strategy refuses to have a transaction opened behind its back — it would
+have no way to replay it. `UnitOfWork` has the same shape for the same reason.
+
+A type name coming out of a database row is resolved against `IntegrationEventTypes`, a fixed list, rather
+than by asking the runtime for whatever the row happens to say. Rows only get there through code in this
+solution today, and that is exactly the assumption worth not building on. An unregistered message is refused
+when it is written, not discovered five seconds later.
+
+### The bus
+
+MassTransit over RabbitMQ, with the publisher and the consumer in the same process for now — which is an
+ordinary way to run a system that has not been split up yet, and also the point: the message really does
+leave for the broker and really does come back, so the day a consumer moves into its own service, this side
+does not change.
+
+| | |
+|---|---|
+| Exchange | `StadiaPass.Application.Tickets.Events:TicketPurchasedEvent` |
+| Queue | `ticket-purchased-event` (kebab-case formatter, so the management page reads the way people expect) |
+| Package | MassTransit **8.5.10** — the last Apache-2.0 line, pinned for the same reason MediatR is pinned at 12 |
+
+The persistence layer never references MassTransit. It publishes through an `IEventBus` port, and the
+MassTransit adapter for it lives in the infrastructure layer alongside the Stripe and Redis ones.
+
+> **Delivery is at least once, never exactly once.** A message can reach the broker and the row that records
+> it can still fail to commit, and the only honest answer is to send it again. Consumers must be able to see
+> the same purchase twice without doing the work twice — check for the ticket before rendering it, and for
+> the mail before sending it. Two identical confirmation mails is a small embarrassment; two charges would
+> not be.
+>
+> There is also no attempt counter yet, so a message that can never be delivered is retried forever. One
+> column and a ceiling is what closes that.
+
 ## Request pipeline
 
 ```
 HTTP → Minimal API endpoint → ISender.Send(command)
      → LoggingBehavior → ValidationBehavior (FluentValidation)
-     → Handler → Aggregate behaviour → IPaymentService → Repository
-     → UnitOfWork.SaveChangesAsync → publish domain events (MediatR notifications)
+     → Handler → IDistributedLock → Aggregate behaviour → IPaymentService → Repository
+     → UnitOfWork.ExecuteInTransactionAsync (counters + seat + ticket + outbox row)
+     → publish domain events in process (MediatR notifications)
+     → OutboxProcessor → RabbitMQ → consumers (out of band)
 ```
+
+Domain events stay in process: they are about this transaction and its own invariants, and MediatR is the
+right size for that. `TicketPurchasedEvent` is not one of them — it is an integration message, carrying
+everything a consumer needs so it can reach one that has no database of ours to ask.
 
 The seat holder is taken from `ICurrentUser` (the Keycloak subject), never from the request body, so a
 customer cannot hold or buy a seat in somebody else's name.
@@ -595,7 +808,7 @@ dotnet test StadiaPass.slnx
 | Project | Covers |
 |---|---|
 | `tests/StadiaPass.Domain.UnitTests` | aggregate invariants: match creation, the seat lifecycle, venue seating plans |
-| `tests/StadiaPass.Application.UnitTests` | the `ReserveSeat` vertical slice with its ports substituted |
+| `tests/StadiaPass.Application.UnitTests` | the `ReserveSeat` and `ConfirmTicketPurchase` slices with their ports substituted: the order of payment and persistence, the refund on a lost seat, the lock at the door, and the announcement written inside the sale transaction |
 
 xUnit, NSubstitute and FluentAssertions, named `Should_X_When_Y` and written Arrange-Act-Assert.
 
@@ -627,7 +840,10 @@ handlers are internal by design.
 - **Migrations**: the starter uses `EnsureCreatedAsync` plus seeding for a one-command run. Switch to
   `dotnet ef migrations add Initial -p src/Infrastructure/StadiaPass.Persistence -s src/Presentation/StadiaPass.WebAPI`
   and `Database.MigrateAsync()` before any real deployment. Changing the model currently means dropping the
-  `stadiapass-pgdata` volume.
+  `stadiapass-pgdata` volume — `EnsureCreated` builds the schema once and never looks at it again, so a table
+  added afterwards never appears on a database that already exists. `outbox_messages` is the first table that
+  ran into this, and it asks for itself with a `CREATE TABLE IF NOT EXISTS` in the initializer. That is a
+  stopgap and reads like one; migrations are what removes it.
 - **Seat map loading**: `GetWithSeatAsync` uses a filtered `Include`, so reserving a seat in a 20 000-seat
   venue touches a single row. Only the seat map screen loads the full collection.
 - **Value objects and EF Core**: an owned instance may never be shared between two owners. Each seat gets its
@@ -635,6 +851,7 @@ handlers are internal by design.
 - **Timestamps**: Npgsql only accepts `DateTimeOffset` values with a zero offset for `timestamptz`, so
   `Match` normalises the kick-off to UTC on the way in.
 - **MediatR** is pinned to `12.5.0`, the last Apache-2.0 release; v13+ requires a commercial licence.
+- **MassTransit** is pinned to `8.5.10` for the same reason: v9 moved to a commercial licence.
 - **FluentAssertions** is pinned to `7.2.0` for the same reason: from v8 it moved to a paid licence for
   commercial use.
 - **Aspire Keycloak integration** (`Aspire.Hosting.Keycloak`, `Aspire.Keycloak.Authentication`) is still
