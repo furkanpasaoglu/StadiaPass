@@ -103,6 +103,16 @@ internal sealed partial class DatabaseInitializer(
              CREATE INDEX IF NOT EXISTS ix_outbox_messages_unprocessed
                  ON {StadiaPassDbContext.Schema}.outbox_messages (occurred_on_utc)
                  WHERE processed_on_utc IS NULL;
+
+             -- One live ticket per seat, at the level that cannot be talked out of it. Filtered on Issued
+             -- because a cancelled ticket is history: the seat goes back on sale and the next buyer needs a
+             -- ticket of their own. The plain index EF used to create is dropped so a database that has been
+             -- around a while ends up with exactly what a fresh one gets.
+             DROP INDEX IF EXISTS {StadiaPassDbContext.Schema}."IX_tickets_MatchSeatId";
+
+             CREATE UNIQUE INDEX IF NOT EXISTS ix_tickets_match_seat_issued
+                 ON {StadiaPassDbContext.Schema}.tickets ("MatchSeatId")
+                 WHERE "Status" = 'Issued';
              """,
             cancellationToken);
 

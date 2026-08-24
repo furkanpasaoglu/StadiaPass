@@ -51,7 +51,14 @@ internal sealed class TicketConfiguration : IEntityTypeConfiguration<Ticket>
 
         builder.HasIndex(ticket => ticket.AccessCode).IsUnique();
         builder.HasIndex(ticket => ticket.HolderReference);
-        builder.HasIndex(ticket => ticket.MatchSeatId);
+        // The seat may only ever carry one live ticket. Filtered rather than a plain unique index, because
+        // a cancelled ticket is history and not a claim on the seat: the seat goes back to Available, gets
+        // sold again, and the new ticket would collide with the old one under a blanket constraint. The
+        // filter says the same thing the repository already says when it looks a seat up.
+        builder.HasIndex(ticket => ticket.MatchSeatId)
+            .IsUnique()
+            .HasFilter("\"Status\" = 'Issued'")
+            .HasDatabaseName("ix_tickets_match_seat_issued");
 
         builder.HasOne<Domain.Matches.Match>()
             .WithMany()

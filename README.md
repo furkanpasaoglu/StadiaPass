@@ -112,7 +112,7 @@ Venue (aggregate)                  Match (aggregate)                 Ticket (agg
 | `Venue` | at least one block, unique block names, plan capped at 25 000 seats, plan frozen once a match uses it |
 | `Match` | teams differ, kick-off in the future (normalised to UTC), the category must be playable in the venue kind, seats materialised from the venue plan, seat counters and `SoldOut` kept consistent |
 | `MatchSeat` | `Available` → `Reserve()` → `ConfirmSale()`, 10-minute hold, only the holder may buy, expired holds auto-release |
-| `Ticket` | can only be issued for a seat the match has already moved to `Sold` |
+| `Ticket` | can only be issued for a seat the match has already moved to `Sold`, and a seat carries at most one ticket that is not cancelled |
 
 Seat transitions are driven **only** through the match: `MatchSeat.Reserve/ConfirmSale/Release` are
 `internal`, so `Match.ReserveSeat(seatNumber, holder, now)` and `Match.ConfirmSeatSale(...)` are the sole
@@ -949,9 +949,10 @@ handlers are internal by design.
   `dotnet ef migrations add Initial -p src/Infrastructure/StadiaPass.Persistence -s src/Presentation/StadiaPass.WebAPI`
   and `Database.MigrateAsync()` before any real deployment. Changing the model currently means dropping the
   `stadiapass-pgdata` volume — `EnsureCreated` builds the schema once and never looks at it again, so a table
-  added afterwards never appears on a database that already exists. `outbox_messages` is the first table that
-  ran into this, and it asks for itself with a `CREATE TABLE IF NOT EXISTS` in the initializer. That is a
-  stopgap and reads like one; migrations are what removes it.
+  added afterwards never appears on a database that already exists. `outbox_messages` was the first table that
+  ran into this, and the initializer now carries a short script of `CREATE TABLE IF NOT EXISTS`,
+  `ADD COLUMN IF NOT EXISTS` and `CREATE UNIQUE INDEX IF NOT EXISTS` for the schema changes made since. It
+  is a stopgap and reads like one; migrations are what removes it.
 - **Seat map loading**: `GetWithSeatAsync` uses a filtered `Include`, so reserving a seat in a 20 000-seat
   venue touches a single row. Only the seat map screen loads the full collection.
 - **Value objects and EF Core**: an owned instance may never be shared between two owners. Each seat gets its

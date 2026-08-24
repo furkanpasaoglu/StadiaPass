@@ -112,7 +112,7 @@ Venue (aggregate)                  Match (aggregate)                 Ticket (agg
 | `Venue` | en az bir blok, benzersiz blok adları, plan 25 000 koltukla sınırlı, bir maç kullandıysa plan dondurulur |
 | `Match` | takımlar farklı, başlama saati gelecekte (UTC'ye normalize), kategori mekân türünde oynanabilir olmalı, koltuklar mekân planından üretilir, koltuk sayaçları ve `SoldOut` tutarlı tutulur |
 | `MatchSeat` | `Available` → `Reserve()` → `ConfirmSale()`, 10 dakikalık tutma, yalnızca tutan kişi satın alabilir, süresi dolan tutmalar kendiliğinden serbest kalır |
-| `Ticket` | yalnızca maçın `Sold` durumuna geçirdiği bir koltuk için kesilebilir |
+| `Ticket` | yalnızca maçın `Sold` durumuna geçirdiği bir koltuk için kesilebilir, ve bir koltuk iptal edilmemiş en fazla bir bilet taşır |
 
 Koltuk geçişleri **yalnızca** maç üzerinden yürür: `MatchSeat.Reserve/ConfirmSale/Release` `internal`'dır,
 dolayısıyla `Match.ReserveSeat(seatNumber, holder, now)` ve `Match.ConfirmSeatSale(...)` tek giriş
@@ -957,8 +957,9 @@ test projesine `InternalsVisibleTo` verir.
   ve `Database.MigrateAsync()`'e geçin. Şu an modeli değiştirmek `stadiapass-pgdata` volume'ünü silmek
   demek — `EnsureCreated` şemayı bir kez kurar ve bir daha ona hiç bakmaz, dolayısıyla sonradan eklenen bir
   tablo hâlihazırda var olan bir veritabanında asla belirmez. Bununla karşılaşan ilk tablo `outbox_messages`
-  oldu ve initializer'da bir `CREATE TABLE IF NOT EXISTS` ile kendini istiyor. Bu geçici bir çözüm ve öyle
-  de duruyor; onu ortadan kaldıracak şey migration'lardır.
+  oldu; initializer artık o günden beri yapılan şema değişiklikleri için kısa bir betik taşıyor:
+  `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS` ve `CREATE UNIQUE INDEX IF NOT EXISTS`. Bu
+  geçici bir çözüm ve öyle de duruyor; onu ortadan kaldıracak şey migration'lardır.
 - **Koltuk haritası yükleme**: `GetWithSeatAsync` filtreli bir `Include` kullanır, dolayısıyla 20 000 koltuklu
   bir mekânda koltuk tutmak tek bir satıra dokunur. Koleksiyonun tamamını yalnızca koltuk haritası ekranı
   yükler.
