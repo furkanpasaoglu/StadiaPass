@@ -44,4 +44,29 @@ builder.AddProject<Projects.StadiaPass_WebMVC>("webmvc")
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
+// Metrics stack. The applications publish an OpenTelemetry scrape endpoint through ServiceDefaults;
+// Prometheus pulls it and Grafana reads Prometheus, both provisioned from files so a clone comes up with
+// the data source and the dashboard already in place.
+var prometheus = builder.AddContainer("prometheus", "prom/prometheus", "v3.6.0")
+    .WithBindMount("./monitoring/prometheus", "/etc/prometheus", isReadOnly: true)
+    .WithArgs(
+        "--config.file=/etc/prometheus/prometheus.yml",
+        "--storage.tsdb.path=/prometheus",
+        "--web.enable-lifecycle")
+    .WithHttpEndpoint(port: 9090, targetPort: 9090, name: "http")
+    .WithUrlForEndpoint("http", url => url.DisplayText = "Prometheus");
+
+builder.AddContainer("grafana", "grafana/grafana", "12.2.0")
+    .WithBindMount("./monitoring/grafana/provisioning", "/etc/grafana/provisioning", isReadOnly: true)
+    .WithBindMount("./monitoring/grafana/dashboards", "/var/lib/grafana/dashboards", isReadOnly: true)
+    .WithEnvironment("GF_SECURITY_ADMIN_USER", "admin")
+    .WithEnvironment("GF_SECURITY_ADMIN_PASSWORD", "admin")
+    // Local development only: skip the login wall so the dashboard opens straight from the Aspire page.
+    .WithEnvironment("GF_AUTH_ANONYMOUS_ENABLED", "true")
+    .WithEnvironment("GF_AUTH_ANONYMOUS_ORG_ROLE", "Admin")
+    .WithEnvironment("GF_USERS_DEFAULT_THEME", "light")
+    .WithHttpEndpoint(port: 3000, targetPort: 3000, name: "http")
+    .WithUrlForEndpoint("http", url => url.DisplayText = "Grafana")
+    .WaitFor(prometheus);
+
 await builder.Build().RunAsync();

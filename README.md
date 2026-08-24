@@ -54,9 +54,10 @@ StadiaPass.slnx
 │           ├── Models               # its own contracts - no reference to Domain/Application
 │           └── Services             # typed HttpClients (ticketing + identity portal)
 ├── orchestrator
-│   ├── StadiaPass.AppHost           # Aspire: PostgreSQL + Redis + Keycloak, project wiring
+│   ├── StadiaPass.AppHost           # Aspire: PostgreSQL + Redis + Keycloak + Prometheus + Grafana
+│   │   ├── monitoring               # prometheus.yml, Grafana datasource and dashboard provisioning
 │   │   └── realms                   # stadiapass-realm.json - permission roles, clients, demo users
-│   └── StadiaPass.ServiceDefaults   # OpenTelemetry, health checks, resilience, service discovery
+│   └── StadiaPass.ServiceDefaults   # OpenTelemetry (OTLP + Prometheus), health checks, resilience
 └── tests                            # (reserved for Domain/Application unit tests)
 ```
 
@@ -121,6 +122,8 @@ realm is imported.
 | API reference (Scalar) | http://localhost:5042/scalar/v1 |
 | OpenAPI document | http://localhost:5042/openapi/v1.json |
 | Health | http://localhost:5042/health |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 |
 
 The Aspire dashboard exposes the Scalar reference as a link on the `webapi` resource. The OpenAPI document
 and Scalar are mapped only in the Development environment.
@@ -293,6 +296,52 @@ signed-in user carries `Roles.Manage` or `Users.Manage`.
 An administrator carries many roles, which makes the OIDC tokens - and therefore the authentication ticket -
 large. The MVC app keeps the ticket in Redis behind an `ITicketStore` and leaves only a session key in the
 cookie, so sign-in works regardless of how many roles a user has and sign-out revokes the session for real.
+
+## Metrics and dashboards
+
+`StadiaPass.ServiceDefaults` already collected OpenTelemetry metrics and pushed them to the Aspire dashboard
+over OTLP. The same meters are now also published on a Prometheus scrape endpoint, so a pull-based stack can
+read them without a collector in between.
+
+```
+ServiceDefaults meters
+  ├── OTLP push  ──►  Aspire dashboard        (live, per-run)
+  └── /metrics   ◄──  Prometheus (scrape 5s)  ──►  Grafana
+```
+
+| Resource | URL | Notes |
+|---|---|---|
+| Prometheus | http://localhost:9090 | scrapes the API and the MVC app every 5 s |
+| Grafana | http://localhost:3000 | anonymous admin in development, `admin` / `admin` otherwise |
+| Scrape endpoint | http://localhost:5042/metrics | published by ServiceDefaults, Development only |
+
+Both containers are provisioned from files under `orchestrator/StadiaPass.AppHost/monitoring`, so a fresh
+clone comes up with the data source connected and the dashboard already in the **StadiaPass** folder:
+
+```
+monitoring
+├── prometheus/prometheus.yml                     # scrape jobs for webapi and webmvc
+└── grafana
+    ├── provisioning/datasources/prometheus.yml   # data source, auto-registered
+    ├── provisioning/dashboards/dashboards.yml    # file provider
+    └── dashboards/stadiapass-runtime.json        # the dashboard itself
+```
+
+The applications run on the host while Prometheus runs in a container, so the scrape targets are
+`host.docker.internal:5042` and `:5230`. Grafana reaches Prometheus by its Aspire resource name on the shared
+container network, which keeps the data source independent of whichever host port Aspire publishes.
+
+**StadiaPass runtime** dashboard, written against the metric names the exporter actually emits:
+
+| Panel | Query |
+|---|---|
+| Requests / sec, p95 duration, 5xx rate | `http_server_request_duration_seconds_*` |
+| Duration by route | `histogram_quantile` over `http_route` |
+| Working set and GC heap | `dotnet_process_memory_working_set_bytes`, `dotnet_gc_last_collection_heap_size_bytes` |
+| Allocation rate and GC pauses | `dotnet_gc_heap_total_allocated_bytes_total`, `dotnet_gc_pause_time_seconds_total` |
+| CPU and thread pool | `dotnet_process_cpu_time_seconds_total`, `dotnet_thread_pool_thread_count_total` |
+| Exceptions and lock contention | `dotnet_exceptions_total`, `dotnet_monitor_lock_contentions_total` |
+| PostgreSQL command duration | `db_client_operation_duration_seconds_bucket` |
 
 ## Request pipeline
 

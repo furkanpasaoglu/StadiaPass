@@ -18,6 +18,8 @@ public static class Extensions
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
 
+    private const string MetricsEndpointPath = "/metrics";
+
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureOpenTelemetry();
@@ -87,6 +89,10 @@ public static class Extensions
             builder.Services.AddOpenTelemetry().UseOtlpExporter();
         }
 
+        // The Aspire dashboard is fed by OTLP push; Prometheus pulls instead, so the same meters are also
+        // published on a scrape endpoint. Both exporters read the same instruments - nothing is counted twice.
+        builder.Services.AddOpenTelemetry().WithMetrics(metrics => metrics.AddPrometheusExporter());
+
         // Uncomment the following lines to enable the Azure Monitor exporter (requires the Azure.Monitor.OpenTelemetry.AspNetCore package)
         //if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
         //{
@@ -120,6 +126,10 @@ public static class Extensions
             {
                 Predicate = r => r.Tags.Contains("live")
             });
+
+            // Scraped by Prometheus. Development only, for the same reason as the health endpoints: it
+            // exposes internal telemetry and carries no authentication.
+            app.MapPrometheusScrapingEndpoint(MetricsEndpointPath);
         }
 
         return app;

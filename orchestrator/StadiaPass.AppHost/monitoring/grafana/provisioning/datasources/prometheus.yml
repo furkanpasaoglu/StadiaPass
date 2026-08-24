@@ -1,0 +1,15 @@
+# Grafana finds Prometheus by its Aspire resource name on the shared container network, so no host port is
+# involved and the dashboard works no matter which port Aspire publishes.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: stadiapass-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 5s
+      httpMethod: POST
