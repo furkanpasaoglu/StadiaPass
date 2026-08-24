@@ -20,6 +20,8 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
 {
     private const string PaymentTransactionId = "pi_test_reference";
 
+    private const string HolderEmail = "musteri@stadiapass.local";
+
     private readonly IMatchRepository _matchRepository = Substitute.For<IMatchRepository>();
 
     private readonly ITicketRepository _ticketRepository = Substitute.For<ITicketRepository>();
@@ -44,6 +46,7 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
     {
         _currentUser.Reference.Returns(TestData.CurrentUserId);
         _currentUser.IsAuthenticated.Returns(true);
+        _currentUser.Email.Returns(HolderEmail);
         _dateTimeProvider.UtcNow.Returns(TestData.Now);
 
         // A substituted transaction that never runs its body would let every assertion below pass against a
@@ -306,6 +309,7 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
                 && announced.VenueName == match.VenueName
                 && announced.SeatNumber == TestData.SeatNumber
                 && announced.HolderReference == TestData.CurrentUserId
+                && announced.HolderEmail == HolderEmail
                 && announced.PaymentTransactionId == PaymentTransactionId));
     }
 

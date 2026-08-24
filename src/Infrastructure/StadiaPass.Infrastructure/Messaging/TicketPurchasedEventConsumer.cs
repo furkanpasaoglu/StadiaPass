@@ -1,24 +1,27 @@
 using MassTransit;
 using Microsoft.Extensions.Logging;
+using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Application.Tickets.Events;
+using StadiaPass.Infrastructure.Email;
 
 namespace StadiaPass.Infrastructure.Messaging;
 
 /// <summary>
-/// Where ticket rendering and the confirmation mail will live. For now it only reports that the message
-/// arrived, which is enough to show the whole path works: sale committed, row written, worker swept, broker
-/// routed, consumer woken.
+/// Turns a completed purchase into the confirmation the customer is waiting for. This is the far side of the
+/// outbox: the sale committed, the row was swept up, the broker routed it, and now the slow work happens
+/// where it cannot hold up or fail a checkout.
 /// </summary>
 /// <remarks>
 /// The outbox delivers at least once, so this will one day see the same purchase twice - a broker
-/// acknowledgement can be lost after the message was handled perfectly well. Whatever ends up in here has to
-/// be safe to run again: check for the ticket before rendering it, and for the mail before sending it. Two
-/// identical confirmation mails is a small embarrassment; two charges would not be.
+/// acknowledgement can be lost after the message was handled perfectly well. Two identical confirmation
+/// mails is a small embarrassment and the honest cost of that guarantee; anything added here that is not
+/// safe to run twice needs its own check first.
 /// </remarks>
-internal sealed partial class TicketPurchasedEventConsumer(ILogger<TicketPurchasedEventConsumer> logger)
-    : IConsumer<TicketPurchasedEvent>
+internal sealed partial class TicketPurchasedEventConsumer(
+    IEmailService emailService,
+    ILogger<TicketPurchasedEventConsumer> logger) : IConsumer<TicketPurchasedEvent>
 {
-    public Task Consume(ConsumeContext<TicketPurchasedEvent> context)
+    public async Task Consume(ConsumeContext<TicketPurchasedEvent> context)
     {
         var purchase = context.Message;
 
@@ -30,14 +33,27 @@ internal sealed partial class TicketPurchasedEventConsumer(ILogger<TicketPurchas
             purchase.AwayTeam,
             purchase.HolderReference);
 
-        return Task.CompletedTask;
+        if (purchase.HolderEmail is not { Length: > 0 } recipient)
+        {
+            // The ticket is real and the customer can still see it in the app; only the mail has nowhere to
+            // go. Said out loud with the ticket id, because somebody may have to send it by hand.
+            NoAddress(logger, purchase.TicketId, purchase.HolderReference);
+
+            return;
+        }
+
+        await emailService.SendEmailAsync(
+            recipient,
+            TicketConfirmationEmail.SubjectFor(purchase),
+            TicketConfirmationEmail.BodyFor(purchase),
+            context.CancellationToken);
     }
 
     [LoggerMessage(
         EventId = 6300,
         Level = LogLevel.Information,
         Message = "TicketPurchasedEvent consumed from RabbitMQ for ticket {TicketId}: seat {SeatNumber} at "
-            + "{HomeTeam} vs {AwayTeam} for holder {HolderReference} - ticket rendering would start here")]
+            + "{HomeTeam} vs {AwayTeam} for holder {HolderReference}")]
     private static partial void PurchaseConsumed(
         ILogger logger,
         Guid ticketId,
@@ -45,4 +61,11 @@ internal sealed partial class TicketPurchasedEventConsumer(ILogger<TicketPurchas
         string homeTeam,
         string awayTeam,
         string holderReference);
+
+    [LoggerMessage(
+        EventId = 6301,
+        Level = LogLevel.Warning,
+        Message = "Ticket {TicketId} was bought by {HolderReference}, who has no email address on their "
+            + "account, so no confirmation could be sent")]
+    private static partial void NoAddress(ILogger logger, Guid ticketId, string holderReference);
 }

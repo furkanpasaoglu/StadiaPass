@@ -14,6 +14,13 @@ public interface ICurrentUser
     string DisplayName { get; }
 
     /// <summary>
+    /// Where to write to them, when there is anywhere. Null when the account carries no address or the token
+    /// was issued without the <c>email</c> scope, so anything that sends must decide what to do about that
+    /// rather than assume.
+    /// </summary>
+    string? Email { get; }
+
+    /// <summary>
     /// Permission strings come from <c>StadiaPassPermissions</c>; a handler asks this when the endpoint
     /// policy alone cannot decide, such as reading a ticket that may or may not belong to the caller.
     /// </summary>

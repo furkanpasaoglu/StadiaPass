@@ -195,7 +195,7 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
     /// Everything a consumer could want about the purchase, so nothing downstream has to come back to the
     /// database for it. That is what makes this message safe to put on a queue later.
     /// </summary>
-    private static TicketPurchasedEvent BuildPurchasedEvent(
+    private TicketPurchasedEvent BuildPurchasedEvent(
         Ticket ticket,
         Match match,
         PaymentResult payment,
@@ -212,6 +212,7 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
             ticket.Price.Amount,
             ticket.Price.Currency,
             ticket.HolderReference,
+            currentUser.Email,
             payment.TransactionId!,
             now);
 

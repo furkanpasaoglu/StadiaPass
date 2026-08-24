@@ -12,6 +12,7 @@
     <PackageReference Include="Stripe.net" />
     <PackageReference Include="MassTransit" />
     <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="MailKit" />
   </ItemGroup>
 
 </Project>

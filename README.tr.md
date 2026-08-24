@@ -42,7 +42,7 @@ StadiaPass.slnx
 │   │       │   ├── Exceptions       # NotFound, Conflict, ConcurrencyConflict, PaymentFailed, Validation
 │   │       │   └── Messaging        # IntegrationEventTypes - hatta çıkmasına izin verilen mesajlar
 │   │       ├── Infrastructure
-│   │       │   └── Abstractions     # IPaymentService, IDistributedLock, IOutbox, IEventBus
+│   │       │   └── Abstractions     # IPaymentService, IDistributedLock, IOutbox, IEventBus, IEmailService
 │   │       ├── Categories           # GetCategories / CreateCategory / UpdateCategory / DeleteCategory
 │   │       ├── Identity             # Keycloak Admin portu: Roles / Users dilimleri
 │   │       ├── Venues               # GetVenues / CreateVenue / UpdateVenue / DeleteVenue
@@ -54,6 +54,7 @@ StadiaPass.slnx
 │   │   │   ├── Outbox               # OutboxMessage + writer + mesajı broker'a taşıyan sweeper
 │   │   │   └── Repositories         # Repository<T>, VenueRepository, MatchRepository, TicketRepository
 │   │   └── StadiaPass.Infrastructure# yukarıdaki portların adaptörleri
+│   │       ├── Email                # SMTP üzerinde MailKit + bilet onay maili şablonu
 │   │       ├── Locking              # Redis SET NX PX + Lua ile compare-and-delete serbest bırakma
 │   │       ├── Messaging            # RabbitMQ üzerinde MassTransit + TicketPurchasedEvent consumer'ı
 │   │       └── Payments             # Mock ve Stripe adaptörleri, sağlayıcı stratejisi
@@ -464,6 +465,8 @@ eskisi gibi çalışmaya devam eder.
 | `Keycloak:AdminClientSecret` | `KeycloakAdminService` servis hesabı |
 | `Keycloak:ClientSecret` | MVC OpenID Connect girişi |
 | `PaymentProvider:Type`, `PaymentProvider:SecretKey` | ödeme sağlayıcı stratejisi |
+| `Smtp:Host`, `Smtp:Port`, `Smtp:SenderName`, `Smtp:SenderEmail` | bilet onay maili |
+| `Smtp:UserName`, `Smtp:Password` | Google hesabı ve App Password |
 
 ### Fallback yok
 
@@ -481,11 +484,14 @@ OptionsValidationException: DataAnnotation validation failed for 'KeycloakAdminO
 `Aspire.Hosting.Vault` diye bir paket olmadığı için AppHost resmi imajı doğrudan orkestre eder: dev modda,
 bellekte ve mühürsüz bir sunucu, root token'ı `stadiapass-root-token`. Vault hazır olduğunu bildirdiğinde
 AppHost yalnızca kendisinin çözebileceği değerleri — Aspire'ın Postgres, Redis ve RabbitMQ için ürettiği
-portlar ve parolalar — yazar, Stripe anahtarını da kendi ortamından geçirir:
+portlar ve parolalar — yazar; Stripe anahtarını ve SMTP kimlik bilgilerini de kendi ortamından geçirir:
 
 ```powershell
 $env:PaymentProvider__Type = "Stripe"
 $env:PaymentProvider__SecretKey = "sk_test_..."
+$env:Smtp__SenderEmail = "sen@gmail.com"
+$env:Smtp__UserName    = "sen@gmail.com"
+$env:Smtp__Password    = "xxxx xxxx xxxx xxxx"   # Google App Password, hesap parolası DEĞİL
 dotnet run --project orchestrator\StadiaPass.AppHost
 ```
 
@@ -721,7 +727,7 @@ ConfirmTicketPurchaseCommandHandler
                     │
                     │  OutboxProcessor, 5 sn'de bir
                     ▼
-              RabbitMQ ──► ticket-purchased-event ──► TicketPurchasedEventConsumer
+              RabbitMQ ──► ticket-purchased-event ──► TicketPurchasedEventConsumer ──► SMTP
 ```
 
 | Kolon | |
@@ -783,6 +789,45 @@ MassTransit adaptörü de Stripe ve Redis adaptörlerinin yanında, infrastructu
 >
 > Ayrıca henüz bir deneme sayacı yok, dolayısıyla asla teslim edilemeyecek bir mesaj sonsuza kadar
 > denenir. Bunu kapatan şey bir kolon ve bir tavandır.
+
+### Onay maili
+
+`TicketPurchasedEventConsumer` bütün bu zincirin öbür ucu: satış commit oldu, satır süpürüldü, broker
+yönlendirdi, ve mail burada hazırlanıp gönderiliyor — bir checkout'u yavaşlatamayacağı ya da düşüremeyeceği
+yerde.
+
+Mesaj, consumer'ın "bu kimdi" diye Keycloak'a sormasını beklemek yerine alıcının adresini kendisi taşıyor;
+MVC girişindeki `email` scope'u tam olarak bunun için. O olmadan access token'ın içinde hiç adres bulunmuyor
+ve bir satın alma buraya gönderilecek yer olmadan ulaşıyor. Alan yine de nullable, çünkü bir hesapta adres
+hiç olmayabilir; öyle bir durumda consumer bunu bilet id'siyle birlikte söylüyor — birinin elle göndermesi
+gerekebilir.
+
+Mail, `IEmailService` portunun arkasından MailKit ile SMTP üzerinden çıkıyor. Framework'teki `SmtpClient`
+yıllardır obsolete ve dokümantasyon da buraya işaret ediyor.
+
+| Ayar | |
+|---|---|
+| `Smtp:Host` / `Smtp:Port` | `smtp.gmail.com` ve 587 — açık başlayıp STARTTLS ile yükseltilen submission portu |
+| `Smtp:SenderName` / `Smtp:SenderEmail` | mesajın kimden geldiğini söylediği şey |
+| `Smtp:UserName` | Google hesabının kendisi |
+| `Smtp:Password` | Bir Google **App Password**: on altı karakter, uygulama başına üretilir, tek başına iptal edilebilir. Google düz hesap parolasını SMTP üzerinden tamamen reddediyor, ki bu doğru bir ret. |
+
+Her iki kimlik bilgisi de diğer her şey gibi Vault'tan geliyor. Ama mail buradaki tek **opsiyonel** şey:
+kimlik bilgisi olmayan bir klon yine bilet satar ve gönderecek yeri olmadığını kaydeder — kimsenin henüz
+istemediği bir özellik yüzünden açılmayı reddeden bir uygulama yerine. Para taşıyan sırlara tam tersi
+davranılıyor.
+
+Gövde inline stilli tablolardan oluşuyor, çünkü bir mail istemcisinde ayakta kalan şey bu. Outlook Word ile
+render ediyor, Gmail `<style>` bloklarını söküp atıyor, ve flexbox hiçbir yerde güvenilir biçimde
+desteklenmiyor — mailde işleyen kurallar, web'in yirmi yıl önce geride bıraktığı kurallar. Mesajdan gelen her
+değer girişte HTML-encode ediliyor, böylece içinde `&` olan bir takım adı düzeni bozamıyor, daha kötüsünü
+yapmak şöyle dursun.
+
+> **Başarısız bir gönderim tekrar denenmiyor.** Hatayı yutmak, MassTransit'in mesajı tüketilmiş saymasına yol
+> açıyor; yani RabbitMQ'nun yeniden teslimi ve error kuyruğu bu yol için kapalı: otuz saniye kapalı kalan bir
+> mail sunucusu o onayı kalıcı olarak kaybettirir ve yalnızca log hatırlar. Başarısız gönderimden sonra
+> yeniden fırlatmak tek satır ve ikisini de geri açar — kuyruğunu zehirleyebilecek bir mesaj pahasına.
+
 
 ## İstek hattı
 

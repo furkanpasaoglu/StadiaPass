@@ -30,6 +30,7 @@
     <!-- 8.x is the last Apache-2.0 line; 9 moved to a commercial licence, as MediatR did at 13. -->
     <PackageVersion Include="MassTransit" Version="8.5.10" />
     <PackageVersion Include="MassTransit.RabbitMQ" Version="8.5.10" />
+    <PackageVersion Include="MailKit" Version="4.17.0" />
   </ItemGroup>
   <ItemGroup Label="Presentation">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />

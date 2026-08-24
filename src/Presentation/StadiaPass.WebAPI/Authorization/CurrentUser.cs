@@ -8,6 +8,7 @@ internal sealed class CurrentUser(IHttpContextAccessor httpContextAccessor) : IC
 {
     private const string SubjectClaim = "sub";
     private const string PreferredUsernameClaim = "preferred_username";
+    private const string EmailClaim = "email";
 
     private ClaimsPrincipal? Principal => httpContextAccessor.HttpContext?.User;
 
@@ -18,6 +19,8 @@ internal sealed class CurrentUser(IHttpContextAccessor httpContextAccessor) : IC
         ?? throw new InvalidOperationException("The current request is not authenticated.");
 
     public string DisplayName => Principal?.FindFirstValue(PreferredUsernameClaim) ?? Reference;
+
+    public string? Email => Principal?.FindFirstValue(EmailClaim);
 
     public bool HasPermission(string permission) => Principal?.HasPermission(permission) is true;
 }

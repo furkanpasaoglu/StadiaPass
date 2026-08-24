@@ -7,6 +7,7 @@ using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Identity;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Infrastructure.Caching;
+using StadiaPass.Infrastructure.Email;
 using StadiaPass.Infrastructure.Identity;
 using StadiaPass.Infrastructure.Locking;
 using StadiaPass.Infrastructure.Messaging;
@@ -59,8 +60,24 @@ public static class DependencyInjection
 
         builder.AddPayments();
         builder.AddMessaging();
+        builder.AddEmail();
 
         return builder;
+    }
+
+    /// <summary>
+    /// Mail is optional on purpose. No credentials means a clone still sells tickets and says out loud that
+    /// it had nowhere to send the confirmation, rather than refusing to start over a feature nobody asked
+    /// it for yet - which is the opposite of how the secrets that carry money are treated.
+    /// </summary>
+    private static void AddEmail(this IHostApplicationBuilder builder)
+    {
+        builder.Services
+            .AddOptions<SmtpOptions>()
+            .Bind(builder.Configuration.GetSection(SmtpOptions.SectionName))
+            .ValidateDataAnnotations();
+
+        builder.Services.AddTransient<IEmailService, MailKitEmailService>();
     }
 
     /// <summary>

@@ -109,7 +109,16 @@ builder.Eventing.Subscribe<ResourceReadyEvent>(vault.Resource, async (@event, ca
         ["Keycloak:AdminClientSecret"] = "stadiapass-admin-dev-secret",
         ["Keycloak:ClientSecret"] = "stadiapass-mvc-dev-secret",
         ["PaymentProvider:Type"] = builder.Configuration["PaymentProvider:Type"],
-        ["PaymentProvider:SecretKey"] = builder.Configuration["PaymentProvider:SecretKey"]
+        ["PaymentProvider:SecretKey"] = builder.Configuration["PaymentProvider:SecretKey"],
+
+        // Google account and a 16-character App Password, handed through from the AppHost environment the
+        // same way the Stripe key is. Neither is written down in this repository.
+        ["Smtp:Host"] = builder.Configuration["Smtp:Host"],
+        ["Smtp:Port"] = builder.Configuration["Smtp:Port"],
+        ["Smtp:SenderName"] = builder.Configuration["Smtp:SenderName"],
+        ["Smtp:SenderEmail"] = builder.Configuration["Smtp:SenderEmail"],
+        ["Smtp:UserName"] = builder.Configuration["Smtp:UserName"],
+        ["Smtp:Password"] = builder.Configuration["Smtp:Password"]
     };
 
     var payload = new

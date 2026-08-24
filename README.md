@@ -42,7 +42,7 @@ StadiaPass.slnx
 │   │       │   ├── Exceptions       # NotFound, Conflict, ConcurrencyConflict, PaymentFailed, Validation
 │   │       │   └── Messaging        # IntegrationEventTypes - the messages allowed on the wire
 │   │       ├── Infrastructure
-│   │       │   └── Abstractions     # IPaymentService, IDistributedLock, IOutbox, IEventBus
+│   │       │   └── Abstractions     # IPaymentService, IDistributedLock, IOutbox, IEventBus, IEmailService
 │   │       ├── Categories           # GetCategories / CreateCategory / UpdateCategory / DeleteCategory
 │   │       ├── Identity             # Keycloak Admin port: Roles / Users slices
 │   │       ├── Venues               # GetVenues / CreateVenue / UpdateVenue / DeleteVenue
@@ -54,6 +54,7 @@ StadiaPass.slnx
 │   │   │   ├── Outbox               # OutboxMessage + writer + the sweeper that carries it to the broker
 │   │   │   └── Repositories         # Repository<T>, VenueRepository, MatchRepository, TicketRepository
 │   │   └── StadiaPass.Infrastructure# adapters for the ports above
+│   │       ├── Email                # MailKit over SMTP + the ticket confirmation template
 │   │       ├── Locking              # Redis SET NX PX + a Lua compare-and-delete release
 │   │       ├── Messaging            # MassTransit over RabbitMQ + the TicketPurchasedEvent consumer
 │   │       └── Payments             # Mock and Stripe adapters, provider strategy
@@ -463,6 +464,8 @@ carry on exactly as before.
 | `Keycloak:AdminClientSecret` | `KeycloakAdminService` service account |
 | `Keycloak:ClientSecret` | MVC OpenID Connect login |
 | `PaymentProvider:Type`, `PaymentProvider:SecretKey` | the payment provider strategy |
+| `Smtp:Host`, `Smtp:Port`, `Smtp:SenderName`, `Smtp:SenderEmail` | the ticket confirmation mail |
+| `Smtp:UserName`, `Smtp:Password` | the Google account and its App Password |
 
 ### No fallbacks
 
@@ -480,11 +483,14 @@ OptionsValidationException: DataAnnotation validation failed for 'KeycloakAdminO
 There is no `Aspire.Hosting.Vault` package, so the AppHost orchestrates the official image directly: a
 dev-mode server, in memory and unsealed, with the root token `stadiapass-root-token`. Once it reports ready
 the AppHost writes the values it alone can resolve - the ports and passwords Aspire generated for Postgres,
-Redis and RabbitMQ - and passes the Stripe key through from its own environment:
+Redis and RabbitMQ - and passes the Stripe key and the SMTP credentials through from its own environment:
 
 ```powershell
 $env:PaymentProvider__Type = "Stripe"
 $env:PaymentProvider__SecretKey = "sk_test_..."
+$env:Smtp__SenderEmail = "you@gmail.com"
+$env:Smtp__UserName    = "you@gmail.com"
+$env:Smtp__Password    = "xxxx xxxx xxxx xxxx"   # a Google App Password, not the account password
 dotnet run --project orchestrator\StadiaPass.AppHost
 ```
 
@@ -719,7 +725,7 @@ ConfirmTicketPurchaseCommandHandler
                     │
                     │  OutboxProcessor, every 5s
                     ▼
-              RabbitMQ ──► ticket-purchased-event ──► TicketPurchasedEventConsumer
+              RabbitMQ ──► ticket-purchased-event ──► TicketPurchasedEventConsumer ──► SMTP
 ```
 
 | Column | |
@@ -782,6 +788,43 @@ MassTransit adapter for it lives in the infrastructure layer alongside the Strip
 >
 > There is also no attempt counter yet, so a message that can never be delivered is retried forever. One
 > column and a ceiling is what closes that.
+
+### The confirmation
+
+`TicketPurchasedEventConsumer` is the far side of all of it: the sale committed, the row was swept up, the
+broker routed it, and the mail is written and sent here - where it cannot hold up a checkout or fail one.
+
+The message carries the buyer's address rather than making the consumer ask Keycloak who they were, which is
+what the `email` scope on the MVC sign-in is for. Without it the access token has no address in it at all,
+and a purchase would arrive here with nowhere to send to. It is still nullable, because an account may carry
+no address, and the consumer says so with the ticket id when that happens - somebody may have to send it by
+hand.
+
+Mail goes out over SMTP through MailKit, behind an `IEmailService` port. `SmtpClient` in the framework has
+been obsolete for years and the documentation points here instead.
+
+| Setting | |
+|---|---|
+| `Smtp:Host` / `Smtp:Port` | `smtp.gmail.com` and 587 - the submission port, which starts in the clear and is upgraded with STARTTLS |
+| `Smtp:SenderName` / `Smtp:SenderEmail` | what the message says it is from |
+| `Smtp:UserName` | the Google account itself |
+| `Smtp:Password` | a Google **App Password**: sixteen characters, generated per application, revocable on its own. Google refuses plain account passwords over SMTP entirely, which is the right refusal. |
+
+Both credentials come from Vault like everything else. Mail is the one thing here that is optional, though:
+a clone with no credentials still sells tickets and records that it had nowhere to send, rather than an
+application that refuses to start over a feature nobody asked it for. The secrets that carry money are
+treated the opposite way.
+
+The body is inline-styled tables, which is what survives a mail client. Outlook renders with Word, Gmail
+strips `<style>` blocks, and flexbox is not reliably supported anywhere - the rules that work in mail are the
+ones the web left behind twenty years ago. Every value from the message is HTML-encoded on the way in, so a
+team name with an ampersand in it cannot break the layout, let alone anything worse.
+
+> **A failed send is not retried.** Swallowing the failure means MassTransit counts the message as consumed,
+> so RabbitMQ's redelivery and its error queue are switched off for this path: a mail server that is down for
+> thirty seconds loses that confirmation for good and only the log remembers it. Rethrowing after a failed
+> send is one line and turns both back on, at the cost of a message that can poison its queue.
+
 
 ## Request pipeline
 

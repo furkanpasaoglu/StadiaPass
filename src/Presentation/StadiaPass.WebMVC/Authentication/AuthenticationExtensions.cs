@@ -75,6 +75,11 @@ public static class AuthenticationExtensions
                     options.Scope.Add("openid");
                     options.Scope.Add("profile");
 
+                    // Without this the access token carries no address, and the ticket confirmation has
+                    // nowhere to go: the purchase message takes the buyer's email with it rather than
+                    // making a consumer ask Keycloak who they were.
+                    options.Scope.Add("email");
+
                     // Every abandoned sign-in leaves a correlation and a nonce cookie behind. All the local
                     // services share the "localhost" cookie jar, so without a short lifetime they pile up
                     // until the request header exceeds what Keycloak accepts and it answers 431.

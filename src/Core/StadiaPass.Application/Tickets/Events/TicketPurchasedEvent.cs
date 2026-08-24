@@ -9,6 +9,9 @@ namespace StadiaPass.Application.Tickets.Events;
 /// A message, not a domain event: it carries everything a consumer needs and reaches back for nothing, which
 /// is what lets it cross a broker. It is deliberately not a MediatR notification any more - nothing publishes
 /// it in process. It goes to the outbox inside the sale transaction and reaches consumers over RabbitMQ.
+/// <see cref="HolderEmail"/> travels with the message so a consumer can write to the buyer without asking
+/// the identity provider who they were - the message has to stand on its own to be able to cross a broker.
+/// It is nullable because an account may carry no address at all.
 /// <see cref="AccessCode"/> is named the way it is so the log destructuring policy masks it - the code is
 /// what gets somebody through the turnstile, and a log file is no place for it.
 /// </remarks>
@@ -24,5 +27,6 @@ public sealed record TicketPurchasedEvent(
     decimal Price,
     string Currency,
     string HolderReference,
+    string? HolderEmail,
     string PaymentTransactionId,
     DateTimeOffset PurchasedAtUtc);
