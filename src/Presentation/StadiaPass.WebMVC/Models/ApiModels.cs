@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 
 namespace StadiaPass.WebMVC.Models;
 
@@ -140,13 +141,36 @@ public sealed class PurchaseInput
     [Display(Name = "Card number")]
     public string CardNumber { get; set; } = string.Empty;
 
-    [Range(1, 12)]
-    [Display(Name = "Month")]
-    public int ExpirationMonth { get; set; } = DateTime.Now.Month;
+    [Required(ErrorMessage = "The card expiry is required.")]
+    [RegularExpression(
+        @"^\s*(0[1-9]|1[0-2])\s*/\s*[0-9]{2}\s*$",
+        ErrorMessage = "The expiry looks like MM / YY, for example 12 / 30.")]
+    [Display(Name = "Expiry")]
+    public string ExpirationDate { get; set; } = string.Empty;
 
-    [Range(2000, 2100)]
-    [Display(Name = "Year")]
-    public int ExpirationYear { get; set; } = DateTime.Now.Year + 1;
+    /// <summary>
+    /// The month the card is good through. Read out of <see cref="ExpirationDate"/> here rather than in the
+    /// browser: the mask on that field is there to make typing pleasant, and a form should not start
+    /// submitting the wrong thing because somebody turned scripting off.
+    /// </summary>
+    public int ExpirationMonth => Expiry?.Month ?? 0;
+
+    /// <summary>Two digits on a card have meant a year in this century for as long as cards have had them.</summary>
+    public int ExpirationYear => Expiry?.Year ?? 0;
+
+    private (int Month, int Year)? Expiry
+    {
+        get
+        {
+            var digits = string.Concat(ExpirationDate.Where(char.IsAsciiDigit));
+
+            return digits.Length is 4
+                   && int.TryParse(digits[..2], CultureInfo.InvariantCulture, out var month)
+                   && int.TryParse(digits[2..], CultureInfo.InvariantCulture, out var year)
+                ? (month, 2000 + year)
+                : null;
+        }
+    }
 
     [Required(ErrorMessage = "The security code is required.")]
     [RegularExpression("^[0-9]{3,4}$", ErrorMessage = "The security code is three or four digits.")]

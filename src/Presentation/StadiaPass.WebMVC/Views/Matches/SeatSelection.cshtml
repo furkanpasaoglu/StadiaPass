@@ -103,8 +103,6 @@
         .SelectMany(row => row.Seats)
         .FirstOrDefault(seat => string.Equals(seat.SeatNumber, heldSeat, StringComparison.Ordinal));
 
-    var currentYear = DateTime.Now.Year;
-
     <div class="card border-success mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
             <div>
@@ -137,33 +135,21 @@
                         <label class="form-label" for="CardNumber">Card number</label>
                         <input class="form-control" id="CardNumber" name="CardNumber"
                                type="text" inputmode="numeric" maxlength="23" autocomplete="off" required
-                               placeholder="4242 4242 4242 4242"/>
+                               data-mask="card-number" placeholder="4242 4242 4242 4242"/>
                     </div>
-                    <div class="col-4 col-md-3">
-                        <label class="form-label" for="ExpirationMonth">Month</label>
-                        <select class="form-select" id="ExpirationMonth" name="ExpirationMonth">
-                            @for (var month = 1; month <= 12; month++)
-                            {
-                                <option value="@month">@month.ToString("00")</option>
-                            }
-                        </select>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="ExpirationDate">Expiry</label>
+                        <input class="form-control" id="ExpirationDate" name="ExpirationDate"
+                               type="text" inputmode="numeric" maxlength="7" autocomplete="off" required
+                               data-mask="expiry" placeholder="MM / YY"/>
                     </div>
-                    <div class="col-4 col-md-3">
-                        <label class="form-label" for="ExpirationYear">Year</label>
-                        <select class="form-select" id="ExpirationYear" name="ExpirationYear">
-                            @for (var year = currentYear; year <= currentYear + 15; year++)
-                            {
-                                <option value="@year">@year</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="col-4 col-md-3">
+                    <div class="col-6 col-md-3">
                         <label class="form-label" for="Cvv">CVV</label>
                         <input class="form-control" id="Cvv" name="Cvv"
                                type="password" inputmode="numeric" maxlength="4" autocomplete="off" required
-                               placeholder="123"/>
+                               data-mask="security-code" placeholder="123"/>
                     </div>
-                    <div class="col-12 col-md-3 d-flex align-items-end">
+                    <div class="col-12 col-md-6 d-flex align-items-end">
                         <button type="submit" class="btn btn-success w-100">Pay and get ticket</button>
                     </div>
                 </div>

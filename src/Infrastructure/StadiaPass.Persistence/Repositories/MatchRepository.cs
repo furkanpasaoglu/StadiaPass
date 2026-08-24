@@ -18,6 +18,35 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
             .OrderBy(match => match.KickOffUtc)
             .ToListAsync(cancellationToken);
 
+    /// <inheritdoc />
+    public async Task ApplySeatSaleToCountersAsync(Match match, CancellationToken cancellationToken = default)
+    {
+        // The aggregate has already moved its own counters in memory, and it should: that is what keeps the
+        // domain rules - and the tests that pin them down - honest. Those values are simply not what belongs
+        // in the database, so they are taken out of the save's hands here and left to the statement below.
+        var entry = Context.Entry(match);
+        entry.Property(candidate => candidate.ReservedSeatCount).IsModified = false;
+        entry.Property(candidate => candidate.SoldSeatCount).IsModified = false;
+        entry.Property(candidate => candidate.Status).IsModified = false;
+
+        // Every SET expression reads the row as it was before this statement, which is why the sold-out test
+        // asks whether the reservation being sold is the last one rather than whether the count is already
+        // zero. PostgreSQL re-evaluates all of it against the committed row if another sale got here first,
+        // so the arithmetic stays right without a version check and without anybody losing an update.
+        await Set
+            .Where(candidate => candidate.Id == match.Id)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(candidate => candidate.ReservedSeatCount, candidate => candidate.ReservedSeatCount - 1)
+                    .SetProperty(candidate => candidate.SoldSeatCount, candidate => candidate.SoldSeatCount + 1)
+                    .SetProperty(
+                        candidate => candidate.Status,
+                        candidate => candidate.AvailableSeatCount == 0 && candidate.ReservedSeatCount == 1
+                            ? MatchStatus.SoldOut
+                            : candidate.Status),
+                cancellationToken);
+    }
+
     public Task<bool> ExistsForVenueAsync(Guid venueId, CancellationToken cancellationToken = default) =>
         Set.AnyAsync(match => match.VenueId == venueId, cancellationToken);
 

@@ -45,6 +45,22 @@ internal sealed partial class MockPaymentService(ILogger<MockPaymentService> log
         return Task.FromResult(result);
     }
 
+    /// <summary>
+    /// There is no money to give back, so this only leaves a trace. It still answers like the real thing:
+    /// a refund path that is never exercised locally is a refund path nobody finds out is broken.
+    /// </summary>
+    public Task<PaymentResult> RefundPaymentAsync(
+        string transactionId,
+        decimal amount,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        RefundIssued(logger, amount, transactionId);
+
+        return Task.FromResult(PaymentResult.Success($"mock_refund_{Guid.CreateVersion7():N}"));
+    }
+
     [LoggerMessage(
         EventId = 6000,
         Level = LogLevel.Information,
@@ -60,4 +76,10 @@ internal sealed partial class MockPaymentService(ILogger<MockPaymentService> log
         Level = LogLevel.Information,
         Message = "Mock provider declined card {MaskedNumber}: {FailureCode}")]
     private static partial void PaymentDeclined(ILogger logger, string maskedNumber, string failureCode);
+
+    [LoggerMessage(
+        EventId = 6002,
+        Level = LogLevel.Information,
+        Message = "Mock provider refunded {Amount} against transaction {TransactionId}")]
+    private static partial void RefundIssued(ILogger logger, decimal amount, string transactionId);
 }

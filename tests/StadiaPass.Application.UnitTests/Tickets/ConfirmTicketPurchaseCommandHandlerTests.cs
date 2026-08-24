@@ -1,8 +1,12 @@
+using MediatR;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Application.Tickets.Commands.ConfirmTicketPurchase;
+using StadiaPass.Application.Tickets.Events;
 using StadiaPass.Domain.Abstractions;
 using StadiaPass.Domain.Matches;
 
@@ -15,6 +19,8 @@ namespace StadiaPass.Application.UnitTests.Tickets;
 /// </summary>
 public sealed class ConfirmTicketPurchaseCommandHandlerTests
 {
+    private const string PaymentTransactionId = "pi_test_reference";
+
     private readonly IMatchRepository _matchRepository = Substitute.For<IMatchRepository>();
 
     private readonly ITicketRepository _ticketRepository = Substitute.For<ITicketRepository>();
@@ -22,6 +28,8 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
     private readonly IPaymentService _paymentService = Substitute.For<IPaymentService>();
 
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
+
+    private readonly IPublisher _publisher = Substitute.For<IPublisher>();
 
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
 
@@ -35,8 +43,21 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
         _currentUser.IsAuthenticated.Returns(true);
         _dateTimeProvider.UtcNow.Returns(TestData.Now);
 
+        // A substituted transaction that never runs its body would let every assertion below pass against a
+        // handler that saves nothing at all, so the fake actually executes what it is given.
+        _unitOfWork
+            .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>()));
+
         _handler = new ConfirmTicketPurchaseCommandHandler(
-            _matchRepository, _ticketRepository, _paymentService, _unitOfWork, _currentUser, _dateTimeProvider);
+            _matchRepository,
+            _ticketRepository,
+            _paymentService,
+            _unitOfWork,
+            _publisher,
+            _currentUser,
+            _dateTimeProvider,
+            NullLogger<ConfirmTicketPurchaseCommandHandler>.Instance);
     }
 
     [Fact]
@@ -129,6 +150,110 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
             .ProcessPaymentAsync(Arg.Any<PaymentRequest>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Should_RefuseTheSaleNamingTheSeat_When_AnotherTransactionWonTheRaceToTheRow()
+    {
+        // Arrange - the guards all passed on the copy this request read, and the row still changed underneath
+        // it before the write landed. That is exactly the window the seat's concurrency token closes.
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+        GivenTheWriteLosesTheRace();
+
+        // Act
+        var buying = () => _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - the caller is told which seat went, not that a row version failed to match.
+        var thrown = await buying.Should().ThrowAsync<ConcurrencyConflictException>();
+        thrown.Which.Message.Should().Contain(TestData.SeatNumber);
+        thrown.Which.InnerException.Should().BeOfType<ConcurrencyConflictException>();
+    }
+
+    [Fact]
+    public async Task Should_GiveTheMoneyBack_When_TheSaleIsLostAfterTheCardWasCharged()
+    {
+        // Arrange
+        var match = GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+        GivenTheWriteLosesTheRace();
+
+        // Act
+        var buying = () => _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - the customer paid for a seat they did not get, so the charge is reversed for exactly what
+        // the seat cost before the failure is allowed to travel any further.
+        await buying.Should().ThrowAsync<ConcurrencyConflictException>();
+        await _paymentService
+            .Received(1)
+            .RefundPaymentAsync(
+                PaymentTransactionId,
+                TestData.SeatOf(match, TestData.SeatNumber).Price.Amount,
+                Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_NotAnnounceThePurchase_When_TheSaleWasNeverWritten()
+    {
+        // Arrange
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+        GivenTheWriteLosesTheRace();
+
+        // Act
+        var buying = () => _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - mailing somebody a ticket for a sale that rolled back is worse than not mailing at all.
+        await buying.Should().ThrowAsync<ConcurrencyConflictException>();
+        await _publisher
+            .DidNotReceive()
+            .Publish(Arg.Any<TicketPurchasedEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_AnnounceThePurchaseWithEverythingAConsumerNeeds_When_TheSaleIsCommitted()
+    {
+        // Arrange
+        var match = GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+
+        // Act
+        var ticket = await _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - the message has to stand on its own, because the consumer of it will one day be on the
+        // other side of a queue with no database of ours to ask.
+        await _publisher
+            .Received(1)
+            .Publish(
+                Arg.Is<TicketPurchasedEvent>(published =>
+                    published.TicketId == ticket.Id
+                    && published.AccessCode == ticket.AccessCode
+                    && published.MatchId == match.Id
+                    && published.HomeTeam == match.HomeTeam
+                    && published.AwayTeam == match.AwayTeam
+                    && published.VenueName == match.VenueName
+                    && published.SeatNumber == TestData.SeatNumber
+                    && published.HolderReference == TestData.CurrentUserId
+                    && published.PaymentTransactionId == PaymentTransactionId),
+                Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_LeaveTheMatchCountersToTheDatabase_When_TheSaleIsWritten()
+    {
+        // Arrange
+        var match = GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+
+        // Act
+        await _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - the totals this request read are never what gets written; the database works them out for
+        // itself, inside the same transaction as the seat.
+        await _matchRepository.Received(1).ApplySeatSaleToCountersAsync(match, Arg.Any<CancellationToken>());
+        await _unitOfWork
+            .Received(1)
+            .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+    }
+
     private static ConfirmTicketPurchaseCommand Command() =>
         new(
             Guid.CreateVersion7(),
@@ -152,8 +277,20 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
         return match;
     }
 
-    private void GivenThePaymentSucceeds() =>
+    private void GivenThePaymentSucceeds()
+    {
         _paymentService
             .ProcessPaymentAsync(Arg.Any<PaymentRequest>(), Arg.Any<CancellationToken>())
-            .Returns(PaymentResult.Success("mock_reference"));
+            .Returns(PaymentResult.Success(PaymentTransactionId));
+
+        _paymentService
+            .RefundPaymentAsync(Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<CancellationToken>())
+            .Returns(PaymentResult.Success("mock_refund"));
+    }
+
+    /// <summary>Somebody else wrote the seat row between this request reading it and saving it.</summary>
+    private void GivenTheWriteLosesTheRace() =>
+        _unitOfWork
+            .SaveChangesAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConcurrencyConflictException("The MatchSeat was changed by another transaction."));
 }

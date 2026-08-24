@@ -32,3 +32,11 @@ public sealed class PaymentFailedException(string code, string message) : Except
     /// <summary>The provider's decline code, e.g. <c>insufficient_funds</c>.</summary>
     public string Code { get; } = code;
 }
+
+/// <summary>
+/// A row changed between the moment this request read it and the moment it tried to write it back, so the
+/// write was refused rather than allowed to overwrite somebody else's change. Thrown by the persistence layer
+/// in place of EF Core's own <c>DbUpdateConcurrencyException</c>, which this layer cannot see.
+/// </summary>
+public sealed class ConcurrencyConflictException(string message, Exception? innerException = null)
+    : Exception(message, innerException);

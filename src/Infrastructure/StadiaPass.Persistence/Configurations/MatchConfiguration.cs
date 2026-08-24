@@ -69,6 +69,17 @@ internal sealed class MatchSeatConfiguration : IEntityTypeConfiguration<MatchSea
         builder.HasKey(seat => seat.Id);
         builder.Property(seat => seat.Id).ValueGeneratedNever();
 
+        // PostgreSQL already stamps every row with the id of the transaction that last wrote it, in the
+        // hidden `xmin` system column. Mapping that as the concurrency token gives optimistic locking for
+        // free: no extra column, no migration, and no version field leaking into the domain entity. Every
+        // UPDATE now carries `AND xmin = <value read>`, so whoever writes second matches zero rows and gets
+        // a DbUpdateConcurrencyException instead of silently overwriting the winner.
+        builder.Property<uint>("xmin")
+            .HasColumnName("xmin")
+            .HasColumnType("xid")
+            .ValueGeneratedOnAddOrUpdate()
+            .IsConcurrencyToken();
+
         builder.Property(seat => seat.SeatNumber)
             .HasConversion(
                 seatNumber => seatNumber.ToString(),

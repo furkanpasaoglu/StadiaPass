@@ -21,6 +21,10 @@ internal sealed class TicketEndpoints : IEndpoint
             .WithSummary("Turns the caller's own seat reservation into a sale and issues the ticket.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
+            // 409 means somebody else got the seat while this purchase was being written; any charge taken
+            // for it has already been refunded by the time the caller reads this. 422 is a declined card or
+            // a broken business rule - there, nothing was ever taken.
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireAuthorization(StadiaPassPermissions.Tickets.Purchase);
 

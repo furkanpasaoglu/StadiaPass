@@ -87,6 +87,54 @@ internal sealed partial class StripePaymentService(
     }
 
     /// <summary>
+    /// Refunds against the PaymentIntent rather than a charge id: that is the identifier the rest of the
+    /// system already carries, and it stays correct even when a payment settles into more than one charge.
+    /// The idempotency key is derived from the transaction, so a retried unwind gives the money back once.
+    /// </summary>
+    public async Task<PaymentResult> RefundPaymentAsync(
+        string transactionId,
+        decimal amount,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var refund = await new RefundService(stripeClient).CreateAsync(
+                new RefundCreateOptions
+                {
+                    PaymentIntent = transactionId,
+                    Amount = ToMinorUnits(amount)
+                },
+                new RequestOptions { IdempotencyKey = $"refund:{transactionId}" },
+                cancellationToken);
+
+            if (string.Equals(refund.Status, SucceededStatus, StringComparison.Ordinal))
+            {
+                RefundIssued(logger, refund.Id, transactionId);
+
+                return PaymentResult.Success(refund.Id);
+            }
+
+            // Pending is not a failure, but it is not money back either, so the caller is told the truth
+            // rather than a comfortable version of it.
+            RefundUnfinished(logger, refund.Id, transactionId, refund.Status);
+
+            return PaymentResult.Failure(
+                refund.Status,
+                $"Stripe left the refund of {transactionId} in state '{refund.Status}'.");
+        }
+        catch (StripeException exception)
+        {
+            // No customer is waiting to read this one - their request already failed. It is logged at Error
+            // because it means money is sitting with the provider that nothing in the system will claim back.
+            var code = exception.StripeError?.Code ?? exception.StripeError?.Type ?? "stripe_error";
+
+            RefundFailed(logger, transactionId, code, exception);
+
+            return PaymentResult.Failure(code, exception.StripeError?.Message ?? exception.Message);
+        }
+    }
+
+    /// <summary>
     /// Stripe wants the currency in lower case. Built a character at a time on purpose: the string-level
     /// lowercase methods carry a globalization warning that does not apply to a three letter ISO code.
     /// </summary>
@@ -129,4 +177,31 @@ internal sealed partial class StripePaymentService(
         Level = LogLevel.Warning,
         Message = "Card {MaskedNumber} is not one of Stripe's test cards, so no charge was attempted")]
     private static partial void UnknownTestCard(ILogger logger, string maskedNumber);
+
+    [LoggerMessage(
+        EventId = 6104,
+        Level = LogLevel.Information,
+        Message = "Stripe refund {RefundId} returned the money taken by payment intent {PaymentIntentId}")]
+    private static partial void RefundIssued(ILogger logger, string refundId, string paymentIntentId);
+
+    [LoggerMessage(
+        EventId = 6105,
+        Level = LogLevel.Warning,
+        Message = "Stripe left refund {RefundId} of payment intent {PaymentIntentId} in state {Status}")]
+    private static partial void RefundUnfinished(
+        ILogger logger,
+        string refundId,
+        string paymentIntentId,
+        string status);
+
+    [LoggerMessage(
+        EventId = 6106,
+        Level = LogLevel.Error,
+        Message = "Stripe refused to refund payment intent {PaymentIntentId} ({FailureCode}); "
+            + "that charge is still with the provider and needs to be given back by hand")]
+    private static partial void RefundFailed(
+        ILogger logger,
+        string paymentIntentId,
+        string failureCode,
+        Exception exception);
 }

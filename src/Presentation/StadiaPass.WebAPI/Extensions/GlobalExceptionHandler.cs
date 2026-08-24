@@ -71,6 +71,13 @@ internal sealed partial class GlobalExceptionHandler(
             Type = "https://tools.ietf.org/html/rfc9110#section-15.5.21",
             Extensions = { ["paymentFailureCode"] = payment.Code }
         },
+        ConcurrencyConflictException concurrency => new ProblemDetails
+        {
+            Status = StatusCodes.Status409Conflict,
+            Title = "Seat no longer available",
+            Detail = concurrency.Message,
+            Type = "https://tools.ietf.org/html/rfc9110#section-15.5.10"
+        },
         ConflictException conflict => new ProblemDetails
         {
             Status = StatusCodes.Status409Conflict,
