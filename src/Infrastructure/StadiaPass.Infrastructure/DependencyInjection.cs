@@ -1,3 +1,4 @@
+using MassTransit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -8,6 +9,7 @@ using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Infrastructure.Caching;
 using StadiaPass.Infrastructure.Identity;
 using StadiaPass.Infrastructure.Locking;
+using StadiaPass.Infrastructure.Messaging;
 using StadiaPass.Infrastructure.Payments;
 using StadiaPass.Infrastructure.Time;
 using Stripe;
@@ -17,6 +19,8 @@ namespace StadiaPass.Infrastructure;
 public static class DependencyInjection
 {
     public const string CacheConnectionName = "cache";
+
+    public const string MessagingConnectionName = "messaging";
 
     public const string KeycloakServiceName = "keycloak";
 
@@ -54,8 +58,40 @@ public static class DependencyInjection
                 client.BaseAddress = new Uri($"https+http://{KeycloakServiceName}"));
 
         builder.AddPayments();
+        builder.AddMessaging();
 
         return builder;
+    }
+
+    /// <summary>
+    /// MassTransit over RabbitMQ, with both ends of the conversation in this one process for now. That is a
+    /// perfectly ordinary way to run a system that has not been split up yet, and it is also the point: the
+    /// message really does leave for the broker and really does come back, so the day a consumer moves into
+    /// its own service, nothing about this side has to change.
+    /// </summary>
+    private static void AddMessaging(this IHostApplicationBuilder builder)
+    {
+        var connectionString = builder.Configuration.GetConnectionString(MessagingConnectionName)
+            ?? throw new InvalidOperationException(
+                $"ConnectionStrings:{MessagingConnectionName} is not set. RabbitMQ is orchestrated by the "
+                + "Aspire AppHost, so the API is expected to be started through it.");
+
+        builder.Services.AddMassTransit(bus =>
+        {
+            // Exchange and queue names come out as ticket-purchased-event rather than TicketPurchasedEvent,
+            // which is what anybody looking at the RabbitMQ management page expects to see.
+            bus.SetKebabCaseEndpointNameFormatter();
+
+            bus.AddConsumer<TicketPurchasedEventConsumer>();
+
+            bus.UsingRabbitMq((context, rabbit) =>
+            {
+                rabbit.Host(new Uri(connectionString));
+                rabbit.ConfigureEndpoints(context);
+            });
+        });
+
+        builder.Services.AddScoped<IEventBus, MassTransitEventBus>();
     }
 
     /// <summary>

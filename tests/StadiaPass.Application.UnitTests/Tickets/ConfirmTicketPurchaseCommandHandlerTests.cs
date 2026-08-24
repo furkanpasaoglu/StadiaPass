@@ -1,4 +1,3 @@
-using MediatR;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -33,7 +32,7 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
 
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
-    private readonly IPublisher _publisher = Substitute.For<IPublisher>();
+    private readonly IOutbox _outbox = Substitute.For<IOutbox>();
 
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
 
@@ -64,8 +63,8 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
             _ticketRepository,
             _paymentService,
             _distributedLock,
+            _outbox,
             _unitOfWork,
-            _publisher,
             _currentUser,
             _dateTimeProvider,
             NullLogger<ConfirmTicketPurchaseCommandHandler>.Instance);
@@ -264,7 +263,7 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
     }
 
     [Fact]
-    public async Task Should_NotAnnounceThePurchase_When_TheSaleWasNeverWritten()
+    public async Task Should_AnnounceInsideTheSaleTransaction_When_TheWriteFails()
     {
         // Arrange
         GivenASeatHeldBy(TestData.CurrentUserId);
@@ -274,11 +273,14 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
         // Act
         var buying = () => _handler.Handle(Command(), CancellationToken.None);
 
-        // Assert - mailing somebody a ticket for a sale that rolled back is worse than not mailing at all.
+        // Assert - the announcement is written before the save that fails, so the same rollback that undoes
+        // the sale undoes the message. Nothing about it ever reaches a broker.
         await buying.Should().ThrowAsync<ConcurrencyConflictException>();
-        await _publisher
-            .DidNotReceive()
-            .Publish(Arg.Any<TicketPurchasedEvent>(), Arg.Any<CancellationToken>());
+        Received.InOrder(() =>
+        {
+            _outbox.Enqueue(Arg.Any<TicketPurchasedEvent>());
+            _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>());
+        });
     }
 
     [Fact]
@@ -293,20 +295,18 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
 
         // Assert - the message has to stand on its own, because the consumer of it will one day be on the
         // other side of a queue with no database of ours to ask.
-        await _publisher
+        _outbox
             .Received(1)
-            .Publish(
-                Arg.Is<TicketPurchasedEvent>(published =>
-                    published.TicketId == ticket.Id
-                    && published.AccessCode == ticket.AccessCode
-                    && published.MatchId == match.Id
-                    && published.HomeTeam == match.HomeTeam
-                    && published.AwayTeam == match.AwayTeam
-                    && published.VenueName == match.VenueName
-                    && published.SeatNumber == TestData.SeatNumber
-                    && published.HolderReference == TestData.CurrentUserId
-                    && published.PaymentTransactionId == PaymentTransactionId),
-                Arg.Any<CancellationToken>());
+            .Enqueue(Arg.Is<TicketPurchasedEvent>(announced =>
+                announced.TicketId == ticket.Id
+                && announced.AccessCode == ticket.AccessCode
+                && announced.MatchId == match.Id
+                && announced.HomeTeam == match.HomeTeam
+                && announced.AwayTeam == match.AwayTeam
+                && announced.VenueName == match.VenueName
+                && announced.SeatNumber == TestData.SeatNumber
+                && announced.HolderReference == TestData.CurrentUserId
+                && announced.PaymentTransactionId == PaymentTransactionId));
     }
 
     [Fact]

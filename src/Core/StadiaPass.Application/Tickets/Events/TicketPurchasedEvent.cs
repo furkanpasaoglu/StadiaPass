@@ -1,5 +1,3 @@
-using MediatR;
-
 namespace StadiaPass.Application.Tickets.Events;
 
 /// <summary>
@@ -8,9 +6,9 @@ namespace StadiaPass.Application.Tickets.Events;
 /// off this, so none of it can hold up the answer the customer is waiting for.
 /// </summary>
 /// <remarks>
-/// Shaped as a message rather than as a domain event on purpose. It carries everything a consumer needs and
-/// reaches back for nothing, so putting it on RabbitMQ later means changing who publishes it, not what it
-/// says: <c>publisher.Publish</c> becomes <c>bus.Publish</c> and the consumers keep their signatures.
+/// A message, not a domain event: it carries everything a consumer needs and reaches back for nothing, which
+/// is what lets it cross a broker. It is deliberately not a MediatR notification any more - nothing publishes
+/// it in process. It goes to the outbox inside the sale transaction and reaches consumers over RabbitMQ.
 /// <see cref="AccessCode"/> is named the way it is so the log destructuring policy masks it - the code is
 /// what gets somebody through the turnstile, and a log file is no place for it.
 /// </remarks>
@@ -27,4 +25,4 @@ public sealed record TicketPurchasedEvent(
     string Currency,
     string HolderReference,
     string PaymentTransactionId,
-    DateTimeOffset PurchasedAtUtc) : INotification;
+    DateTimeOffset PurchasedAtUtc);

@@ -13,6 +13,10 @@ var cache = builder.AddRedis("cache")
     .WithRedisInsight()
     .WithLifetime(ContainerLifetime.Persistent);
 
+var messaging = builder.AddRabbitMQ("messaging")
+    .WithManagementPlugin()
+    .WithLifetime(ContainerLifetime.Persistent);
+
 var keycloak = builder.AddKeycloak("keycloak", port: 8080)
     .WithRealmImport("./realms")
     .WithEnvironment("QUARKUS_HTTP_LIMITS_MAX_HEADER_SIZE", "32K");
@@ -35,9 +39,11 @@ var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
     .WithReference(database)
     .WithReference(cache)
     .WithReference(keycloak)
+    .WithReference(messaging)
     .WaitFor(database)
     .WaitFor(cache)
     .WaitFor(keycloak)
+    .WaitFor(messaging)
     .WithReference(vaultEndpoint)
     .WaitFor(vault)
     .WithEnvironment("Vault__Address", vaultEndpoint)
@@ -98,6 +104,8 @@ builder.Eventing.Subscribe<ResourceReadyEvent>(vault.Resource, async (@event, ca
             await database.Resource.ConnectionStringExpression.GetValueAsync(cancellationToken),
         ["ConnectionStrings:cache"] =
             await cache.Resource.ConnectionStringExpression.GetValueAsync(cancellationToken),
+        ["ConnectionStrings:messaging"] =
+            await messaging.Resource.ConnectionStringExpression.GetValueAsync(cancellationToken),
         ["Keycloak:AdminClientSecret"] = "stadiapass-admin-dev-secret",
         ["Keycloak:ClientSecret"] = "stadiapass-mvc-dev-secret",
         ["PaymentProvider:Type"] = builder.Configuration["PaymentProvider:Type"],

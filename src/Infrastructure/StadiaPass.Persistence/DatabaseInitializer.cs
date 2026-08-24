@@ -19,6 +19,7 @@ internal sealed partial class DatabaseInitializer(
         var context = scope.ServiceProvider.GetRequiredService<StadiaPassDbContext>();
 
         await context.Database.EnsureCreatedAsync(stoppingToken);
+        await EnsureOutboxTableAsync(context, stoppingToken);
         SchemaReady(logger);
 
         if (await context.SportCategories.AnyAsync(stoppingToken))
@@ -67,6 +68,34 @@ internal sealed partial class DatabaseInitializer(
         var seatCount = matches.Sum(match => match.Capacity);
         SeedCompleted(logger, 4, 2, matches.Length, seatCount);
     }
+
+    /// <summary>
+    /// <see cref="RelationalDatabaseFacadeExtensions"/>' EnsureCreated builds the schema once and never looks
+    /// at it again, so a table added to the model afterwards simply never appears on a database that already
+    /// exists - and the outbox is exactly that. This is a stopgap and reads like one: it is the price of not
+    /// having migrations, and adding them is what makes it go away. Written to be harmless on a fresh
+    /// database too, where EnsureCreated will have built the table a moment ago.
+    /// </summary>
+    private static async Task EnsureOutboxTableAsync(
+        StadiaPassDbContext context,
+        CancellationToken cancellationToken) =>
+        await context.Database.ExecuteSqlRawAsync(
+            $"""
+             CREATE TABLE IF NOT EXISTS {StadiaPassDbContext.Schema}.outbox_messages (
+                 id uuid NOT NULL,
+                 occurred_on_utc timestamp with time zone NOT NULL,
+                 type character varying(300) NOT NULL,
+                 content text NOT NULL,
+                 processed_on_utc timestamp with time zone NULL,
+                 error text NULL,
+                 CONSTRAINT pk_outbox_messages PRIMARY KEY (id)
+             );
+
+             CREATE INDEX IF NOT EXISTS ix_outbox_messages_unprocessed
+                 ON {StadiaPassDbContext.Schema}.outbox_messages (occurred_on_utc)
+                 WHERE processed_on_utc IS NULL;
+             """,
+            cancellationToken);
 
     [LoggerMessage(EventId = 2000, Level = LogLevel.Information, Message = "StadiaPass database schema is ready")]
     private static partial void SchemaReady(ILogger logger);

@@ -1,6 +1,6 @@
 using System.Globalization;
-using MediatR;
 using Microsoft.Extensions.Logging;
+using MediatR;
 using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Application.Infrastructure.Abstractions;
@@ -17,8 +17,8 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
     ITicketRepository ticketRepository,
     IPaymentService paymentService,
     IDistributedLock distributedLock,
+    IOutbox outbox,
     IUnitOfWork unitOfWork,
-    IPublisher publisher,
     ICurrentUser currentUser,
     IDateTimeProvider dateTimeProvider,
     ILogger<ConfirmTicketPurchaseCommandHandler> logger)
@@ -72,11 +72,7 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
 
         await ticketRepository.AddAsync(ticket, cancellationToken);
 
-        await WriteTheSaleAsync(request, match, seat, payment, cancellationToken);
-
-        // Only once the transaction has committed. A consumer that mails somebody their ticket must never be
-        // told about a sale that a rollback can still take away.
-        await publisher.Publish(BuildPurchasedEvent(ticket, match, payment, now), cancellationToken);
+        await WriteTheSaleAsync(request, match, seat, payment, ticket, now, cancellationToken);
 
         return ticket.ToDto();
     }
@@ -91,6 +87,8 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
         Match match,
         MatchSeat seat,
         PaymentResult payment,
+        Ticket ticket,
+        DateTimeOffset now,
         CancellationToken cancellationToken)
     {
         try
@@ -102,6 +100,12 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
                     // queue up here before either of them touches a seat. Two transactions reaching for the
                     // same pair of rows in opposite orders is how deadlocks are made.
                     await matchRepository.ApplySeatSaleToCountersAsync(match, token);
+
+                    // Inside the transaction, not after it. Publishing to a broker once the sale is safely
+                    // committed sounds like the careful order, but it leaves a gap: the process can stop in
+                    // between and the ticket is sold with nobody downstream ever told. Written here, the
+                    // message and the sale share one fate.
+                    outbox.Enqueue(BuildPurchasedEvent(ticket, match, payment, now));
 
                     await unitOfWork.SaveChangesAsync(token);
                 },
