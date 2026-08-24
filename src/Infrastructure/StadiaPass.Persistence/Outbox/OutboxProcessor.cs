@@ -19,15 +19,31 @@ namespace StadiaPass.Persistence.Outbox;
 /// </remarks>
 internal sealed partial class OutboxProcessor(
     IServiceScopeFactory scopeFactory,
+    OutboxMetrics metrics,
     ILogger<OutboxProcessor> logger) : BackgroundService
 {
     private static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>How often the sent rows are cleared out. There is no hurry about it; once a day is plenty.</summary>
+    private static readonly TimeSpan PruneInterval = TimeSpan.FromDays(1);
+
+    /// <summary>How long a delivered message is kept, in case somebody has to answer for it later.</summary>
+    private static readonly TimeSpan Retention = TimeSpan.FromDays(30);
 
     /// <summary>
     /// Small on purpose. The rows are locked for as long as the batch takes, and the batch takes as long as
     /// its slowest publish, so a big batch holds rows a second worker could have been getting on with.
     /// </summary>
     private const int BatchSize = 20;
+
+    /// <summary>
+    /// After this many refusals the message is set aside instead of being tried again every five seconds for
+    /// as long as the process lives. Five is enough to ride out a broker restart, and few enough that a
+    /// message which will never go stops writing a log line every tick and stops taking a slot in the batch.
+    /// </summary>
+    private const int MaxAttempts = 5;
+
+    private DateTimeOffset? _lastPrunedUtc;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -55,9 +71,20 @@ internal sealed partial class OutboxProcessor(
         var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
         var dateTimeProvider = scope.ServiceProvider.GetRequiredService<IDateTimeProvider>();
 
+        await PublishBatchAsync(context, eventBus, dateTimeProvider, cancellationToken);
+        await PruneAsync(context, dateTimeProvider, cancellationToken);
+        await MeasureDepthAsync(context, cancellationToken);
+    }
+
+    private async Task PublishBatchAsync(
+        StadiaPassDbContext context,
+        IEventBus eventBus,
+        IDateTimeProvider dateTimeProvider,
+        CancellationToken cancellationToken)
+    {
         // The Aspire Npgsql component configures a retrying execution strategy, and a retrying strategy
         // refuses to have a transaction opened behind its back - it would have no way to replay it. Handing
-        // the whole sweep to the strategy is how a transaction and retries are allowed to coexist, and it is
+        // the whole batch to the strategy is how a transaction and retries are allowed to coexist, and it is
         // the same shape the unit of work uses for exactly the same reason.
         await context.Database.CreateExecutionStrategy().ExecuteAsync(
             cancellationToken,
@@ -72,7 +99,7 @@ internal sealed partial class OutboxProcessor(
                     .FromSql(
                         $"""
                          SELECT * FROM stadiapass.outbox_messages
-                         WHERE processed_on_utc IS NULL
+                         WHERE processed_on_utc IS NULL AND failed_on_utc IS NULL
                          ORDER BY occurred_on_utc
                          LIMIT {BatchSize}
                          FOR UPDATE SKIP LOCKED
@@ -102,10 +129,13 @@ internal sealed partial class OutboxProcessor(
     {
         if (!IntegrationEventTypes.TryResolve(message.Type, out var messageType))
         {
-            // Left unprocessed rather than quietly ticked off: it was never delivered, and saying it was
-            // would be a lie told to whoever comes looking for the missing mail.
-            message.Error = $"'{message.Type}' is not a registered integration event.";
-            UnknownMessageType(logger, message.Id, message.Type);
+            // Nothing about this one will get better by trying again, but it is counted like any other
+            // refusal rather than special-cased: the ceiling stops it either way.
+            GiveUpOrRetry(
+                message,
+                dateTimeProvider,
+                $"No integration event is registered under the name {message.Type}.",
+                exception: null);
 
             return;
         }
@@ -118,41 +148,127 @@ internal sealed partial class OutboxProcessor(
             message.ProcessedOnUtc = dateTimeProvider.UtcNow;
             message.Error = null;
 
-            MessagePublished(logger, message.Id, message.Type);
+            MessagePublished(logger, message.Id, message.Type, message.Attempts + 1);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // The row stays exactly where it is. This is the whole point of the pattern.
-            message.Error = exception.Message;
-
-            PublishFailed(logger, message.Id, message.Type, exception);
+            GiveUpOrRetry(message, dateTimeProvider, exception.Message, exception);
         }
+    }
+
+    /// <summary>
+    /// Counts the refusal and, once there have been enough of them, sets the message aside. Left unprocessed
+    /// either way rather than quietly ticked off: it was never delivered, and saying it was would be a lie
+    /// told to whoever comes looking for the missing mail.
+    /// </summary>
+    private void GiveUpOrRetry(
+        OutboxMessage message,
+        IDateTimeProvider dateTimeProvider,
+        string error,
+        Exception? exception)
+    {
+        message.Attempts++;
+        message.Error = error;
+
+        if (message.Attempts >= MaxAttempts)
+        {
+            message.FailedOnUtc = dateTimeProvider.UtcNow;
+
+            MessageAbandoned(logger, message.Id, message.Type, message.Attempts, exception);
+
+            return;
+        }
+
+        PublishFailed(logger, message.Id, message.Type, message.Attempts, exception);
+    }
+
+    /// <summary>
+    /// A delivered message has done its job, but the row outlives it. Months of them turn a table the sweeper
+    /// reads every five seconds into mostly pages it will never look at, and every backup carries them.
+    /// </summary>
+    private async Task PruneAsync(
+        StadiaPassDbContext context,
+        IDateTimeProvider dateTimeProvider,
+        CancellationToken cancellationToken)
+    {
+        var now = dateTimeProvider.UtcNow;
+
+        if (_lastPrunedUtc is { } last && now - last < PruneInterval)
+        {
+            return;
+        }
+
+        var cutoff = now - Retention;
+
+        // A statement of its own, outside the batch transaction: it is neither urgent nor worth holding locks
+        // for, and a retrying strategy handles a single operation perfectly well on its own.
+        var removed = await context.OutboxMessages
+            .Where(message => message.ProcessedOnUtc != null && message.ProcessedOnUtc < cutoff)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        _lastPrunedUtc = now;
+
+        if (removed is not 0)
+        {
+            MessagesPruned(logger, removed, Retention.Days);
+        }
+    }
+
+    /// <summary>Counted here because the sweeper is at the table anyway; see <see cref="OutboxMetrics"/>.</summary>
+    private async Task MeasureDepthAsync(StadiaPassDbContext context, CancellationToken cancellationToken)
+    {
+        var pending = await context.OutboxMessages
+            .CountAsync(
+                message => message.ProcessedOnUtc == null && message.FailedOnUtc == null,
+                cancellationToken);
+
+        var dead = await context.OutboxMessages
+            .CountAsync(message => message.FailedOnUtc != null, cancellationToken);
+
+        metrics.Record(pending, dead);
     }
 
     [LoggerMessage(
         EventId = 2100,
         Level = LogLevel.Information,
-        Message = "Outbox message {OutboxMessageId} ({MessageType}) was published")]
-    private static partial void MessagePublished(ILogger logger, Guid outboxMessageId, string messageType);
+        Message = "Outbox message {OutboxMessageId} ({MessageType}) was published on attempt {Attempts}")]
+    private static partial void MessagePublished(
+        ILogger logger,
+        Guid outboxMessageId,
+        string messageType,
+        int attempts);
 
     [LoggerMessage(
         EventId = 2101,
         Level = LogLevel.Warning,
-        Message = "Outbox message {OutboxMessageId} ({MessageType}) could not be published; it stays in the "
-            + "table and will be tried again")]
+        Message = "Outbox message {OutboxMessageId} ({MessageType}) could not be published on attempt "
+            + "{Attempts}; it stays in the table and will be tried again")]
     private static partial void PublishFailed(
         ILogger logger,
         Guid outboxMessageId,
         string messageType,
-        Exception exception);
+        int attempts,
+        Exception? exception);
 
     [LoggerMessage(
         EventId = 2102,
         Level = LogLevel.Error,
-        Message = "Outbox message {OutboxMessageId} names {MessageType}, which nothing knows how to read; it "
-            + "will never be delivered without either the type back or the row gone")]
-    private static partial void UnknownMessageType(ILogger logger, Guid outboxMessageId, string messageType);
+        Message = "Outbox message {OutboxMessageId} ({MessageType}) failed {Attempts} times and has been set "
+            + "aside; it will not be tried again and needs a person to look at it")]
+    private static partial void MessageAbandoned(
+        ILogger logger,
+        Guid outboxMessageId,
+        string messageType,
+        int attempts,
+        Exception? exception);
 
     [LoggerMessage(EventId = 2103, Level = LogLevel.Error, Message = "An outbox sweep failed")]
     private static partial void SweepFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 2104,
+        Level = LogLevel.Information,
+        Message = "Removed {RemovedCount} outbox messages delivered more than {RetentionDays} days ago")]
+    private static partial void MessagesPruned(ILogger logger, int removedCount, int retentionDays);
 }

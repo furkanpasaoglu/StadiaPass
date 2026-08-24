@@ -23,6 +23,16 @@ public sealed class OutboxMessage
 
     /// <summary>Why the last attempt did not work, kept so a stuck message can be explained.</summary>
     public string? Error { get; set; }
+
+    /// <summary>How many times the broker has been asked to take it.</summary>
+    public int Attempts { get; set; }
+
+    /// <summary>
+    /// Set once the sweeper has given up. A message that can never be delivered would otherwise be retried
+    /// every five seconds for as long as the process lives, writing a log line each time and taking a slot
+    /// in every batch. Nothing clears this on its own: a row with a time in here is waiting for a person.
+    /// </summary>
+    public DateTimeOffset? FailedOnUtc { get; set; }
 }
 
 internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage>
@@ -39,6 +49,8 @@ internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outb
         builder.Property(message => message.Content).HasColumnName("content").IsRequired();
         builder.Property(message => message.ProcessedOnUtc).HasColumnName("processed_on_utc");
         builder.Property(message => message.Error).HasColumnName("error");
+        builder.Property(message => message.Attempts).HasColumnName("attempts").IsRequired();
+        builder.Property(message => message.FailedOnUtc).HasColumnName("failed_on_utc");
 
         // Partial index: the worker only ever asks for the unsent ones, and once a table has months of sent
         // messages in it an index over all of them is mostly pages it will never read.

@@ -51,7 +51,8 @@ StadiaPass.slnx
 │   ├── Infrastructure
 │   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, repository'ler, Unit of Work, seed
 │   │   │   ├── Configurations       # aggregate başına IEntityTypeConfiguration
-│   │   │   ├── Outbox               # OutboxMessage + writer + mesajı broker'a taşıyan sweeper
+│   │   │   ├── Matches              # tutması dolan koltukları geri veren worker
+│   │   │   ├── Outbox               # OutboxMessage, writer, sweeper, derinlik metrikleri
 │   │   │   └── Repositories         # Repository<T>, VenueRepository, MatchRepository, TicketRepository
 │   │   └── StadiaPass.Infrastructure# yukarıdaki portların adaptörleri
 │   │       ├── Email                # SMTP üzerinde MailKit + bilet onay maili şablonu
@@ -828,6 +829,68 @@ yapmak şöyle dursun.
 > mail sunucusu o onayı kalıcı olarak kaybettirir ve yalnızca log hatırlar. Başarısız gönderimden sonra
 > yeniden fırlatmak tek satır ve ikisini de geri açar — kuyruğunu zehirleyebilecek bir mesaj pahasına.
 
+
+## Arka plan işleri
+
+İki worker, ikisi de `PeriodicTimer` üzerinde düz `BackgroundService`. Hangfire yok, Quartz yok: iki periyodik
+işin kendine ait bir scheduler'a, bir dashboard'a ve bir tablo setine ihtiyacı yok — ve bir scheduler'ın asıl
+işe yarayacak özelliği, *bu iş yalnızca tek bir instance'ta çalışsın*, önemli olan yerde zaten
+`FOR UPDATE SKIP LOCKED` ile çözülmüş durumda.
+
+| Worker | Sıklık | Ne yapıyor |
+|---|---|---|
+| `ExpiredReservationCleanupWorker` | dakikada bir | tutması dolan koltukları geri veriyor |
+| `OutboxProcessor` | 5 saniyede bir | yayınlıyor, derinliği sayıyor, günde bir eski satırları siliyor |
+
+### Terk edilmiş koltukları geri vermek
+
+Bir tutma on dakika sürüyor, ve uzun süre onu bitiren tek şey **başka birinin aynı koltuğu almaya
+çalışması**ydı — aggregate, geçerken süresi dolmuş tutmayı serbest bırakıyor. Bu, insanların kapıştığı bir
+koltuk için işe yarar, geri kalanı için hiç yaramaz. Yarıda bırakılan bir checkout, koltuğu kalıcı olarak
+`Reserved` bırakıyordu: maça karşı sayılıyor, tıklamayı akıl etmeyen hiç kimseye satılamıyor ve görünmüyordu.
+Liste bir şey, koltuk haritası başka bir şey söylüyordu; ve bir maçın satılabilir koltuğu bitebiliyordu ama
+`SoldOut`'a hiç ulaşmıyordu.
+
+Serbest bırakmayı hâlâ domain yapıyor, koltuk koltuk, `Match.ReleaseSeat` üzerinden — böylece kurallar ve
+event'ler ait oldukları yerde kalıyor. Yalnızca sayaçlar veritabanına devrediliyor, bir satışın onları
+devretmesiyle aynı sebeple. Maç satırı ilk alınıyor, tıpkı satışın aldığı gibi, ki ikisi maça ve bir koltuğa
+asla ters sırayla uzanmasın.
+
+Okuma ile yazma arasında birinin satın aldığı ya da yeniden rezerve ettiği bir koltuk, concurrency kontrolüne
+takılıp tüm maçı geri alıyor — ki bu bir hata değil, **doğru cevap**: koltuk yine kullanımda ve serbest
+bırakılacak bir şey kalmamış. Bir sonraki tur hâlâ süresi dolmuş olanları alır.
+
+### Sonsuza kadar denememek
+
+Asla teslim edilemeyecek bir outbox mesajı — tanınmayan bir tip, deserialize olmayan bir payload — eskiden
+süreç yaşadığı sürece her beş saniyede tekrar deneniyor, her seferinde bir log satırı yazıyor ve her partide
+bir slot işgal ediyordu. `attempts` reddedilmeleri sayıyor, `failed_on_utc` ise sweeper'ın beş denemeden
+sonra vazgeçtiklerini işaretliyor. O kolonu hiçbir şey kendiliğinden temizlemiyor: içinde saat olan bir satır
+bir insanı bekliyor — aşağıdaki `dead` gauge'ı tam olarak bunun için var.
+
+### Eskileri temizlemek
+
+Teslim edilmiş bir mesaj işini yapmıştır ama satırı ondan uzun yaşar. Günde bir kez, otuz günden önce teslim
+edilmiş her şey siliniyor — hakkında soru sorulabilecek kadar uzun, sweeper'ın her beş saniyede okuduğu
+tablonun asla bakmayacağı sayfalara dönüşmeyeceği kadar kısa.
+
+### Çalıştığını bilmek
+
+```
+stadiapass_outbox_pending   yazılmış ama broker'ın henüz almadığı mesajlar
+stadiapass_outbox_dead      sweeper'ın vazgeçtikleri — sıfırın üstündeki her şey bir insan istiyor
+```
+
+`pending`, tüm mesajlaşma yolu hakkındaki **tek en yararlı sayı**. Çöken bir broker, bozulan bir consumer ve
+duran bir sweeper dışarıdan aynı görünür: tırmanan ve geri inmeyen bir sayı. O olmadan tek kanıt, kimsenin
+okumadığı bir log satırı.
+
+Gauge'lar veritabanını sorgulamak yerine sweeper'ın cache'lediği bir sayıyı okuyor. Observable gauge'ın
+callback'i senkrondur ve collector'ın thread'inde çalışır; oraya konulan bir sorgu, PostgreSQL ne kadar
+sürerse metrik toplamayı o kadar bloke ederdi. Sweeper zaten her beş saniyede o tablonun başında.
+
+Meter, ServiceDefaults'ta kayıtlı; yani değerler diğer her şeyle aynı `/metrics` endpoint'inden çıkıyor ve
+Prometheus onu zaten topluyor — bkz. [Metrikler ve dashboard'lar](#metrikler-ve-dashboardlar).
 
 ## İstek hattı
 

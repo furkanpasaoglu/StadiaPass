@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Domain.Abstractions;
+using StadiaPass.Persistence.Matches;
 using StadiaPass.Persistence.Outbox;
 using StadiaPass.Persistence.Repositories;
 
@@ -18,7 +19,9 @@ public static class DependencyInjection
         builder.Services.AddHostedService<DatabaseInitializer>();
         builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
         builder.Services.AddScoped<IOutbox, OutboxWriter>();
+        builder.Services.AddSingleton<OutboxMetrics>();
         builder.Services.AddHostedService<OutboxProcessor>();
+        builder.Services.AddHostedService<ExpiredReservationCleanupWorker>();
         builder.Services.AddScoped<ITicketRepository, TicketRepository>();
         builder.Services.AddScoped<IMatchRepository, MatchRepository>();
         builder.Services.AddScoped<IVenueRepository, VenueRepository>();

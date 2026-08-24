@@ -47,6 +47,58 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
                 cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Match>> GetWithExpiredReservationsAsync(
+        DateTimeOffset now,
+        int maxMatches,
+        CancellationToken cancellationToken = default)
+    {
+        // Filtered include again: a match in a 20k venue comes back carrying only the handful of seats whose
+        // hold has run out, not its whole seat map.
+        var expired = Set
+            .Where(match => match.Seats.Any(seat =>
+                seat.Status == SeatStatus.Reserved && seat.ReservationExpiresAtUtc < now));
+
+        return await expired
+            .Include(match => match.Seats.Where(seat =>
+                seat.Status == SeatStatus.Reserved && seat.ReservationExpiresAtUtc < now))
+            .OrderBy(match => match.KickOffUtc)
+            .Take(maxMatches)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task ApplySeatReleaseToCountersAsync(
+        Match match,
+        int releasedCount,
+        CancellationToken cancellationToken = default)
+    {
+        var entry = Context.Entry(match);
+        entry.Property(candidate => candidate.ReservedSeatCount).IsModified = false;
+        entry.Property(candidate => candidate.AvailableSeatCount).IsModified = false;
+        entry.Property(candidate => candidate.Status).IsModified = false;
+
+        // The mirror image of a sale: seats move back from reserved to available, and a match that had sold
+        // out has not any more. Whether it was sold out is asked of the row rather than of the counters,
+        // because those are the values this request happened to read and something else may have moved them.
+        await Set
+            .Where(candidate => candidate.Id == match.Id)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(
+                        candidate => candidate.ReservedSeatCount,
+                        candidate => candidate.ReservedSeatCount - releasedCount)
+                    .SetProperty(
+                        candidate => candidate.AvailableSeatCount,
+                        candidate => candidate.AvailableSeatCount + releasedCount)
+                    .SetProperty(
+                        candidate => candidate.Status,
+                        candidate => candidate.Status == MatchStatus.SoldOut
+                            ? MatchStatus.OnSale
+                            : candidate.Status),
+                cancellationToken);
+    }
+
     public Task<bool> ExistsForVenueAsync(Guid venueId, CancellationToken cancellationToken = default) =>
         Set.AnyAsync(match => match.VenueId == venueId, cancellationToken);
 

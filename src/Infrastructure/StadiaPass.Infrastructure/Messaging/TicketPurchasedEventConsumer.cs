@@ -42,11 +42,20 @@ internal sealed partial class TicketPurchasedEventConsumer(
             return;
         }
 
-        await emailService.SendEmailAsync(
+        var sent = await emailService.SendEmailAsync(
             recipient,
             TicketConfirmationEmail.SubjectFor(purchase),
             TicketConfirmationEmail.BodyFor(purchase),
             context.CancellationToken);
+
+        if (!sent)
+        {
+            // Thrown rather than swallowed, so the broker does what a broker is for. MassTransit redelivers
+            // the message, and if it never goes through it lands in the error queue where somebody can see
+            // it - both of which are switched off by quietly returning here instead.
+            throw new InvalidOperationException(
+                $"The confirmation for ticket {purchase.TicketId} could not be sent to {recipient}.");
+        }
     }
 
     [LoggerMessage(

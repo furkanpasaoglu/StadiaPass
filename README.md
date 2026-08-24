@@ -51,7 +51,8 @@ StadiaPass.slnx
 │   ├── Infrastructure
 │   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, repositories, Unit of Work, seeding
 │   │   │   ├── Configurations       # IEntityTypeConfiguration per aggregate
-│   │   │   ├── Outbox               # OutboxMessage + writer + the sweeper that carries it to the broker
+│   │   │   ├── Matches              # the worker that gives back seats whose hold ran out
+│   │   │   ├── Outbox               # OutboxMessage, writer, sweeper, depth metrics
 │   │   │   └── Repositories         # Repository<T>, VenueRepository, MatchRepository, TicketRepository
 │   │   └── StadiaPass.Infrastructure# adapters for the ports above
 │   │       ├── Email                # MailKit over SMTP + the ticket confirmation template
@@ -825,6 +826,68 @@ team name with an ampersand in it cannot break the layout, let alone anything wo
 > thirty seconds loses that confirmation for good and only the log remembers it. Rethrowing after a failed
 > send is one line and turns both back on, at the cost of a message that can poison its queue.
 
+
+## Background work
+
+Two workers, both plain `BackgroundService` over a `PeriodicTimer`. No Hangfire, no Quartz: two periodic
+jobs do not need a scheduler, a dashboard and a set of tables of their own, and the one thing a scheduler
+would really buy - *this job runs on one instance only* - is already handled where it matters by
+`FOR UPDATE SKIP LOCKED`.
+
+| Worker | Every | Does |
+|---|---|---|
+| `ExpiredReservationCleanupWorker` | minute | gives back seats whose hold ran out |
+| `OutboxProcessor` | 5 seconds | publishes, counts the depth, and once a day clears out old rows |
+
+### Giving back abandoned seats
+
+A hold lasts ten minutes, and for a long time the only thing that ever ended one was somebody else trying to
+take the same seat - the aggregate releases an expired hold on the way past. That works for a seat people
+are fighting over and not at all for the rest. An abandoned checkout left a seat reading `Reserved`
+permanently: counted against the match, unsellable to anyone who did not happen to click it, and invisible.
+The listing said one thing and the seat map another, and a match could run out of sellable seats without
+ever reaching `SoldOut`.
+
+The domain still does the releasing, seat by seat through `Match.ReleaseSeat`, so the rules and the events
+stay where they belong. Only the counters are handed to the database, for the same reason a sale hands them
+over. The match row is taken first, exactly as a sale takes it, so the two can never reach for the match and
+a seat in opposite orders.
+
+A seat that somebody bought or re-reserved between the read and the write fails the concurrency check and
+rolls the whole match back - which is the right answer, not an error: the seat is in use again and there is
+nothing left to release. The next pass picks up whatever is still expired.
+
+### Not trying forever
+
+An outbox message that can never be delivered - a type nobody recognises, a payload that will not
+deserialise - used to be retried every five seconds for as long as the process lived, writing a log line
+each time and taking a slot in every batch. `attempts` counts the refusals and `failed_on_utc` marks the
+ones the sweeper has given up on after five. Nothing clears that column on its own: a row with a time in it
+is waiting for a person, which is what the `dead` gauge below is for.
+
+### Clearing out
+
+A delivered message has done its job, but the row outlives it. Once a day, anything delivered more than
+thirty days ago is deleted - long enough to answer a question about it, short enough that the table the
+sweeper reads every five seconds does not turn into mostly pages it will never look at.
+
+### Knowing it works
+
+```
+stadiapass_outbox_pending   messages written but not yet taken by the broker
+stadiapass_outbox_dead      messages the sweeper gave up on - anything above zero wants a person
+```
+
+`pending` is the single most useful number about the whole messaging path. A broker that is down, a consumer
+that is broken and a sweeper that has stopped all look the same from the outside: a count that climbs and
+does not come back. Without it the only evidence is a log line nobody is reading.
+
+The gauges read a number the sweeper caches rather than querying the database. An observable gauge's callback
+is synchronous and runs on the collector's thread, so a query in there would block metric collection for
+however long PostgreSQL felt like taking. The sweeper is at the table every five seconds anyway.
+
+The meter is registered in ServiceDefaults, so the values come out of the same `/metrics` endpoint as
+everything else and Prometheus is already scraping it - see [Metrics and dashboards](#metrics-and-dashboards).
 
 ## Request pipeline
 

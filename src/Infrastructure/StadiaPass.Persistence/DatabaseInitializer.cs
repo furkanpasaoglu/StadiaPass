@@ -88,8 +88,17 @@ internal sealed partial class DatabaseInitializer(
                  content text NOT NULL,
                  processed_on_utc timestamp with time zone NULL,
                  error text NULL,
+                 attempts integer NOT NULL DEFAULT 0,
+                 failed_on_utc timestamp with time zone NULL,
                  CONSTRAINT pk_outbox_messages PRIMARY KEY (id)
              );
+
+             -- CREATE TABLE IF NOT EXISTS is a no-op on a table that already exists, so columns added after
+             -- the first run need saying separately. Same stopgap, same reason: no migrations yet.
+             ALTER TABLE {StadiaPassDbContext.Schema}.outbox_messages
+                 ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
+             ALTER TABLE {StadiaPassDbContext.Schema}.outbox_messages
+                 ADD COLUMN IF NOT EXISTS failed_on_utc timestamp with time zone NULL;
 
              CREATE INDEX IF NOT EXISTS ix_outbox_messages_unprocessed
                  ON {StadiaPassDbContext.Schema}.outbox_messages (occurred_on_utc)
