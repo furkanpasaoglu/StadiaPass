@@ -152,6 +152,36 @@ three matches (742 seats), and the Keycloak realm is imported.
 The Aspire dashboard exposes the Scalar reference as a link on the `webapi` resource. The OpenAPI document
 and Scalar are mapped only in the Development environment.
 
+### The 503 at startup is not a fault
+
+The first few seconds of a cold start produce these, once or twice, and then never again:
+
+```
+Health check masstransit-bus with status Unhealthy completed after 12.43ms
+    with message 'Not ready: not started'
+GET /health responded 503 in 4128.81 ms
+```
+
+That is the system working. `/health` answers only when **every** dependency is ready, and on a cold start
+RabbitMQ is still coming up while the API is already answering. The bus reports itself unhealthy until it has
+connected, `/health` reports 503, and whatever is asking is told plainly that this instance cannot serve
+traffic yet. A 200 there would be the bug: it would invite a load balancer to send real customers to an
+instance that cannot publish a single message.
+
+The pair of endpoints exists for exactly this distinction:
+
+| | Answers | Asks | Failing means |
+|---|---|---|---|
+| `/health` | when every check passes | is this instance ready for traffic? | send requests elsewhere for now |
+| `/alive` | when the `self` check passes | is this process still running? | restart it |
+
+Only `/alive` is tagged `live`, so a broker outage never makes it fail. That matters: if the two were one
+endpoint, an orchestrator watching it would kill and restart a perfectly healthy API every time RabbitMQ
+hiccupped — turning a dependency's bad minute into an outage of its own.
+
+Both are mapped in Development only, along with `/metrics`, because they carry no authentication and describe
+the inside of the system.
+
 ## API surface
 
 | Method | Route | Required permission |
@@ -992,6 +1022,29 @@ Stripe's shape is translated at the edge, where the Stripe SDK lives, so nothing
 has ever heard of Stripe - the sweeper reads exactly what the outbox sweeper reads. Stripe sends a great many
 event types and this system uses three; the rest are verified, acknowledged and dropped rather than filling a
 table with rows nothing reads.
+
+### Three, out of everything Stripe sends
+
+One successful purchase does not produce one webhook. Stripe narrates the whole life of a payment, so a
+single card going through in test mode delivers several events in quick succession — typically
+`payment_intent.created`, `charge.succeeded`, `charge.updated` and `payment_intent.succeeded`, and the exact
+set varies with the payment method and the account's configuration. Every one of them is signed, every one
+is a real delivery, and this system has a use for exactly three.
+
+`StripeWebhookReader` is therefore an **allow-list, not a deny-list**. Three types are translated into the
+application's own events; everything else is verified, logged at `Debug` and dropped by returning `null`,
+which the endpoint answers `200` to. Three consequences follow, and they are the reason it is written this
+way round:
+
+- **Nothing unknown reaches the inbox.** Recording every event would fill the table with rows nothing ever
+  reads, and the dead-message gauge would then be measuring noise rather than trouble.
+- **A new event type Stripe invents tomorrow is inert.** A deny-list would have to be updated to stay safe; an
+  allow-list is safe by not being updated. This matters because the endpoint is anonymous and public.
+- **They are still acknowledged, not refused.** Answering anything but `200` would make Stripe retry an event
+  we deliberately do not want, for three days.
+
+The corollary is that `stripe listen` showing eight deliveries and eight `200`s for one purchase is the
+system working correctly, not doing eight times the work.
 
 ### What the three events do
 

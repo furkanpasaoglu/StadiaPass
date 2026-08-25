@@ -152,6 +152,36 @@ koltuk) ile doldurulur; Keycloak realm'i içe aktarılır.
 Aspire panosu Scalar referansını `webapi` kaynağının üzerinde bir link olarak gösterir. OpenAPI dokümanı ve
 Scalar yalnızca Development ortamında map edilir.
 
+### Açılıştaki 503 bir arıza değil
+
+Soğuk başlangıcın ilk birkaç saniyesinde bunlar bir iki kez çıkar, sonra bir daha çıkmaz:
+
+```
+Health check masstransit-bus with status Unhealthy completed after 12.43ms
+    with message 'Not ready: not started'
+GET /health responded 503 in 4128.81 ms
+```
+
+Bu, sistemin çalışıyor olması demek. `/health` yalnızca **her** bağımlılık hazır olduğunda cevap verir; soğuk
+başlangıçta ise API çoktan cevap verirken RabbitMQ hâlâ ayağa kalkmaktadır. Bus bağlanana kadar kendini
+sağlıksız bildirir, `/health` 503 döner ve soran her kim ise bu instance'ın henüz trafik alamayacağı açıkça
+söylenmiş olur. Asıl bug orada 200 dönmek olurdu: bir load balancer'ı, tek bir mesaj bile yayınlayamayan bir
+instance'a gerçek müşteri göndermeye davet ederdi.
+
+İki uç noktanın varlık sebebi tam olarak bu ayrım:
+
+| | Ne zaman cevaplar | Neyi sorar | Başarısızlığı ne demek |
+|---|---|---|---|
+| `/health` | tüm kontroller geçtiğinde | bu instance trafiğe hazır mı? | şimdilik istekleri başka yere gönder |
+| `/alive` | `self` kontrolü geçtiğinde | bu süreç hâlâ çalışıyor mu? | yeniden başlat |
+
+Yalnızca `/alive` `live` etiketli, yani bir broker kesintisi onu asla düşürmez. Bu önemli: ikisi tek uç nokta
+olsaydı, onu izleyen bir orchestrator RabbitMQ her hıçkırdığında gayet sağlıklı bir API'yi öldürüp yeniden
+başlatırdı — bir bağımlılığın kötü dakikasını kendi kesintisine çevirerek.
+
+İkisi de `/metrics` ile birlikte yalnızca Development'ta map edilir, çünkü kimlik doğrulama taşımazlar ve
+sistemin içini anlatırlar.
+
 ## API yüzeyi
 
 | Metot | Rota | Gereken izin |
@@ -996,6 +1026,29 @@ Stripe'ın şekli **kenarda**, Stripe SDK'sının yaşadığı yerde çevriliyor
 hiçbir şey Stripe'ı hiç duymuyor — sweeper, outbox sweeper'ının okuduğunun aynısını okuyor. Stripe pek çok
 olay türü gönderiyor, bu sistem üçünü kullanıyor; geri kalanı doğrulanıp onaylanıyor ve düşürülüyor — hiçbir
 şeyin okumadığı satırlarla bir tabloyu doldurmak yerine.
+
+### Stripe'ın gönderdiği her şeyin içinden üçü
+
+Başarılı bir satın alma tek bir webhook üretmez. Stripe bir ödemenin bütün hayatını anlatır; test modunda
+geçen tek bir kart art arda birkaç olay teslim eder — tipik olarak `payment_intent.created`,
+`charge.succeeded`, `charge.updated` ve `payment_intent.succeeded`, ve tam liste ödeme yöntemine ve hesabın
+yapılandırmasına göre değişir. Hepsi imzalıdır, hepsi gerçek bir teslimattır, ve bu sistemin tam olarak üç
+tanesine ihtiyacı vardır.
+
+Bu yüzden `StripeWebhookReader` bir **izin listesidir, red listesi değil**. Üç tip uygulamanın kendi
+olaylarına çevrilir; geri kalan her şey doğrulanır, `Debug` seviyesinde loglanır ve `null` dönülerek düşürülür
+— endpoint de buna `200` cevaplar. Bunun üç sonucu var ve zaten bu yönde yazılmasının sebebi de onlar:
+
+- **Bilinmeyen hiçbir şey inbox'a girmez.** Her olayı kaydetmek tabloyu kimsenin okumadığı satırlarla
+  doldururdu, ve ölü mesaj gauge'ı o zaman sorunu değil gürültüyü ölçüyor olurdu.
+- **Stripe'ın yarın icat edeceği yeni bir olay tipi etkisizdir.** Red listesinin güvende kalmak için
+  güncellenmesi gerekir; izin listesi güncellenmeyerek güvende kalır. Endpoint anonim ve halka açık olduğu
+  için bu önemli.
+- **Yine de reddedilmez, onaylanır.** `200` dışında bir şey cevaplamak, bilerek istemediğimiz bir olayı
+  Stripe'a üç gün boyunca tekrar tekrar denetirdi.
+
+Bunun doğal sonucu şu: `stripe listen`'in tek bir satın alma için sekiz teslimat ve sekiz `200` göstermesi,
+sistemin sekiz katı iş yapması değil, doğru çalışmasıdır.
 
 ### Üç olay ne yapıyor
 
