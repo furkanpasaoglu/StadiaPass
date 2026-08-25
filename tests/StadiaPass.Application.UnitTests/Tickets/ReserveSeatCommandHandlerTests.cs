@@ -31,6 +31,12 @@ public sealed class ReserveSeatCommandHandlerTests
         _currentUser.IsAuthenticated.Returns(true);
         _dateTimeProvider.UtcNow.Returns(TestData.Now);
 
+        // A substituted transaction that never runs its body would let every assertion below pass against a
+        // handler that saves nothing at all, so the fake actually executes what it is given.
+        _unitOfWork
+            .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>()));
+
         _handler = new ReserveSeatCommandHandler(
             _matchRepository, _unitOfWork, _currentUser, _dateTimeProvider);
     }
@@ -190,6 +196,95 @@ public sealed class ReserveSeatCommandHandlerTests
         await _matchRepository.Received(1)
             .GetWithSeatAsync(match.Id, TestData.SeatNumber, cancellation.Token);
         await _unitOfWork.Received(1).SaveChangesAsync(cancellation.Token);
+    }
+
+    [Fact]
+    public async Task Should_HandTheCountersToTheDatabase_When_AFreeSeatIsReserved()
+    {
+        // Arrange
+        var match = TestData.FootballMatch();
+        var command = new ReserveSeatCommand(match.Id, TestData.SeatNumber);
+        GivenTheRepositoryReturns(match, command);
+
+        // Act
+        await _handler.Handle(command, CancellationToken.None);
+
+        // Assert - written as a relative update rather than saved from memory. Two people holding two
+        // different seats of the same match would otherwise both write the totals they read, and one of the
+        // two holds would quietly vanish from the counts.
+        await _matchRepository.Received(1)
+            .ApplySeatReservationToCountersAsync(match, 1, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_MoveNoCounters_When_AHoldThatHasRunOutIsTakenOver()
+    {
+        // Arrange - somebody else held this seat and never came back for it.
+        var match = TestData.FootballMatch();
+        match.ReserveSeat(TestData.SeatNumber, TestData.OtherUserId, TestData.Now);
+        _dateTimeProvider.UtcNow.Returns(TestData.Now + Match.ReservationWindow + TimeSpan.FromMinutes(1));
+
+        var command = new ReserveSeatCommand(match.Id, TestData.SeatNumber);
+        GivenTheRepositoryReturns(match, command);
+
+        // Act
+        await _handler.Handle(command, CancellationToken.None);
+
+        // Assert - the seat only changes hands. It was counted as reserved before and still is, so moving
+        // the counters would invent a seat that does not exist.
+        await _matchRepository.Received(1)
+            .ApplySeatReservationToCountersAsync(match, 0, Arg.Any<CancellationToken>());
+        await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_TakeTheMatchRowBeforeTheSeat_When_TheReservationIsWritten()
+    {
+        // Arrange
+        var match = TestData.FootballMatch();
+        var command = new ReserveSeatCommand(match.Id, TestData.SeatNumber);
+        GivenTheRepositoryReturns(match, command);
+
+        // Act
+        await _handler.Handle(command, CancellationToken.None);
+
+        // Assert - coarsest row first, the same order a sale, a void and the sweeper use. Two transactions
+        // reaching for the match and a seat in opposite orders is how deadlocks are made.
+        Received.InOrder(() =>
+        {
+            _matchRepository.ApplySeatReservationToCountersAsync(
+                match, Arg.Any<int>(), Arg.Any<CancellationToken>());
+            _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task Should_ReserveTheSeatOnlyOnce_When_TheTransactionIsRetried()
+    {
+        // Arrange - the retrying execution strategy runs the delegate again after a transient failure. The
+        // rollback undoes what the database did and nothing else, so anything the handler put in the
+        // delegate would be run a second time against a seat it had already moved.
+        var match = TestData.FootballMatch();
+        var command = new ReserveSeatCommand(match.Id, TestData.SeatNumber);
+        GivenTheRepositoryReturns(match, command);
+
+        _unitOfWork
+            .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var operation = call.Arg<Func<CancellationToken, Task>>();
+
+                await operation(call.Arg<CancellationToken>());
+                await operation(call.Arg<CancellationToken>());
+            });
+
+        // Act
+        var act = async () => await _handler.Handle(command, CancellationToken.None);
+
+        // Assert - a second pass must not throw. The transition happened before the transition opened, so
+        // all the retry repeats is database work, which the rollback already took back.
+        await act.Should().NotThrowAsync();
+        match.ReservedSeatCount.Should().Be(1);
     }
 
     private void GivenTheRepositoryReturns(Match match, ReserveSeatCommand command) =>

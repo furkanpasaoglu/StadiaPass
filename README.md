@@ -562,6 +562,43 @@ already zero, because every `SET` expression reads the row as it was before the 
 inside the transaction, before the seat is touched: it takes the coarsest row, so concurrent sales of one
 match queue up here rather than reaching for two rows in opposite orders, which is how deadlocks are made.
 
+**All four transitions do this, not just the sale.** A hold, a release and a void move the counters exactly
+as a sale does, and one path writing them from memory would undo the discipline of the other three. The worst
+of it is not the arithmetic drifting on its own — it is one path erasing another. A hold that reads the match,
+loses the race to a sale of a different seat, and then writes the totals it read puts the sold seat back into
+the reserved column as though the sale had never happened:
+
+| | `Available` | `Reserved` | `Sold` |
+|---|---|---|---|
+| a hold reads the match | 23 | 1 | 0 |
+| a sale of another seat commits | 23 | 0 | 1 |
+| the hold writes what it read | 22 | **2** | 1 |
+| the hold writes a relative update instead | 22 | 1 | 1 |
+
+Taking over a hold that has already run out is the one case that moves nothing: that seat is counted as
+reserved already and only changes hands. `Match.SeatsClaimedByReserving` answers that before the transition,
+because afterwards the answer is always zero.
+
+### The retry: an operation that runs twice
+
+Aspire's Npgsql defaults enable a retrying execution strategy, and `IUnitOfWork.ExecuteInTransactionAsync`
+runs on it. A transient failure — a dropped connection, a timeout, a failover — is retried, and **the retry
+runs the whole delegate again from the top**. The transaction rolls back in between, so everything the
+database did is undone. Nothing else is.
+
+That makes the delegate's contract narrow: database work goes in, everything else stays out. Three things in
+particular do not survive a second pass:
+
+| Left inside the delegate | What the retry does |
+|---|---|
+| `match.VoidSeatSale(...)`, `ticket.Cancel(...)` | the seat is no longer `Sold` and the ticket no longer live, so both throw — a blink of the network becomes a chargeback that was never applied |
+| `outbox.Enqueue(...)` | a rollback does not untrack what was added to it, so a second copy is staged and the successful attempt saves both — the customer is sent two confirmations for one seat |
+| draining domain events before the save | the aggregates are emptied whether the save worked or not, so the attempt that finally succeeds has nothing left to announce |
+
+So every handler does its in-memory work *before* opening the transaction, and the delegate holds only the
+counter update and the save. The save is still one save, so the sale, the seat, the ticket and the message
+still land together or not at all — that atomicity was never about where the objects were prepared.
+
 ### The door: a Redis lock
 
 The token makes a double sale impossible, but it only says so at the very end — by which point the losing

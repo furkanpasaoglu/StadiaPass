@@ -331,6 +331,34 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
             .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Should_AnnounceThePurchaseOnlyOnce_When_TheTransactionIsRetried()
+    {
+        // Arrange - the retrying execution strategy runs the delegate again after a transient failure. The
+        // rollback takes back what the database did; it does not untrack what was staged for it, so anything
+        // the handler put inside the delegate is staged a second time and both copies are saved by the
+        // attempt that succeeds.
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+
+        _unitOfWork
+            .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var operation = call.Arg<Func<CancellationToken, Task>>();
+
+                await operation(call.Arg<CancellationToken>());
+                await operation(call.Arg<CancellationToken>());
+            });
+
+        // Act
+        await _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - one message, so one confirmation mail. Two would be a customer told twice they had bought
+        // a seat they bought once.
+        _outbox.Received(1).Enqueue(Arg.Any<TicketPurchasedEvent>());
+    }
+
     private static ConfirmTicketPurchaseCommand Command() =>
         new(
             Guid.CreateVersion7(),

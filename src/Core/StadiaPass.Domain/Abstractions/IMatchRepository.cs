@@ -28,6 +28,22 @@ public interface IMatchRepository : IRepository<Match>
     Task ApplySeatSaleToCountersAsync(Match match, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Records seats moving from available to reserved, as the same relative update as every other counter
+    /// method here. A hold moves the counters just as a sale does, so leaving this one to be written from
+    /// memory would undo the very thing the others are for: two people holding two different seats of the
+    /// same match would both write the totals they read, and one of the two holds would vanish from the
+    /// counts - as would any sale that committed in between.
+    /// </summary>
+    /// <param name="reservedCount">
+    /// What <see cref="Match.SeatsClaimedByReserving"/> answered before the transition. Taking over a hold
+    /// that had already run out moves nothing, so this is not always one.
+    /// </param>
+    Task ApplySeatReservationToCountersAsync(
+        Match match,
+        int reservedCount,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Matches that are holding seats whose time has run out, with only those seats attached. A hold is a
     /// promise with a deadline on it; nothing releases one when the deadline passes unless something goes
     /// looking, and until then the seat is unsellable and the counters disagree with the seat map.

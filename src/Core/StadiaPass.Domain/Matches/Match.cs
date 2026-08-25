@@ -148,6 +148,19 @@ public sealed class Match : AggregateRoot
     }
 
     /// <summary>
+    /// How many seats <see cref="ReserveSeat"/> would move out of the available column: one for a free seat,
+    /// and none for a hold that has already run out and is about to be taken over, because that seat is
+    /// counted as reserved already and only changes hands.
+    /// </summary>
+    /// <remarks>
+    /// Ask before the transition, not after - afterwards the answer is always zero. It exists because the
+    /// counters belong to the database rather than to whatever totals this request happened to read, and the
+    /// update that writes them has to be told how far to move.
+    /// </remarks>
+    public int SeatsClaimedByReserving(string seatNumber) =>
+        RequireSeat(seatNumber).Status is SeatStatus.Reserved ? 0 : 1;
+
+    /// <summary>
     /// Runs every rule <see cref="ConfirmSeatSale"/> would run and changes nothing, returning the seat so a
     /// caller can read its price. Taking money for a seat that cannot be sold - one held by somebody else,
     /// or a hold that has already run out - is far worse than refusing before the card is charged.

@@ -48,6 +48,39 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
     }
 
     /// <inheritdoc />
+    public async Task ApplySeatReservationToCountersAsync(
+        Match match,
+        int reservedCount,
+        CancellationToken cancellationToken = default)
+    {
+        if (reservedCount is 0)
+        {
+            // An expired hold changing hands. The seat row still has to be written, and the counters are
+            // already right, so there is nothing here to hand to the database.
+            return;
+        }
+
+        var entry = Context.Entry(match);
+        entry.Property(candidate => candidate.AvailableSeatCount).IsModified = false;
+        entry.Property(candidate => candidate.ReservedSeatCount).IsModified = false;
+
+        // No status in the SET list, and none taken out of the save either: reserving never opens or closes
+        // a match. A fixture whose every seat is held is not sold out - a hold is a promise with a deadline
+        // on it, and the ones nobody keeps come back.
+        await Set
+            .Where(candidate => candidate.Id == match.Id)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(
+                        candidate => candidate.AvailableSeatCount,
+                        candidate => candidate.AvailableSeatCount - reservedCount)
+                    .SetProperty(
+                        candidate => candidate.ReservedSeatCount,
+                        candidate => candidate.ReservedSeatCount + reservedCount),
+                cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<Match>> GetWithExpiredReservationsAsync(
         DateTimeOffset now,
         int maxMatches,

@@ -91,6 +91,17 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        // Staged before the transaction opens and written by the save inside it, so the message and the sale
+        // still share one fate - which is the whole point of an outbox. Publishing to a broker only once the
+        // sale is safely committed sounds like the careful order, but it leaves a gap: the process can stop
+        // in between and the ticket is sold with nobody downstream ever told.
+        //
+        // Staged out here rather than in the delegate because the retrying execution strategy runs that
+        // delegate again after a transient failure, and a rolled-back transaction does not untrack what was
+        // added to it. A second pass would stage a second copy, both would be saved by the attempt that
+        // succeeded, and the customer would be sent two confirmations for one seat.
+        outbox.Enqueue(BuildPurchasedEvent(ticket, match, payment, now));
+
         try
         {
             await unitOfWork.ExecuteInTransactionAsync(
@@ -100,12 +111,6 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
                     // queue up here before either of them touches a seat. Two transactions reaching for the
                     // same pair of rows in opposite orders is how deadlocks are made.
                     await matchRepository.ApplySeatSaleToCountersAsync(match, token);
-
-                    // Inside the transaction, not after it. Publishing to a broker once the sale is safely
-                    // committed sounds like the careful order, but it leaves a gap: the process can stop in
-                    // between and the ticket is sold with nobody downstream ever told. Written here, the
-                    // message and the sale share one fate.
-                    outbox.Enqueue(BuildPurchasedEvent(ticket, match, payment, now));
 
                     await unitOfWork.SaveChangesAsync(token);
                 },

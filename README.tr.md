@@ -563,6 +563,43 @@ olup olmadığını sorar; çünkü her `SET` ifadesi satırı bu ifadeden önce
 içinde ilk çalışan şeydir, koltuğa dokunulmadan önce: en kaba satırı alır, böylece aynı maçın eşzamanlı
 satışları burada sıraya girer — iki satıra ters sırayla uzanmak yerine, ki deadlock tam olarak öyle doğar.
 
+**Bunu yalnızca satış değil, dört geçişin hepsi yapar.** Rezervasyon, serbest bırakma ve void de sayaçları
+tam olarak bir satış gibi hareket ettirir; bir yolun onları bellekten yazması diğer üçünün disiplinini
+boşa çıkarır. İşin kötüsü aritmetiğin kendi başına kayması değil — bir yolun diğerini silmesi. Maçı okuyan,
+başka bir koltuğun satışına yarışı kaybeden ve sonra okuduğu toplamları yazan bir rezervasyon, satılmış
+koltuğu sanki o satış hiç olmamış gibi rezerve sütununa geri koyar:
+
+| | `Available` | `Reserved` | `Sold` |
+|---|---|---|---|
+| rezervasyon maçı okur | 23 | 1 | 0 |
+| başka bir koltuğun satışı commit olur | 23 | 0 | 1 |
+| rezervasyon okuduğunu yazar | 22 | **2** | 1 |
+| rezervasyon bunun yerine göreli güncelleme yazar | 22 | 1 | 1 |
+
+Süresi çoktan dolmuş bir rezervasyonu devralmak, hiçbir şeyi hareket ettirmeyen tek durumdur: o koltuk zaten
+rezerve olarak sayılıyor ve yalnızca el değiştiriyor. `Match.SeatsClaimedByReserving` bunu geçişten **önce**
+cevaplar, çünkü sonrasında cevap her zaman sıfırdır.
+
+### Retry: iki kez çalışan bir işlem
+
+Aspire'ın Npgsql varsayılanları yeniden deneyen bir execution strategy'yi açık getirir ve
+`IUnitOfWork.ExecuteInTransactionAsync` onun üzerinde çalışır. Geçici bir hata — kopan bağlantı, timeout,
+failover — yeniden denenir ve **retry tüm delegate'i baştan çalıştırır**. Arada transaction geri alınır, yani
+veritabanının yaptığı her şey geri alınır. Başka hiçbir şey alınmaz.
+
+Bu, delegate'in sözleşmesini dar tutar: veritabanı işi içeri, geri kalan her şey dışarı. Özellikle üç şey
+ikinci geçişten sağ çıkmaz:
+
+| Delegate'in içinde bırakılırsa | Retry ne yapar |
+|---|---|
+| `match.VoidSeatSale(...)`, `ticket.Cancel(...)` | koltuk artık `Sold` değil, bilet artık canlı değil; ikisi de fırlatır — ağın bir anlık kesintisi, hiç uygulanmamış bir ters ibraza dönüşür |
+| `outbox.Enqueue(...)` | rollback, kendisine eklenmiş olanı takipten çıkarmaz; ikinci bir kopya hazırlanır ve başarılı deneme ikisini birden kaydeder — müşteriye tek koltuk için iki onay maili gider |
+| domain event'lerin save'den önce boşaltılması | save çalışsın çalışmasın aggregate'ler boşaltılır, dolayısıyla nihayet başarılı olan denemenin duyuracak hiçbir şeyi kalmaz |
+
+Bu yüzden her handler bellekteki işini transaction **açılmadan önce** yapar, delegate'in içinde yalnızca
+sayaç güncellemesi ve save kalır. Save yine tek bir save'dir, yani satış, koltuk, bilet ve mesaj hâlâ birlikte
+iniyor ya da hiç inmiyor — o atomiklik zaten nesnelerin nerede hazırlandığıyla ilgili değildi.
+
 ### Kapı: bir Redis kilidi
 
 Token çift satışı imkânsız kılıyor, ama bunu ancak en sonda söylüyor — o noktaya gelindiğinde kaybeden

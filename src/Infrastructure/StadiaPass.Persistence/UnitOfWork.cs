@@ -10,8 +10,6 @@ internal sealed class UnitOfWork(StadiaPassDbContext context, IPublisher publish
 {
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        var domainEvents = DrainDomainEvents();
-
         int affectedRows;
 
         try
@@ -28,7 +26,13 @@ internal sealed class UnitOfWork(StadiaPassDbContext context, IPublisher publish
                 BuildConflictMessage(exception), exception);
         }
 
-        // Only a committed write is worth announcing: a failed save throws above and the events die with it.
+        // Drained only once the write has committed. Draining first reads well - the events are gathered from
+        // the very entities about to be written - but it empties the aggregates whether the save works or
+        // not, and the retrying execution strategy runs a failed transaction again. That second attempt would
+        // find nothing left to announce, so a sale would commit with no SeatSold event behind it.
+        var domainEvents = DrainDomainEvents();
+
+        // Only a committed write is worth announcing: a failed save throws above and nothing is drained.
         foreach (var domainEvent in domainEvents)
         {
             await publisher.Publish(domainEvent, cancellationToken);

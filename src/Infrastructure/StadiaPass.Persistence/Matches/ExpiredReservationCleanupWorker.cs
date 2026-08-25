@@ -91,6 +91,14 @@ internal sealed partial class ExpiredReservationCleanupWorker(
             return;
         }
 
+        // Memory only, and outside the transaction on purpose. The retrying execution strategy runs the
+        // delegate below again after a transient failure, and these seats are no longer Reserved by then, so
+        // a second pass would throw and lose the whole sweep to a blink of the network.
+        foreach (var seatNumber in expired)
+        {
+            match.ReleaseSeat(seatNumber, now);
+        }
+
         try
         {
             await unitOfWork.ExecuteInTransactionAsync(
@@ -99,11 +107,6 @@ internal sealed partial class ExpiredReservationCleanupWorker(
                     // Coarsest row first, exactly as a sale does it, so the two never reach for the match
                     // and a seat in opposite orders.
                     await matchRepository.ApplySeatReleaseToCountersAsync(match, expired.Length, token);
-
-                    foreach (var seatNumber in expired)
-                    {
-                        match.ReleaseSeat(seatNumber, now);
-                    }
 
                     await unitOfWork.SaveChangesAsync(token);
                 },

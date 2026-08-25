@@ -49,6 +49,13 @@ internal sealed partial class VoidPaidTicketCommandHandler(
         var seatNumber = ticket.SeatNumber.ToString();
         var now = dateTimeProvider.UtcNow;
 
+        // Memory only, and outside the transaction on purpose. The retrying execution strategy runs the
+        // delegate below again after a transient failure, and neither of these two lines survives being run
+        // twice: the seat is no longer Sold and the ticket is no longer live, so both would throw. A dropped
+        // connection would become a chargeback this application never applied.
+        match.VoidSeatSale(seatNumber, now);
+        ticket.Cancel(now);
+
         try
         {
             await unitOfWork.ExecuteInTransactionAsync(
@@ -57,9 +64,6 @@ internal sealed partial class VoidPaidTicketCommandHandler(
                     // Coarsest row first, as everywhere else, so a void and a sale can never reach for the
                     // match and a seat in opposite orders.
                     await matchRepository.ApplySeatVoidToCountersAsync(match, 1, token);
-
-                    match.VoidSeatSale(seatNumber, now);
-                    ticket.Cancel(now);
 
                     await unitOfWork.SaveChangesAsync(token);
                 },
