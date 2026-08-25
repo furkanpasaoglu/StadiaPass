@@ -25,6 +25,10 @@ public sealed class VoidPaidTicketCommandHandlerTests
 
     private readonly IDateTimeProvider _dateTimeProvider = Substitute.For<IDateTimeProvider>();
 
+    /// <summary>The counter update the repository hands back, so the test can see when it is run.</summary>
+    private readonly Func<CancellationToken, Task> _writeCounters =
+        Substitute.For<Func<CancellationToken, Task>>();
+
     private readonly VoidPaidTicketCommandHandler _handler;
 
     public VoidPaidTicketCommandHandlerTests()
@@ -36,6 +40,11 @@ public sealed class VoidPaidTicketCommandHandlerTests
         _unitOfWork
             .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
             .Returns(call => call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>()));
+
+        _writeCounters(Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _matchRepository
+            .PrepareSeatVoidCounters(Arg.Any<Match>(), Arg.Any<int>())
+            .Returns(_writeCounters);
 
         _handler = new VoidPaidTicketCommandHandler(
             _ticketRepository,
@@ -70,13 +79,13 @@ public sealed class VoidPaidTicketCommandHandlerTests
         // Act
         await _handler.Handle(new VoidPaidTicketCommand(PaymentIntentId, "chargeback"), CancellationToken.None);
 
-        // Assert - a relative update, and the match row taken before the seat, exactly as a sale does it.
-        await _matchRepository.Received(1)
-            .ApplySeatVoidToCountersAsync(match, 1, Arg.Any<CancellationToken>());
+        // Assert - a relative update, and the match row taken last: it is the coarsest lock in the system,
+        // so it is held from that statement to the commit rather than across the whole transaction.
+        _matchRepository.Received(1).PrepareSeatVoidCounters(match, 1);
         Received.InOrder(() =>
         {
-            _matchRepository.ApplySeatVoidToCountersAsync(match, 1, Arg.Any<CancellationToken>());
             _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>());
+            _writeCounters(Arg.Any<CancellationToken>());
         });
     }
 
@@ -122,8 +131,7 @@ public sealed class VoidPaidTicketCommandHandlerTests
 
         // Assert
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        await _matchRepository.DidNotReceive()
-            .ApplySeatVoidToCountersAsync(Arg.Any<Match>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _matchRepository.DidNotReceive().PrepareSeatVoidCounters(Arg.Any<Match>(), Arg.Any<int>());
     }
 
     private (Match Match, Ticket Ticket) GivenASoldSeat()

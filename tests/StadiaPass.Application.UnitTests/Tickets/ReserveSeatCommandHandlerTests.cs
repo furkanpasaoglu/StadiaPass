@@ -23,6 +23,10 @@ public sealed class ReserveSeatCommandHandlerTests
 
     private readonly IDateTimeProvider _dateTimeProvider = Substitute.For<IDateTimeProvider>();
 
+    /// <summary>The counter update the repository hands back, so the test can see when it is run.</summary>
+    private readonly Func<CancellationToken, Task> _writeCounters =
+        Substitute.For<Func<CancellationToken, Task>>();
+
     private readonly ReserveSeatCommandHandler _handler;
 
     public ReserveSeatCommandHandlerTests()
@@ -36,6 +40,11 @@ public sealed class ReserveSeatCommandHandlerTests
         _unitOfWork
             .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
             .Returns(call => call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>()));
+
+        _writeCounters(Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _matchRepository
+            .PrepareSeatReservationCounters(Arg.Any<Match>(), Arg.Any<int>())
+            .Returns(_writeCounters);
 
         _handler = new ReserveSeatCommandHandler(
             _matchRepository, _unitOfWork, _currentUser, _dateTimeProvider);
@@ -212,8 +221,7 @@ public sealed class ReserveSeatCommandHandlerTests
         // Assert - written as a relative update rather than saved from memory. Two people holding two
         // different seats of the same match would otherwise both write the totals they read, and one of the
         // two holds would quietly vanish from the counts.
-        await _matchRepository.Received(1)
-            .ApplySeatReservationToCountersAsync(match, 1, Arg.Any<CancellationToken>());
+        _matchRepository.Received(1).PrepareSeatReservationCounters(match, 1);
     }
 
     [Fact]
@@ -232,13 +240,12 @@ public sealed class ReserveSeatCommandHandlerTests
 
         // Assert - the seat only changes hands. It was counted as reserved before and still is, so moving
         // the counters would invent a seat that does not exist.
-        await _matchRepository.Received(1)
-            .ApplySeatReservationToCountersAsync(match, 0, Arg.Any<CancellationToken>());
+        _matchRepository.Received(1).PrepareSeatReservationCounters(match, 0);
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Should_TakeTheMatchRowBeforeTheSeat_When_TheReservationIsWritten()
+    public async Task Should_TakeTheMatchRowLast_When_TheReservationIsWritten()
     {
         // Arrange
         var match = TestData.FootballMatch();
@@ -248,13 +255,14 @@ public sealed class ReserveSeatCommandHandlerTests
         // Act
         await _handler.Handle(command, CancellationToken.None);
 
-        // Assert - coarsest row first, the same order a sale, a void and the sweeper use. Two transactions
-        // reaching for the match and a seat in opposite orders is how deadlocks are made.
+        // Assert - the match row is the coarsest lock in the system and every write to this fixture queues
+        // on it, so it is taken last: held from that statement to the commit rather than across the whole
+        // transaction. The seat rows are written first in every path, so the order is still the same for
+        // all of them, which is what keeps deadlocks out.
         Received.InOrder(() =>
         {
-            _matchRepository.ApplySeatReservationToCountersAsync(
-                match, Arg.Any<int>(), Arg.Any<CancellationToken>());
             _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>());
+            _writeCounters(Arg.Any<CancellationToken>());
         });
     }
 

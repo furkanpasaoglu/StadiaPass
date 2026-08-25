@@ -19,7 +19,7 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
             .ToListAsync(cancellationToken);
 
     /// <inheritdoc />
-    public async Task ApplySeatSaleToCountersAsync(Match match, CancellationToken cancellationToken = default)
+    public Func<CancellationToken, Task> PrepareSeatSaleCounters(Match match)
     {
         // The aggregate has already moved its own counters in memory, and it should: that is what keeps the
         // domain rules - and the tests that pin them down - honest. Those values are simply not what belongs
@@ -33,7 +33,7 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
         // asks whether the reservation being sold is the last one rather than whether the count is already
         // zero. PostgreSQL re-evaluates all of it against the committed row if another sale got here first,
         // so the arithmetic stays right without a version check and without anybody losing an update.
-        await Set
+        return cancellationToken => Set
             .Where(candidate => candidate.Id == match.Id)
             .ExecuteUpdateAsync(
                 setters => setters
@@ -48,16 +48,14 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
     }
 
     /// <inheritdoc />
-    public async Task ApplySeatReservationToCountersAsync(
-        Match match,
-        int reservedCount,
-        CancellationToken cancellationToken = default)
+    public Func<CancellationToken, Task> PrepareSeatReservationCounters(Match match, int reservedCount)
     {
         if (reservedCount is 0)
         {
             // An expired hold changing hands. The seat row still has to be written, and the counters are
-            // already right, so there is nothing here to hand to the database.
-            return;
+            // already right, so there is nothing here to hand to the database - and no reason to take the
+            // match row at all.
+            return static _ => Task.CompletedTask;
         }
 
         var entry = Context.Entry(match);
@@ -67,7 +65,7 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
         // No status in the SET list, and none taken out of the save either: reserving never opens or closes
         // a match. A fixture whose every seat is held is not sold out - a hold is a promise with a deadline
         // on it, and the ones nobody keeps come back.
-        await Set
+        return cancellationToken => Set
             .Where(candidate => candidate.Id == match.Id)
             .ExecuteUpdateAsync(
                 setters => setters
@@ -101,10 +99,7 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
     }
 
     /// <inheritdoc />
-    public async Task ApplySeatReleaseToCountersAsync(
-        Match match,
-        int releasedCount,
-        CancellationToken cancellationToken = default)
+    public Func<CancellationToken, Task> PrepareSeatReleaseCounters(Match match, int releasedCount)
     {
         var entry = Context.Entry(match);
         entry.Property(candidate => candidate.ReservedSeatCount).IsModified = false;
@@ -114,7 +109,7 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
         // The mirror image of a sale: seats move back from reserved to available, and a match that had sold
         // out has not any more. Whether it was sold out is asked of the row rather than of the counters,
         // because those are the values this request happened to read and something else may have moved them.
-        await Set
+        return cancellationToken => Set
             .Where(candidate => candidate.Id == match.Id)
             .ExecuteUpdateAsync(
                 setters => setters
@@ -133,10 +128,7 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
     }
 
     /// <inheritdoc />
-    public async Task ApplySeatVoidToCountersAsync(
-        Match match,
-        int voidedCount,
-        CancellationToken cancellationToken = default)
+    public Func<CancellationToken, Task> PrepareSeatVoidCounters(Match match, int voidedCount)
     {
         var entry = Context.Entry(match);
         entry.Property(candidate => candidate.SoldSeatCount).IsModified = false;
@@ -146,7 +138,7 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
         // A sale taken back: the seat leaves the sold count and rejoins the available one, and a match that
         // had sold out is on sale again. Asked of the row rather than of the counters this request happened
         // to read, for the same reason every other one of these is.
-        await Set
+        return cancellationToken => Set
             .Where(candidate => candidate.Id == match.Id)
             .ExecuteUpdateAsync(
                 setters => setters

@@ -43,6 +43,10 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
 
     private readonly IDateTimeProvider _dateTimeProvider = Substitute.For<IDateTimeProvider>();
 
+    /// <summary>The counter update the repository hands back, so the test can see when it is run.</summary>
+    private readonly Func<CancellationToken, Task> _writeCounters =
+        Substitute.For<Func<CancellationToken, Task>>();
+
     private readonly ConfirmTicketPurchaseCommandHandler _handler;
 
     public ConfirmTicketPurchaseCommandHandlerTests()
@@ -63,6 +67,9 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
         _distributedLock
             .TryAcquireAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(_seatLock);
+
+        _writeCounters(Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _matchRepository.PrepareSeatSaleCounters(Arg.Any<Match>()).Returns(_writeCounters);
 
         _handler = new ConfirmTicketPurchaseCommandHandler(
             _matchRepository,
@@ -328,11 +335,17 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
         await _handler.Handle(Command(), CancellationToken.None);
 
         // Assert - the totals this request read are never what gets written; the database works them out for
-        // itself, inside the same transaction as the seat.
-        await _matchRepository.Received(1).ApplySeatSaleToCountersAsync(match, Arg.Any<CancellationToken>());
+        // itself, inside the same transaction as the seat, and last, because the match row it takes is the
+        // coarsest lock in the system and every other sale of this fixture queues on it.
+        _matchRepository.Received(1).PrepareSeatSaleCounters(match);
         await _unitOfWork
             .Received(1)
             .ExecuteInTransactionAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+        Received.InOrder(() =>
+        {
+            _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>());
+            _writeCounters(Arg.Any<CancellationToken>());
+        });
     }
 
     [Fact]

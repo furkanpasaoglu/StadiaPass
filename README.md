@@ -558,9 +558,30 @@ WHERE "Id" = @match_Id
 ```
 
 The sold-out test asks whether the reservation being sold is the *last* one, rather than whether the count is
-already zero, because every `SET` expression reads the row as it was before the statement. This runs first
-inside the transaction, before the seat is touched: it takes the coarsest row, so concurrent sales of one
-match queue up here rather than reaching for two rows in opposite orders, which is how deadlocks are made.
+already zero, because every `SET` expression reads the row as it was before the statement.
+
+**It runs last, immediately before the commit.** The match row is the coarsest lock in the system: one row per
+fixture, wanted by every write that touches any of its seats, and held until the transaction commits — so
+writes to one match serialise on it. Taken at the top, each one also waits out the seat write, the ticket
+insert and the outbox insert of the transaction in front of it. Taken at the bottom, it is held for the commit
+alone. Measured with 24 concurrent holds on one match: **80.7 ms against 42.2 ms, 1.92×**.
+
+That is also why the repository hands the update back instead of running it — `PrepareSeatSaleCounters` takes
+the counters out of the save's hands and returns the statement, which the caller runs after saving:
+
+```csharp
+var writeCounters = matchRepository.PrepareSeatSaleCounters(match);
+
+await unitOfWork.ExecuteInTransactionAsync(async token =>
+{
+    await unitOfWork.SaveChangesAsync(token);
+    await writeCounters(token);
+}, cancellationToken);
+```
+
+Deadlocks stay out because the order is the same everywhere: seat rows first, the match row last, in all four
+paths. Two transactions reaching for the same pair of rows in opposite orders is how deadlocks are made, and
+what matters is that they agree — not which of the two comes first.
 
 **All four transitions do this, not just the sale.** A hold, a release and a void move the counters exactly
 as a sale does, and one path writing them from memory would undo the discipline of the other three. The worst

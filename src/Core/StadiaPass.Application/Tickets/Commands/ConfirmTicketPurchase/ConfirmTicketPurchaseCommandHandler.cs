@@ -114,17 +114,20 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
         // succeeded, and the customer would be sent two confirmations for one seat.
         outbox.Enqueue(BuildPurchasedEvent(ticket, match, payment, now));
 
+        // Takes the counters out of the save's hands now and hands back the update that writes them. That
+        // update takes the match row, which is the coarsest lock in the system - one row per fixture, wanted
+        // by every sale of it - so it is issued last, immediately before the commit, rather than at the top
+        // where every other sale of this match would queue behind this one's seat, ticket and outbox writes.
+        var writeCounters = matchRepository.PrepareSeatSaleCounters(match);
+
         try
         {
             await unitOfWork.ExecuteInTransactionAsync(
                 async token =>
                 {
-                    // Coarsest row first: this takes the match row, so concurrent sales of the same match
-                    // queue up here before either of them touches a seat. Two transactions reaching for the
-                    // same pair of rows in opposite orders is how deadlocks are made.
-                    await matchRepository.ApplySeatSaleToCountersAsync(match, token);
-
                     await unitOfWork.SaveChangesAsync(token);
+
+                    await writeCounters(token);
                 },
                 cancellationToken);
         }

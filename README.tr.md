@@ -559,9 +559,31 @@ WHERE "Id" = @match_Id
 ```
 
 Sold-out kontrolü, sayının zaten sıfır olup olmadığını değil, satılmakta olan rezervasyonun **sonuncusu**
-olup olmadığını sorar; çünkü her `SET` ifadesi satırı bu ifadeden önceki haliyle okur. Bu, transaction'ın
-içinde ilk çalışan şeydir, koltuğa dokunulmadan önce: en kaba satırı alır, böylece aynı maçın eşzamanlı
-satışları burada sıraya girer — iki satıra ters sırayla uzanmak yerine, ki deadlock tam olarak öyle doğar.
+olup olmadığını sorar; çünkü her `SET` ifadesi satırı bu ifadeden önceki haliyle okur.
+
+**Ve en son çalışır, commit'ten hemen önce.** Maç satırı sistemdeki en kaba kilittir: fikstür başına tek
+satır, koltuklarından herhangi birine dokunan her yazmanın istediği ve transaction commit olana kadar tutulan
+satır — yani tek bir maça yapılan yazmalar orada sıraya girer. En başta alınırsa, her biri önündeki
+transaction'ın koltuk yazmasını, bilet insert'ünü ve outbox insert'ünü de beklemiş olur. En sonda alınırsa
+yalnızca commit boyunca tutulur. Tek maçta 24 eşzamanlı rezervasyonla ölçüldü: **80.7 ms'ye karşı 42.2 ms,
+1.92 kat**.
+
+Repository'nin güncellemeyi çalıştırmak yerine geri vermesinin sebebi de bu — `PrepareSeatSaleCounters`
+sayaçları save'in elinden alır ve ifadeyi döner, çağıran da onu kaydettikten sonra çalıştırır:
+
+```csharp
+var writeCounters = matchRepository.PrepareSeatSaleCounters(match);
+
+await unitOfWork.ExecuteInTransactionAsync(async token =>
+{
+    await unitOfWork.SaveChangesAsync(token);
+    await writeCounters(token);
+}, cancellationToken);
+```
+
+Deadlock'lar dışarıda kalır çünkü sıra her yerde aynıdır: önce koltuk satırları, en sonda maç satırı — dört
+yolun hepsinde. İki transaction'ın aynı satır çiftine ters sırayla uzanması deadlock'u tam olarak böyle
+doğurur; önemli olan hangisinin önce geldiği değil, üzerinde anlaşmalarıdır.
 
 **Bunu yalnızca satış değil, dört geçişin hepsi yapar.** Rezervasyon, serbest bırakma ve void de sayaçları
 tam olarak bir satış gibi hareket ettirir; bir yolun onları bellekten yazması diğer üçünün disiplinini

@@ -21,11 +21,11 @@ public interface IMatchRepository : IRepository<Match>
     /// happened to read. Two people buying two different seats of the same match would otherwise both write
     /// the same totals and one of the two sales would quietly vanish from the counts.
     /// </summary>
-    /// <remarks>
-    /// Call this inside a transaction, and before saving anything else: the counters the aggregate moved in
-    /// memory are handed over to the database here, so the save that follows leaves them alone.
-    /// </remarks>
-    Task ApplySeatSaleToCountersAsync(Match match, CancellationToken cancellationToken = default);
+    /// <returns>
+    /// The update itself, left for the caller to run. See the note on <see cref="PrepareSeatReleaseCounters"/>
+    /// for why it is handed back rather than run here.
+    /// </returns>
+    Func<CancellationToken, Task> PrepareSeatSaleCounters(Match match);
 
     /// <summary>
     /// Records seats moving from available to reserved, as the same relative update as every other counter
@@ -38,10 +38,7 @@ public interface IMatchRepository : IRepository<Match>
     /// What <see cref="Match.SeatsClaimedByReserving"/> answered before the transition. Taking over a hold
     /// that had already run out moves nothing, so this is not always one.
     /// </param>
-    Task ApplySeatReservationToCountersAsync(
-        Match match,
-        int reservedCount,
-        CancellationToken cancellationToken = default);
+    Func<CancellationToken, Task> PrepareSeatReservationCounters(Match match, int reservedCount);
 
     /// <summary>
     /// Matches that are holding seats whose time has run out, with only those seats attached. A hold is a
@@ -55,21 +52,31 @@ public interface IMatchRepository : IRepository<Match>
 
     /// <summary>
     /// Puts released seats back into the counters, as a relative update the database works out for itself -
-    /// the same reason and the same shape as <see cref="ApplySeatSaleToCountersAsync"/>.
+    /// the same reason and the same shape as <see cref="PrepareSeatSaleCounters"/>.
     /// </summary>
-    Task ApplySeatReleaseToCountersAsync(
-        Match match,
-        int releasedCount,
-        CancellationToken cancellationToken = default);
+    /// <remarks>
+    /// <para>
+    /// Every one of these comes in two halves, and they belong on opposite sides of the save. Calling the
+    /// method takes the counters the aggregate moved in memory out of the save's hands, so it has to happen
+    /// first. Running what it returns issues the relative update, and that has to happen <b>last</b> - after
+    /// the save, immediately before the commit.
+    /// </para>
+    /// <para>
+    /// The reason is the match row. It is the coarsest lock in the system: one row per fixture, taken by
+    /// every write that touches any of its seats, and held until the transaction commits. Take it at the top
+    /// and every sale of one match queues behind the seat write, the ticket insert and the outbox insert of
+    /// the sale in front of it. Take it at the bottom and it is held for the commit alone. The seat rows are
+    /// written first either way, so the order two transactions reach for things in is still the same for all
+    /// of them, which is what keeps deadlocks out.
+    /// </para>
+    /// </remarks>
+    Func<CancellationToken, Task> PrepareSeatReleaseCounters(Match match, int releasedCount);
 
     /// <summary>
     /// Puts a voided sale back into the counters - a chargeback or a refund taking a seat off somebody. The
     /// same relative update as a sale and a release, pointing the third way.
     /// </summary>
-    Task ApplySeatVoidToCountersAsync(
-        Match match,
-        int voidedCount,
-        CancellationToken cancellationToken = default);
+    Func<CancellationToken, Task> PrepareSeatVoidCounters(Match match, int voidedCount);
 
     /// <summary>Guards catalogue deletes: a venue or category in use by a match cannot be removed.</summary>
     Task<bool> ExistsForVenueAsync(Guid venueId, CancellationToken cancellationToken = default);

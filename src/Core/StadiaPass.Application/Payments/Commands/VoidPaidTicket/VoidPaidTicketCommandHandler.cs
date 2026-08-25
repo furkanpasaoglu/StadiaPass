@@ -56,16 +56,18 @@ internal sealed partial class VoidPaidTicketCommandHandler(
         match.VoidSeatSale(seatNumber, now);
         ticket.Cancel(now);
 
+        // Counters out of the save's hands now, written last, as everywhere else: the match row is held from
+        // that statement to the commit rather than across the whole transaction.
+        var writeCounters = matchRepository.PrepareSeatVoidCounters(match, 1);
+
         try
         {
             await unitOfWork.ExecuteInTransactionAsync(
                 async token =>
                 {
-                    // Coarsest row first, as everywhere else, so a void and a sale can never reach for the
-                    // match and a seat in opposite orders.
-                    await matchRepository.ApplySeatVoidToCountersAsync(match, 1, token);
-
                     await unitOfWork.SaveChangesAsync(token);
+
+                    await writeCounters(token);
                 },
                 cancellationToken);
 

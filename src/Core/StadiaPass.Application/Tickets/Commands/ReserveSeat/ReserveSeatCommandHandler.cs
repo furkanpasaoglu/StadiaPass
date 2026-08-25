@@ -35,14 +35,17 @@ internal sealed class ReserveSeatCommandHandler(
         // a permanent error. Nothing is written until the save inside.
         var seat = match.ReserveSeat(request.SeatNumber, currentUser.Reference, dateTimeProvider.UtcNow);
 
+        // Takes the counters out of the save's hands now and hands back the update that writes them, which
+        // runs last - the match row is the coarsest lock in the system and is held from that statement to
+        // the commit rather than across the whole transaction.
+        var writeCounters = matchRepository.PrepareSeatReservationCounters(match, claimed);
+
         await unitOfWork.ExecuteInTransactionAsync(
             async token =>
             {
-                // Coarsest row first, exactly as a sale, a void and the sweeper do it, so no two of them can
-                // ever reach for the match and a seat in opposite orders.
-                await matchRepository.ApplySeatReservationToCountersAsync(match, claimed, token);
-
                 await unitOfWork.SaveChangesAsync(token);
+
+                await writeCounters(token);
             },
             cancellationToken);
 

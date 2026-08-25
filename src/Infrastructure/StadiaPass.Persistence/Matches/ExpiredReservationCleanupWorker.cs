@@ -99,16 +99,19 @@ internal sealed partial class ExpiredReservationCleanupWorker(
             match.ReleaseSeat(seatNumber, now);
         }
 
+        // Counters out of the save's hands now, written last, exactly as a sale does it. A sweep can be
+        // releasing a dozen seats of a busy fixture, so holding the match row across all of those writes
+        // would stall every sale of that match for the length of the whole sweep.
+        var writeCounters = matchRepository.PrepareSeatReleaseCounters(match, expired.Length);
+
         try
         {
             await unitOfWork.ExecuteInTransactionAsync(
                 async token =>
                 {
-                    // Coarsest row first, exactly as a sale does it, so the two never reach for the match
-                    // and a seat in opposite orders.
-                    await matchRepository.ApplySeatReleaseToCountersAsync(match, expired.Length, token);
-
                     await unitOfWork.SaveChangesAsync(token);
+
+                    await writeCounters(token);
                 },
                 cancellationToken);
 
