@@ -23,6 +23,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IInbox, InboxWriter>();
         builder.Services.AddScoped<IRefundLedger, RefundLedger>();
         builder.Services.AddSingleton<OutboxMetrics>();
+        builder.Services.AddSingleton<InboxMetrics>();
         builder.Services.AddHostedService<OutboxProcessor>();
         builder.Services.AddHostedService<ExpiredReservationCleanupWorker>();
         builder.Services.AddHostedService<InboxProcessor>();

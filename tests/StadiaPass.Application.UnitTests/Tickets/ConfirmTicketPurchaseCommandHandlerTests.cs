@@ -459,6 +459,27 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
             .RecordAsync(Arg.Any<RefundOwedEvent>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Should_HoldTheSeatForLongerThanThePaymentCanTake_When_TheProviderIsSlow()
+    {
+        // Arrange - a provider whose own retries can keep it busy for a minute and a half.
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+        _paymentService.WorstCaseDuration.Returns(TimeSpan.FromSeconds(90));
+
+        // Act
+        await _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - a lease that runs out while the call it guards is still running is a lock that has
+        // quietly stopped guarding, so it outlives the worst case with the write still to come.
+        await _distributedLock
+            .Received(1)
+            .TryAcquireAsync(
+                Arg.Any<string>(),
+                Arg.Is<TimeSpan>(lease => lease > TimeSpan.FromSeconds(90)),
+                Arg.Any<CancellationToken>());
+    }
+
     private void GivenThePaymentSucceeds()
     {
         _paymentService

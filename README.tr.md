@@ -623,10 +623,17 @@ başka hiçbir şey sokmadan çalıştırır:
 if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end
 ```
 
-**Lease bir dakika, rezervasyon penceresinin on dakikası değil.** Tutma müşteriye verilmiş bir sözdür; bu
-lease'in ise yalnızca tek bir ödeme denemesinden uzun yaşaması gerekir. Pencereye eşitleyin, satın alma
-ortasında ölen bir süreç koltuğu on dakika alınamaz hale getirir — üstelik hâlâ rezervasyonu elinde tutan
-kişiye de, ki o beklerken tutması dolar.
+**Lease sağlayıcıya sorulur, koda yazılmaz.** Yalnızca tek bir ödeme denemesinden uzun yaşaması gerekir, o
+yüzden `IPaymentService.WorstCaseDuration` artı ardından gelen yazma için bir pay kadardır. Bir süre düz bir
+dakikaydı ve düz bir dakika yanlıştı: Stripe adaptörünün timeout'u konfigürasyondan gelir ve SDK altında ağı
+yeniden dener, dolayısıyla dürüst en kötü durum o timeout'un SDK deneme sayısı katıdır — varsayılanlarda 90
+saniye, 60 saniyelik bir lease'e karşı. Koruduğu çağrı hâlâ sürerken dolan bir lease, sessizce korumayı
+bırakmış bir kilittir: koltuk ödemenin ortasında açılır ve aynı koltuk için iki kart çekilir, ki kilidin
+varlık sebebi tam olarak bunu engellemektir.
+
+Bilerek rezervasyon penceresinin on dakikası da değildir. Tutma müşteriye verilmiş bir sözdür; bu ise tek bir
+denemenin lease'i. Pencereye eşitleyin, satın alma ortasında ölen bir süreç koltuğu on dakika alınamaz hale
+getirir — üstelik hâlâ rezervasyonu elinde tutan kişiye de, ki o beklerken tutması dolar.
 
 **Redis'e ulaşılamıyor olması bilet satmayı durdurmak için bir sebep değildir.** Kilit bir uyarıyla açık
 başarısız olur (fail open), çünkü doğruluk koltuğun concurrency token'ında yaşar, burada değil. Bir cache
@@ -853,14 +860,22 @@ gidiyor ve gerçekten geri geliyor, dolayısıyla bir consumer kendi servisine t
 Persistence katmanı MassTransit'e hiç referans vermez. Bir `IEventBus` portu üzerinden yayınlar; onun
 MassTransit adaptörü de Stripe ve Redis adaptörlerinin yanında, infrastructure katmanında durur.
 
+**Consumer'lar yeniden denenir, çünkü MassTransit bunu kendiliğinden yapmaz.** Tek başına
+`ConfigureEndpoints` bir consumer'a tam olarak bir hak verir: bir kez fırlat, mesaj error kuyruğundadır. Bir
+anlığına takılan SMTP sunucusu için bu, kimsenin almadığı bir bilet onayıdır; ters ibraz için ise parasını
+geri almış birine satılı kalmış bir koltuk. Bu yüzden bus'a açık bir politika verildi — bir saniyeden otuz
+saniyeye açılan beş deneme, **ondan sonra** error kuyruğu; çünkü gerçekten bozuk bir mesajın yeri, onu
+gizleyen bir döngü değil, görünür bir yerdir.
+
 > **Teslimat en az bir kezdir (at-least-once), asla tam olarak bir kez değil.** Bir mesaj broker'a ulaşıp
 > onu kaydeden satır yine de commit olmayabilir, ve buna verilecek tek dürüst cevap onu tekrar göndermektir.
 > Consumer'lar aynı satın almayı iki kez görüp işi iki kez yapmamalı — bileti üretmeden önce var mı diye,
 > maili göndermeden önce gönderilmiş mi diye bakmalı. İki özdeş onay maili küçük bir mahcubiyettir; iki çekim
 > olmazdı.
 >
-> Ayrıca henüz bir deneme sayacı yok, dolayısıyla asla teslim edilemeyecek bir mesaj sonsuza kadar
-> denenir. Bunu kapatan şey bir kolon ve bir tavandır.
+> Yeniden denemenin güvenli olması **tam da bundan** kaynaklanıyor. Buradaki her consumer varsaymak yerine
+> veritabanına neyin doğru olduğunu sorar, ve inbox bir sağlayıcının iki kez gönderdiği her şeyi zaten
+> reddetmiştir.
 
 ### Onay maili
 
@@ -1045,11 +1060,19 @@ tablonun asla bakmayacağı sayfalara dönüşmeyeceği kadar kısa.
 ```
 stadiapass_outbox_pending   yazılmış ama broker'ın henüz almadığı mesajlar
 stadiapass_outbox_dead      sweeper'ın vazgeçtikleri — sıfırın üstündeki her şey bir insan istiyor
+stadiapass_inbox_pending    kaydedilmiş ama henüz bus'a konmamış sağlayıcı olayları
+stadiapass_inbox_dead       sweeper'ın vazgeçtiği sağlayıcı olayları — sağlayıcı bunları bir daha göndermez
 ```
 
 `pending`, tüm mesajlaşma yolu hakkındaki **tek en yararlı sayı**. Çöken bir broker, bozulan bir consumer ve
 duran bir sweeper dışarıdan aynı görünür: tırmanan ve geri inmeyen bir sayı. O olmadan tek kanıt, kimsenin
 okumadığı bir log satırı.
+
+**`inbox_dead`, `outbox_dead`'den daha önemlidir ve bu farkı net söylemeye değer.** Bu sistemin gönderemediği
+bir mesaj hâlâ kendi göndereceği mesajdır. **Sağlayıcının** gönderdiği bir mesaj ise `200` cevapladığımız
+mesajdır: Stripe'a elimizde olduğu söylenmiştir ve onu bir daha asla göndermez. Dolayısıyla kenara ayrılmış
+bir inbox satırı, kimsenin uygulamadığı bir ters ibraz ya da kimsenin mutabakatını yapmadığı bir ödemedir; o
+satırın kendisi, olayın yaşandığına dair kalan son kanıttır. `> 0` için alarm kurulmaya değen gauge budur.
 
 Gauge'lar veritabanını sorgulamak yerine sweeper'ın cache'lediği bir sayıyı okuyor. Observable gauge'ın
 callback'i senkrondur ve collector'ın thread'inde çalışır; oraya konulan bir sorgu, PostgreSQL ne kadar

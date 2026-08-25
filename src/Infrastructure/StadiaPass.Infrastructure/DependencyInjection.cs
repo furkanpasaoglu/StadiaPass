@@ -108,6 +108,24 @@ public static class DependencyInjection
             bus.UsingRabbitMq((context, rabbit) =>
             {
                 rabbit.Host(new Uri(connectionString));
+
+                // MassTransit does not retry unless it is told to. Without this a consumer that throws once
+                // is finished: the message goes straight to its error queue, which for an SMTP server that
+                // blinked means a ticket confirmation nobody ever receives, and for a chargeback means a seat
+                // left sold to somebody who took their money back. Every consumer here is written to be safe
+                // run twice - the inbox already refused anything the provider sent twice, and the commands
+                // ask the database what is true rather than assuming - so retrying costs nothing and saves
+                // exactly the failures worth saving.
+                //
+                // Five goes over about a minute, and then the error queue, which is where a message that is
+                // genuinely broken belongs: retrying it forever would only hide it.
+                rabbit.UseMessageRetry(retry =>
+                    retry.Exponential(
+                        retryLimit: 5,
+                        minInterval: TimeSpan.FromSeconds(1),
+                        maxInterval: TimeSpan.FromSeconds(30),
+                        intervalDelta: TimeSpan.FromSeconds(2)));
+
                 rabbit.ConfigureEndpoints(context);
             });
         });
@@ -151,7 +169,7 @@ public static class DependencyInjection
                     payments.SecretKey,
                     httpClient: new SystemNetHttpClient(
                         provider.GetRequiredService<IHttpClientFactory>().CreateClient(StripeHttpClientName),
-                        maxNetworkRetries: 2,
+                        maxNetworkRetries: StripePaymentService.MaxNetworkRetries,
                         enableTelemetry: false)));
 
                 builder.Services.AddScoped<IPaymentService, StripePaymentService>();

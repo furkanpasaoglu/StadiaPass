@@ -26,6 +26,9 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
     ILogger<ConfirmTicketPurchaseCommandHandler> logger)
     : IRequestHandler<ConfirmTicketPurchaseCommand, TicketDto>
 {
+    /// <summary>How long the write after the payment is allowed to take before the lease is given up on.</summary>
+    private static readonly TimeSpan WriteAllowance = TimeSpan.FromSeconds(30);
+
     /// <summary>
     /// Long enough to cover a slow provider and the write that follows, and no longer. This is not the ten
     /// minute reservation window: a hold is a promise to a customer, whereas this lease only has to outlive
@@ -33,7 +36,14 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
     /// unbuyable for ten minutes - including to the very person still holding it, whose hold would expire
     /// while they waited.
     /// </summary>
-    private static readonly TimeSpan SeatLockLease = TimeSpan.FromMinutes(1);
+    /// <remarks>
+    /// Asked of the provider rather than written down here. A flat minute looked right and was not: the
+    /// Stripe adapter's timeout is configuration, and the SDK retries the network underneath it, so the
+    /// worst case is that timeout several times over. A lease that runs out while the call it guards is
+    /// still running is a lock that quietly stops guarding - the seat opens up mid-payment and two cards
+    /// get charged for it, which is the exact thing this lock exists to prevent.
+    /// </remarks>
+    private TimeSpan SeatLockLease => paymentService.WorstCaseDuration + WriteAllowance;
 
     public async Task<TicketDto> Handle(ConfirmTicketPurchaseCommand request, CancellationToken cancellationToken)
     {

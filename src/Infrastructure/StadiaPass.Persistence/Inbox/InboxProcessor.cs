@@ -16,6 +16,7 @@ namespace StadiaPass.Persistence.Inbox;
 /// </summary>
 internal sealed partial class InboxProcessor(
     IServiceScopeFactory scopeFactory,
+    InboxMetrics metrics,
     ILogger<InboxProcessor> logger) : BackgroundService
 {
     private static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(5);
@@ -80,6 +81,22 @@ internal sealed partial class InboxProcessor(
                 await context.SaveChangesAsync(token);
                 await transaction.CommitAsync(token);
             });
+
+        await MeasureDepthAsync(context, cancellationToken);
+    }
+
+    /// <summary>Counted here because the sweeper is at the table anyway; see <see cref="InboxMetrics"/>.</summary>
+    private async Task MeasureDepthAsync(StadiaPassDbContext context, CancellationToken cancellationToken)
+    {
+        var pending = await context.InboxMessages
+            .CountAsync(
+                message => message.ProcessedOnUtc == null && message.FailedOnUtc == null,
+                cancellationToken);
+
+        var dead = await context.InboxMessages
+            .CountAsync(message => message.FailedOnUtc != null, cancellationToken);
+
+        metrics.Record(pending, dead);
     }
 
     private async Task PublishAsync(

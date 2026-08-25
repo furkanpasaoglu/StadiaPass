@@ -15,6 +15,9 @@ internal sealed partial class MockPaymentService(ILogger<MockPaymentService> log
 
     private const string InsufficientFundsPrefix = "4000";
 
+    /// <summary>Nothing leaves the process, so this is as long as a method call and a log line.</summary>
+    public TimeSpan WorstCaseDuration => TimeSpan.FromSeconds(1);
+
     public Task<PaymentResult> ProcessPaymentAsync(
         PaymentRequest request,
         CancellationToken cancellationToken = default)

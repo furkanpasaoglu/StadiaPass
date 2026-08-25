@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using Stripe;
 
@@ -15,9 +16,27 @@ namespace StadiaPass.Infrastructure.Payments;
 /// </remarks>
 internal sealed partial class StripePaymentService(
     IStripeClient stripeClient,
+    IOptions<PaymentOptions> options,
     ILogger<StripePaymentService> logger) : IPaymentService
 {
     private const string SucceededStatus = "succeeded";
+
+    /// <summary>How many times the Stripe SDK re-sends a request it could not get an answer to.</summary>
+    internal const int MaxNetworkRetries = 2;
+
+    /// <summary>
+    /// Three timeouts deep, and worth spelling out because nothing about it is visible from one place.
+    /// <c>HttpClient.Timeout</c> caps a whole send - the standard resilience handler's own retries included -
+    /// at the configured number of seconds. The Stripe SDK then wraps that in network retries of its own, and
+    /// each of those is a fresh send with the full timeout available to it.
+    /// </summary>
+    /// <remarks>
+    /// So the honest figure is the configured timeout times the number of SDK attempts, and it must stay tied
+    /// to configuration: dropping a hard-coded minute in here is how a caller's lock lease ends up shorter
+    /// than the call it is guarding.
+    /// </remarks>
+    public TimeSpan WorstCaseDuration =>
+        TimeSpan.FromSeconds(options.Value.TimeoutSeconds * (MaxNetworkRetries + 1));
 
     public async Task<PaymentResult> ProcessPaymentAsync(
         PaymentRequest request,

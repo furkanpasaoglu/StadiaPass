@@ -66,9 +66,12 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                    // Anything the applications measure themselves. The outbox depth is the one number
-                    // that says whether the whole messaging path is working.
-                    .AddMeter("StadiaPass.Outbox");
+                    // Anything the applications measure themselves. The outbox and inbox depths are the two
+                    // numbers that say whether the whole messaging path is working - one for what this
+                    // system is trying to send, one for what a provider has already been told we have and
+                    // will therefore never send again.
+                    .AddMeter("StadiaPass.Outbox")
+                    .AddMeter("StadiaPass.Inbox");
             })
             .WithTracing(tracing =>
             {

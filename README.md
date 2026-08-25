@@ -622,10 +622,18 @@ interleaving anything else:
 if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end
 ```
 
-**The lease is a minute, not the ten of the reservation window.** A hold is a promise to a customer; this
-lease only has to outlive one attempt to pay. Set it to the window and a process that dies mid-purchase makes
-the seat unbuyable for ten minutes — including to the very person still holding the reservation, whose hold
-would expire while they waited.
+**The lease is asked of the provider, not written down.** It only has to outlive one attempt to pay, so it is
+`IPaymentService.WorstCaseDuration` plus an allowance for the write that follows. It was a flat minute for a
+while, and a flat minute was wrong: the Stripe adapter's timeout is configuration, and the SDK retries the
+network underneath it, so the honest worst case is that timeout times the number of SDK attempts — 90 seconds
+on the defaults, against a 60 second lease. A lease that runs out while the call it guards is still running is
+a lock that has quietly stopped guarding: the seat opens up mid-payment and two cards are charged for it,
+which is the exact thing the lock exists to prevent.
+
+It is deliberately not the ten minutes of the reservation window either. A hold is a promise to a customer;
+this is a lease on one attempt. Set it to the window and a process that dies mid-purchase makes the seat
+unbuyable for ten minutes — including to the very person still holding the reservation, whose hold would
+expire while they waited.
 
 **Redis being unreachable is not a reason to stop selling tickets.** The lock fails open with a warning,
 because correctness lives in the seat's concurrency token and not here. A cache outage must not become a
@@ -852,14 +860,21 @@ does not change.
 The persistence layer never references MassTransit. It publishes through an `IEventBus` port, and the
 MassTransit adapter for it lives in the infrastructure layer alongside the Stripe and Redis ones.
 
+**Consumers are retried, because MassTransit does not do that on its own.** `ConfigureEndpoints` alone gives a
+consumer exactly one go: throw once and the message is in its error queue. For an SMTP server that blinked
+that is a ticket confirmation nobody ever receives; for a chargeback it is a seat left sold to somebody who
+took their money back. So the bus is given an explicit policy — five attempts backing off from one second to
+thirty, and *then* the error queue, because a message that is genuinely broken belongs somewhere visible
+rather than in a loop that hides it.
+
 > **Delivery is at least once, never exactly once.** A message can reach the broker and the row that records
 > it can still fail to commit, and the only honest answer is to send it again. Consumers must be able to see
 > the same purchase twice without doing the work twice — check for the ticket before rendering it, and for
 > the mail before sending it. Two identical confirmation mails is a small embarrassment; two charges would
 > not be.
 >
-> There is also no attempt counter yet, so a message that can never be delivered is retried forever. One
-> column and a ceiling is what closes that.
+> Retrying is only safe *because* of that. Every consumer here asks the database what is true rather than
+> assuming, and the inbox has already refused anything a provider sent twice.
 
 ### The confirmation
 
@@ -1040,11 +1055,19 @@ sweeper reads every five seconds does not turn into mostly pages it will never l
 ```
 stadiapass_outbox_pending   messages written but not yet taken by the broker
 stadiapass_outbox_dead      messages the sweeper gave up on - anything above zero wants a person
+stadiapass_inbox_pending    provider events recorded but not yet put on the bus
+stadiapass_inbox_dead       provider events the sweeper gave up on - the provider will not send them again
 ```
 
 `pending` is the single most useful number about the whole messaging path. A broker that is down, a consumer
 that is broken and a sweeper that has stopped all look the same from the outside: a count that climbs and
 does not come back. Without it the only evidence is a log line nobody is reading.
+
+**`inbox_dead` matters more than `outbox_dead`, and the difference is worth being clear about.** A message
+this system failed to send is still its own to send again. A message the *provider* sent is one we answered
+`200` to: Stripe has been told we have it and will never send it again. An inbox row that has been set aside
+is therefore a chargeback nobody applied or a payment nobody reconciled, and the row itself is the last
+evidence that it ever happened. That is the one gauge worth an alarm at `> 0`.
 
 The gauges read a number the sweeper caches rather than querying the database. An observable gauge's callback
 is synchronous and runs on the collector's thread, so a query in there would block metric collection for
