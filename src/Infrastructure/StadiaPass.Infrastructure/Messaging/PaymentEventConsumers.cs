@@ -31,7 +31,8 @@ internal sealed class PaymentSucceededConsumer(ISender sender) : IConsumer<Payme
                 context.Message.SeatNumber,
                 context.Message.HolderReference,
                 context.Message.Amount,
-                context.Message.Currency),
+                context.Message.Currency,
+                context.Message.OccurredOnUtc),
             context.CancellationToken);
 }
 

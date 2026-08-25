@@ -1005,6 +1005,13 @@ olay türü gönderiyor, bu sistem üçünü kullanıyor; geri kalanı doğrulan
 | `charge.dispute.created` | **Ters ibraz.** Bilet iptal edilir, koltuk yeniden satışa çıkar, sayaçlar düzeltilir. |
 | `charge.refunded` | Ya biri panelden iade tuşuna basmıştır — bileti iptal et — ya da bu uygulamanın kendi telafisi geri yankılanmaktadır; orada bilet yoktur çünkü satış geri alınmıştı. Aynı handler ikisini de canlı bilete bakarak ve yoksa hiçbir şey yapmayarak cevaplar. |
 
+**Mutabakat şikâyet etmeden önce iki dakika bekler.** Stripe `payment_intent.succeeded`'i senkron çağrıya
+cevap verdiği anda gönderir, dolayısıyla olay, ona sebep olan checkout hâlâ satışını yazarken gelebilir.
+Güvenilecek bir sıra ve alınacak bir kilit yok — ikisi gerçekten yarışıyor — o yüzden yerleşme süresinden
+genç ve henüz bileti olmayan bir ödeme raporlanmaz, kendi haline bırakılır. Her maçın her yoğun dakikasında
+öten bir alarm, kimsenin güvenmediği bir alarmdır; bu alarma ise güvenilmesi gerekir: satılmamış bir koltuk
+için alınmış parayı gözleyen tek şey odur.
+
 Bir itiraz henüz bir kayıp değil, bir iddiadır: fonlar bloke edilir ve kazanılabilir. Bilet yine de iptal
 edilir, çünkü koltuk belirli bir akşama ait fiziksel bir şeydir ve ters ibraz ettiği bir koltukta birinin
 oturmasına izin vermek daha büyük hatadır. Kazanmak bileti kendiliğinden geri getirmez — o, bir insanın

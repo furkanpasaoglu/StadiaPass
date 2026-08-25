@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Domain.Abstractions;
 
 namespace StadiaPass.Application.Payments.Commands.ReconcilePayment;
@@ -19,12 +20,26 @@ public sealed record ReconcilePaymentCommand(
     string? SeatNumber,
     string? HolderReference,
     decimal Amount,
-    string Currency) : IRequest;
+    string Currency,
+    DateTimeOffset PaidOnUtc) : IRequest;
 
 internal sealed partial class ReconcilePaymentCommandHandler(
     ITicketRepository ticketRepository,
+    IDateTimeProvider dateTimeProvider,
     ILogger<ReconcilePaymentCommandHandler> logger) : IRequestHandler<ReconcilePaymentCommand>
 {
+    /// <summary>
+    /// How long a payment is given to turn into a ticket before its absence is treated as a problem.
+    /// </summary>
+    /// <remarks>
+    /// Stripe sends <c>payment_intent.succeeded</c> at the same moment it answers the synchronous call, so
+    /// this event can arrive while the checkout that caused it is still writing its sale. There is no
+    /// ordering to rely on and no lock to take - the two are genuinely racing - so the only honest answer is
+    /// to let a young payment finish. Two minutes is far longer than the write takes and far shorter than
+    /// anybody would wait to hear that money went missing.
+    /// </remarks>
+    private static readonly TimeSpan SettlingPeriod = TimeSpan.FromMinutes(2);
+
     public async Task Handle(ReconcilePaymentCommand request, CancellationToken cancellationToken)
     {
         var ticket = await ticketRepository.GetByPaymentIntentAsync(request.PaymentIntentId, cancellationToken);
@@ -32,6 +47,18 @@ internal sealed partial class ReconcilePaymentCommandHandler(
         if (ticket is not null)
         {
             Reconciled(logger, request.PaymentIntentId, ticket.Id);
+
+            return;
+        }
+
+        var age = dateTimeProvider.UtcNow - request.PaidOnUtc;
+
+        if (age < SettlingPeriod)
+        {
+            // Not an alarm, because there is nothing yet to be alarmed about: the checkout is very likely
+            // committing this sale right now. Raising it here would cry wolf on every busy minute of every
+            // match, and an alarm nobody trusts is worse than no alarm.
+            TooSoonToTell(logger, request.PaymentIntentId, age);
 
             return;
         }
@@ -48,6 +75,13 @@ internal sealed partial class ReconcilePaymentCommandHandler(
             request.SeatNumber,
             request.HolderReference);
     }
+
+    [LoggerMessage(
+        EventId = 3402,
+        Level = LogLevel.Debug,
+        Message = "Payment {PaymentIntentId} has no ticket yet, but it is only {Age} old and the checkout "
+            + "that made it may still be writing; leaving it alone")]
+    private static partial void TooSoonToTell(ILogger logger, string paymentIntentId, TimeSpan age);
 
     [LoggerMessage(
         EventId = 3400,

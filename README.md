@@ -1001,6 +1001,13 @@ table with rows nothing reads.
 | `charge.dispute.created` | **Chargeback.** The ticket is cancelled, the seat goes back on offer and the counters are corrected. |
 | `charge.refunded` | Either somebody pressed refund in the dashboard - void it - or this application's own compensation echoing back, where there is no ticket because the sale rolled back. The same handler answers both by looking for a live ticket and doing nothing when there is not one. |
 
+**Reconciliation waits two minutes before it complains.** Stripe sends `payment_intent.succeeded` at the same
+moment it answers the synchronous call, so the event can arrive while the checkout that caused it is still
+writing its sale. There is no ordering to rely on and no lock to take — the two are genuinely racing — so a
+payment younger than the settling period with no ticket yet is left alone rather than reported. An alarm that
+fires on every busy minute of every match is an alarm nobody trusts, and this one has to be trusted: it is the
+only thing watching for money taken against a seat that was never sold.
+
 A dispute is a claim, not yet a loss: the funds are held and it can be won. The ticket is voided anyway,
 because a seat is a physical thing on a specific evening and letting somebody sit in one they have charged
 back is the worse mistake. Winning does not put the ticket back on its own - that wants a person to decide.

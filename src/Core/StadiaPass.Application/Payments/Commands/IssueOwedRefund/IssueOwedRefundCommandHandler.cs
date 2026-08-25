@@ -38,7 +38,7 @@ internal sealed partial class IssueOwedRefundCommandHandler(
     }
 
     [LoggerMessage(
-        EventId = 3402,
+        EventId = 3502,
         Level = LogLevel.Information,
         Message = "Refunded {Amount} of payment {PaymentTransactionId} as refund {RefundTransactionId} "
             + "({Reason}); the money owed for a sale that never happened is back")]

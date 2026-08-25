@@ -47,7 +47,7 @@ internal sealed partial class RefundLedger(
     }
 
     [LoggerMessage(
-        EventId = 3400,
+        EventId = 3500,
         Level = LogLevel.Warning,
         Message = "A refund of {Amount} against payment {PaymentTransactionId} was written to the outbox "
             + "({Reason}); the money goes back when the sweeper carries it")]
@@ -58,7 +58,7 @@ internal sealed partial class RefundLedger(
         string reason);
 
     [LoggerMessage(
-        EventId = 3401,
+        EventId = 3501,
         Level = LogLevel.Critical,
         Message = "A refund of {Amount} against payment {PaymentTransactionId} could not even be written "
             + "down; that money is held against a sale that never happened and now only this line knows")]
