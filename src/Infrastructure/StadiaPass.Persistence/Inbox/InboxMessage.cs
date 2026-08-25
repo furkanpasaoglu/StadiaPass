@@ -83,5 +83,12 @@ internal sealed class InboxMessageConfiguration : IEntityTypeConfiguration<Inbox
         builder.HasIndex(message => message.ReceivedOnUtc)
             .HasDatabaseName("ix_inbox_messages_unprocessed")
             .HasFilter("processed_on_utc IS NULL");
+
+        // Counted every five seconds for the dead-message gauge, and partial for the same reason the
+        // outbox's is: a healthy system has nothing in here, so the index costs almost nothing and saves a
+        // scan of every provider event ever received.
+        builder.HasIndex(message => message.FailedOnUtc)
+            .HasDatabaseName("ix_inbox_messages_dead")
+            .HasFilter("failed_on_utc IS NOT NULL");
     }
 }

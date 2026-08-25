@@ -57,5 +57,13 @@ internal sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outb
         builder.HasIndex(message => message.OccurredOnUtc)
             .HasDatabaseName("ix_outbox_messages_unprocessed")
             .HasFilter("processed_on_utc IS NULL");
+
+        // The dead count is measured every five seconds, and without this it is a parallel sequential scan of
+        // a table that keeps thirty days of delivered messages - so the cheapest thing the sweeper does turns
+        // into the most expensive one exactly when the table is busiest. Measured on 200k rows: 5.9ms against
+        // 0.03ms. Partial again, and tiny: a healthy system has nothing in here at all.
+        builder.HasIndex(message => message.FailedOnUtc)
+            .HasDatabaseName("ix_outbox_messages_dead")
+            .HasFilter("failed_on_utc IS NOT NULL");
     }
 }
