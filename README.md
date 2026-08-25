@@ -564,7 +564,7 @@ already zero, because every `SET` expression reads the row as it was before the 
 fixture, wanted by every write that touches any of its seats, and held until the transaction commits — so
 writes to one match serialise on it. Taken at the top, each one also waits out the seat write, the ticket
 insert and the outbox insert of the transaction in front of it. Taken at the bottom, it is held for the commit
-alone. Measured with 24 concurrent holds on one match: **80.7 ms against 42.2 ms, 1.92×**.
+alone. Measured with 24 concurrent holds on one match, best of ten rounds: **78.7 ms against 41.2 ms, 1.9×**.
 
 That is also why the repository hands the update back instead of running it — `PrepareSeatSaleCounters` takes
 the counters out of the save's hands and returns the statement, which the caller runs after saving:
@@ -1057,12 +1057,19 @@ ever reaching `SoldOut`.
 
 The domain still does the releasing, seat by seat through `Match.ReleaseSeat`, so the rules and the events
 stay where they belong. Only the counters are handed to the database, for the same reason a sale hands them
-over. The match row is taken first, exactly as a sale takes it, so the two can never reach for the match and
-a seat in opposite orders.
+over, and the match row is taken last, exactly as a sale takes it.
 
 A seat that somebody bought or re-reserved between the read and the write fails the concurrency check and
-rolls the whole match back - which is the right answer, not an error: the seat is in use again and there is
+rolls that match back - which is the right answer, not an error: the seat is in use again and there is
 nothing left to release. The next pass picks up whatever is still expired.
+
+**Each match is released in a unit of work of its own, and that is not incidental.** The sweep discovers
+identifiers, not aggregates, and opens a scope per match. Released through one shared change tracker instead,
+a match that lost its race left its modified seats sitting in that tracker; the next match's save carried
+them along, failed again on a token that was now permanently stale, and one unlucky fixture took every
+remaining match in the sweep down with it — each of them logged as though somebody had simply claimed it
+first. Measured on two matches with a race forced on the first: nothing at all was released, and both were
+reported as claimed.
 
 ### Not trying forever
 

@@ -58,27 +58,51 @@ internal sealed partial class ExpiredReservationCleanupWorker(
 
     private async Task SweepAsync(CancellationToken cancellationToken)
     {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var matchRepository = scope.ServiceProvider.GetRequiredService<IMatchRepository>();
-        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-        var now = scope.ServiceProvider.GetRequiredService<IDateTimeProvider>().UtcNow;
+        DateTimeOffset now;
+        IReadOnlyList<Guid> due;
 
-        var matches = await matchRepository.GetWithExpiredReservationsAsync(
-            now, MaxMatchesPerSweep, cancellationToken);
-
-        foreach (var match in matches)
+        await using (var discovery = scopeFactory.CreateAsyncScope())
         {
-            await ReleaseAsync(match, matchRepository, unitOfWork, now, cancellationToken);
+            now = discovery.ServiceProvider.GetRequiredService<IDateTimeProvider>().UtcNow;
+
+            due = await discovery.ServiceProvider
+                .GetRequiredService<IMatchRepository>()
+                .GetMatchIdsWithExpiredReservationsAsync(now, MaxMatchesPerSweep, cancellationToken);
+        }
+
+        // A scope of its own for every match, which is the whole reason this is a loop over identifiers
+        // rather than over aggregates. Releasing them all through one change tracker means a match that
+        // loses a race leaves its modified seats sitting in that tracker: the next match's save carries them
+        // along, fails again on a token that is now permanently stale, and one unlucky fixture quietly takes
+        // the rest of the sweep down with it - every one of them logged as though somebody had claimed it.
+        foreach (var matchId in due)
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+
+            await ReleaseAsync(
+                matchId,
+                scope.ServiceProvider.GetRequiredService<IMatchRepository>(),
+                scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                now,
+                cancellationToken);
         }
     }
 
     private async Task ReleaseAsync(
-        Match match,
+        Guid matchId,
         IMatchRepository matchRepository,
         IUnitOfWork unitOfWork,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        var match = await matchRepository.GetWithExpiredReservationsAsync(matchId, now, cancellationToken);
+
+        if (match is null)
+        {
+            // Read a moment ago and gone now, which is nothing to worry about.
+            return;
+        }
+
         // Read once. The aggregate is about to change its own copy of them, and the count of what was
         // released is what the counter update needs.
         var expired = match.Seats

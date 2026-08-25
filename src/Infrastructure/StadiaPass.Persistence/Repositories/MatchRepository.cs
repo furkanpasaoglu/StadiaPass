@@ -79,24 +79,29 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<Match>> GetWithExpiredReservationsAsync(
+    public async Task<IReadOnlyList<Guid>> GetMatchIdsWithExpiredReservationsAsync(
         DateTimeOffset now,
         int maxMatches,
-        CancellationToken cancellationToken = default)
-    {
-        // Filtered include again: a match in a 20k venue comes back carrying only the handful of seats whose
-        // hold has run out, not its whole seat map.
-        var expired = Set
+        CancellationToken cancellationToken = default) =>
+        await Set.AsNoTracking()
             .Where(match => match.Seats.Any(seat =>
-                seat.Status == SeatStatus.Reserved && seat.ReservationExpiresAtUtc < now));
-
-        return await expired
-            .Include(match => match.Seats.Where(seat =>
                 seat.Status == SeatStatus.Reserved && seat.ReservationExpiresAtUtc < now))
             .OrderBy(match => match.KickOffUtc)
             .Take(maxMatches)
+            .Select(match => match.Id)
             .ToListAsync(cancellationToken);
-    }
+
+    /// <inheritdoc />
+    public Task<Match?> GetWithExpiredReservationsAsync(
+        Guid matchId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default) =>
+        // Filtered include: a match in a 20k venue comes back carrying only the handful of seats whose hold
+        // has run out, not its whole seat map.
+        Set
+            .Include(match => match.Seats.Where(seat =>
+                seat.Status == SeatStatus.Reserved && seat.ReservationExpiresAtUtc < now))
+            .FirstOrDefaultAsync(match => match.Id == matchId, cancellationToken);
 
     /// <inheritdoc />
     public Func<CancellationToken, Task> PrepareSeatReleaseCounters(Match match, int releasedCount)

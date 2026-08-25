@@ -565,8 +565,8 @@ olup olmadığını sorar; çünkü her `SET` ifadesi satırı bu ifadeden önce
 satır, koltuklarından herhangi birine dokunan her yazmanın istediği ve transaction commit olana kadar tutulan
 satır — yani tek bir maça yapılan yazmalar orada sıraya girer. En başta alınırsa, her biri önündeki
 transaction'ın koltuk yazmasını, bilet insert'ünü ve outbox insert'ünü de beklemiş olur. En sonda alınırsa
-yalnızca commit boyunca tutulur. Tek maçta 24 eşzamanlı rezervasyonla ölçüldü: **80.7 ms'ye karşı 42.2 ms,
-1.92 kat**.
+yalnızca commit boyunca tutulur. Tek maçta 24 eşzamanlı rezervasyonla, on koşunun en iyisiyle ölçüldü:
+**78.7 ms'ye karşı 41.2 ms, 1.9 kat**.
 
 Repository'nin güncellemeyi çalıştırmak yerine geri vermesinin sebebi de bu — `PrepareSeatSaleCounters`
 sayaçları save'in elinden alır ve ifadeyi döner, çağıran da onu kaydettikten sonra çalıştırır:
@@ -1063,12 +1063,19 @@ Liste bir şey, koltuk haritası başka bir şey söylüyordu; ve bir maçın sa
 
 Serbest bırakmayı hâlâ domain yapıyor, koltuk koltuk, `Match.ReleaseSeat` üzerinden — böylece kurallar ve
 event'ler ait oldukları yerde kalıyor. Yalnızca sayaçlar veritabanına devrediliyor, bir satışın onları
-devretmesiyle aynı sebeple. Maç satırı ilk alınıyor, tıpkı satışın aldığı gibi, ki ikisi maça ve bir koltuğa
-asla ters sırayla uzanmasın.
+devretmesiyle aynı sebeple, ve maç satırı en sonda alınıyor, tıpkı satışın aldığı gibi.
 
 Okuma ile yazma arasında birinin satın aldığı ya da yeniden rezerve ettiği bir koltuk, concurrency kontrolüne
-takılıp tüm maçı geri alıyor — ki bu bir hata değil, **doğru cevap**: koltuk yine kullanımda ve serbest
+takılıp o maçı geri alıyor — ki bu bir hata değil, **doğru cevap**: koltuk yine kullanımda ve serbest
 bırakılacak bir şey kalmamış. Bir sonraki tur hâlâ süresi dolmuş olanları alır.
+
+**Her maç kendi unit of work'ünde serbest bırakılıyor ve bu tesadüf değil.** Sweep aggregate'leri değil
+kimlikleri buluyor ve maç başına bir scope açıyor. Bunun yerine tek bir paylaşılan change tracker üzerinden
+yapılınca, yarışı kaybeden bir maç değiştirdiği koltukları o tracker'da bırakıyordu; sıradaki maçın save'i
+onları da taşıyor, artık kalıcı olarak bayat bir token yüzünden yine patlıyor ve şanssız tek bir fikstür,
+sweep'teki geri kalan bütün maçları beraberinde götürüyordu — üstelik her biri sanki başkası kapmış gibi
+loglanarak. İki maçla, ilkine zorla yarış kaybettirilerek ölçüldü: **hiçbir şey serbest bırakılmadı**, ikisi
+de "kapılmış" diye raporlandı.
 
 ### Sonsuza kadar denememek
 

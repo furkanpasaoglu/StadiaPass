@@ -41,13 +41,28 @@ public interface IMatchRepository : IRepository<Match>
     Func<CancellationToken, Task> PrepareSeatReservationCounters(Match match, int reservedCount);
 
     /// <summary>
-    /// Matches that are holding seats whose time has run out, with only those seats attached. A hold is a
-    /// promise with a deadline on it; nothing releases one when the deadline passes unless something goes
-    /// looking, and until then the seat is unsellable and the counters disagree with the seat map.
+    /// Which matches are holding seats whose time has run out. A hold is a promise with a deadline on it;
+    /// nothing releases one when the deadline passes unless something goes looking, and until then the seat
+    /// is unsellable and the counters disagree with the seat map.
     /// </summary>
-    Task<IReadOnlyList<Match>> GetWithExpiredReservationsAsync(
+    /// <remarks>
+    /// Identifiers rather than aggregates, because each of these is released in a unit of work of its own.
+    /// Handing back tracked matches invites a caller to release them all through one change tracker, and one
+    /// match losing a race would then leave its modified seats in that tracker for the next match's save to
+    /// carry along - failing again on a stale token, and taking the rest of the sweep down with it.
+    /// </remarks>
+    Task<IReadOnlyList<Guid>> GetMatchIdsWithExpiredReservationsAsync(
         DateTimeOffset now,
         int maxMatches,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One match, with only the seats whose hold has run out attached - so releasing them in a 20k venue
+    /// touches a handful of rows rather than the whole seat map.
+    /// </summary>
+    Task<Match?> GetWithExpiredReservationsAsync(
+        Guid matchId,
+        DateTimeOffset now,
         CancellationToken cancellationToken = default);
 
     /// <summary>
