@@ -683,13 +683,43 @@ ancak ondan sonra **409** cevaplar. İki ayrıntı bunu iyi niyetli olmaktan ç�
 Çekim de aynı şekilde anahtarlanır — `stadiapass:{matchId}:{seatNumber}` — çift tıklamayı iki değil tek
 çekim yapan şey budur.
 
-Kendisi başarısız olan bir iade fırlatılmaz, sağlayıcının transaction id'siyle `Error` seviyesinde loglanır:
-çağıran zaten bir hataya doğru gidiyordur ve o hatayı bununla değiştirmek asıl neyin ters gittiğini gizlerdi.
-O log satırı, parayı elle geri vermek için bir insanın ihtiyaç duyduğu şeydir.
+#### Çift hata: iadenin de başarısız olması
+
+İade telafidir; peki telafiyi ne telafi eder? Uzun süre bunun cevabı bir `Error` log satırıydı, ki bu bir
+cevap değil. Sistemin **mesajlar** için tabloları, sweeper'ları, retry'ları ve ölü mektup kuyrukları vardı —
+ama gerçekten parayı taşıyan tek şey kimsenin izlemediği bir yere düşüyordu. Logger okunmuyorsa ya da satır
+rotasyona uğradıysa, para sağlayıcıda kalıyor ve sistemin hiçbir parçası borçlu olduğunu bilmiyordu.
+
+Bu yüzden başarısız olan bir iade artık **yazılıyor**:
+
+```
+çekim  ->  satış patlar  ->  iade  ->  oldu mu?  ->  bitti
+                                   \
+                                    -> olmadı  ->  outbox'a RefundOwedEvent
+                                                   -> sweeper  -> broker  -> tekrar iade
+```
+
+İlk deneme duruyor, çünkü buraya gelmenin olağan sebebi koltuk yarışını kaybetmektir, veritabanı gayet
+sağlıklıdır ve paranın beş saniye sonra değil bir saniye sonra geri gitmesi daha iyidir. Değişen **ikinci**
+deneme: o artık bir deneme değil, bir satır. Satır olduğu andan itibaren outbox'ın zaten yaptığı her şeyi
+miras alır — yeniden başlatmadan sağ çıkar, sweeper taşır, başarısız olmaya devam ettikçe broker yeniden
+teslim eder ve hiç olmazsa `stadiapass.outbox.dead` onu sayar. İade ödeme üzerinden anahtarlandığı için,
+birden fazla kez teslim edilmesi parayı yine bir kez geri verir.
+
+Satırı `IRefundLedger` yazar ve bu, adı değiştirilmiş bir `IOutbox` değildir. Çağıranı, az önce geri alınmış
+satışla dolu bir change tracker tutuyordur; çağıranın unit of work'ü üzerinden hazırlamak, tam da patlayan o
+satışı kaydederdi. Ledger kendi scope'unu açar — kendi context'i, kendi bağlantısı — ve kendi başına commit
+eder. Hatanın **veritabanı** olduğu durumda işe yaramasını sağlayan da budur: taze bir bağlantı, zehirlenmiş
+olanın çalışmadığı yerde çalışabilir.
+
+O yazma da başarısız olursa geriye bir `Critical` log satırı kalır, başka bir şey değil — ve bu dürüst bir
+sonuçtur: veritabanına erişilemiyor olması, hiçbir şeyin yazılamayacağı tek durumdur.
 
 > **Bu atomiklik değil, telafidir.** Hiçbir şey bir çekim ile bir veritabanı yazmasını birlikte commit
 > ettiremez. Burada iddia edilen daha dar ve test edilebilir: para hiçbir zaman satılmamış bir koltuk için
-> alınmış kalmaz, ve o geri almanın hiçbir tekrarı parayı iki kez almaz ya da iki kez geri vermez.
+> alınmış kalmaz, o geri almanın hiçbir tekrarı parayı iki kez almaz ya da iki kez geri vermez, ve geri alma
+> şimdi yapılamıyorsa bir insanın sorgulayabileceği bir yerde hatırlanır — izliyor olması gereken bir yerde
+> değil.
 
 ### Sağlayıcı seçimi
 

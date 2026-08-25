@@ -4,6 +4,7 @@ using MediatR;
 using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Application.Infrastructure.Abstractions;
+using StadiaPass.Application.Payments.Events;
 using StadiaPass.Application.Tickets.Events;
 using StadiaPass.Domain.Abstractions;
 using StadiaPass.Domain.Common.ValueObjects;
@@ -18,6 +19,7 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
     IPaymentService paymentService,
     IDistributedLock distributedLock,
     IOutbox outbox,
+    IRefundLedger refundLedger,
     IUnitOfWork unitOfWork,
     ICurrentUser currentUser,
     IDateTimeProvider dateTimeProvider,
@@ -123,7 +125,7 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
             // everything rolled back - counters, seat, ticket. Everything except the charge.
             SeatLostTheRace(logger, request.SeatNumber, request.MatchId, payment.TransactionId, exception);
 
-            await GiveTheMoneyBackAsync(payment, seat.Price.Amount);
+            await GiveTheMoneyBackAsync(match, payment, seat, "the seat was taken by another sale", now);
 
             throw new ConcurrencyConflictException(
                 $"Seat {request.SeatNumber} was reserved or sold by another transaction while this purchase "
@@ -136,7 +138,7 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
             // strands the money just as thoroughly, so it comes back the same way.
             SaleWriteFailed(logger, request.SeatNumber, request.MatchId, payment.TransactionId, exception);
 
-            await GiveTheMoneyBackAsync(payment, seat.Price.Amount);
+            await GiveTheMoneyBackAsync(match, payment, seat, "the sale could not be written", now);
 
             throw;
         }
@@ -144,16 +146,31 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
 
     /// <summary>
     /// Deliberately not handed the request's cancellation token: the customer may well have closed the tab by
-    /// now, and that is no reason to keep their money. A refund that fails is logged rather than thrown - the
-    /// caller is already on its way to an error, and replacing that error with this one would hide what
-    /// actually went wrong. This one needs a person, not a stack trace.
+    /// now, and that is no reason to keep their money. Nothing in here is allowed to throw - the caller is
+    /// already on its way to an error, and replacing that error with this one would hide what actually went
+    /// wrong.
     /// </summary>
-    private async Task GiveTheMoneyBackAsync(PaymentResult payment, decimal amount)
+    /// <remarks>
+    /// Two goes, and they fail differently on purpose. The first is the refund itself, because the ordinary
+    /// reason to be here is losing a race for a seat, the database is perfectly healthy, and the money is
+    /// better back in a second than in five. When that does not work the second is a row: the refund is
+    /// written to the outbox, where the sweeper carries it, the broker redelivers it and the dead-message
+    /// gauge counts it if it never succeeds. It has to be a row rather than another attempt, because an
+    /// attempt that fails leaves nothing behind, and a log line nobody reads is how money gets lost.
+    /// </remarks>
+    private async Task GiveTheMoneyBackAsync(
+        Match match,
+        PaymentResult payment,
+        MatchSeat seat,
+        string reason,
+        DateTimeOffset now)
     {
         if (payment.TransactionId is not { Length: > 0 } transactionId)
         {
             return;
         }
+
+        var amount = seat.Price.Amount;
 
         try
         {
@@ -162,16 +179,29 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
             if (refund.IsSuccessful)
             {
                 RefundIssued(logger, amount, transactionId, refund.TransactionId!);
+
+                return;
             }
-            else
-            {
-                RefundRejected(logger, amount, transactionId, refund.FailureCode ?? "unknown");
-            }
+
+            RefundRejected(logger, amount, transactionId, refund.FailureCode ?? "unknown");
         }
         catch (Exception exception)
         {
             RefundCrashed(logger, amount, transactionId, exception);
         }
+
+        // Written down rather than given up on. Whether the provider refused or the call threw, the money is
+        // still ours to give back and something other than a logger has to remember that.
+        await refundLedger.RecordAsync(
+            new RefundOwedEvent(
+                transactionId,
+                amount,
+                seat.Price.Currency,
+                match.Id,
+                seat.SeatNumber.ToString(),
+                reason,
+                now),
+            CancellationToken.None);
     }
 
     /// <summary>

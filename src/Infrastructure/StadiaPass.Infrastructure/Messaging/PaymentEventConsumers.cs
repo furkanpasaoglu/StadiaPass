@@ -1,5 +1,6 @@
 using MassTransit;
 using MediatR;
+using StadiaPass.Application.Payments.Commands.IssueOwedRefund;
 using StadiaPass.Application.Payments.Commands.ReconcilePayment;
 using StadiaPass.Application.Payments.Commands.VoidPaidTicket;
 using StadiaPass.Application.Payments.Events;
@@ -54,5 +55,25 @@ internal sealed class PaymentRefundedConsumer(ISender sender) : IConsumer<Paymen
     public Task Consume(ConsumeContext<PaymentRefunded> context) =>
         sender.Send(
             new VoidPaidTicketCommand(context.Message.PaymentIntentId, "refunded"),
+            context.CancellationToken);
+}
+
+/// <summary>
+/// Money the checkout took for a sale that never committed and could not give back at the time.
+/// </summary>
+/// <remarks>
+/// The one consumer here that goes outward rather than inward: the others answer something the provider told
+/// us, this one asks the provider for something. It is a compensation with a row behind it, so it survives a
+/// restart, is redelivered while it keeps failing, and ends up somewhere visible if it never works.
+/// </remarks>
+internal sealed class RefundOwedConsumer(ISender sender) : IConsumer<RefundOwedEvent>
+{
+    public Task Consume(ConsumeContext<RefundOwedEvent> context) =>
+        sender.Send(
+            new IssueOwedRefundCommand(
+                context.Message.PaymentTransactionId,
+                context.Message.Amount,
+                context.Message.Currency,
+                context.Message.Reason),
             context.CancellationToken);
 }

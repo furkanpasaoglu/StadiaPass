@@ -5,6 +5,7 @@ using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Application.Tickets.Commands.ConfirmTicketPurchase;
+using StadiaPass.Application.Payments.Events;
 using StadiaPass.Application.Tickets.Events;
 using StadiaPass.Domain.Abstractions;
 using StadiaPass.Domain.Matches;
@@ -35,6 +36,8 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
     private readonly IOutbox _outbox = Substitute.For<IOutbox>();
+
+    private readonly IRefundLedger _refundLedger = Substitute.For<IRefundLedger>();
 
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
 
@@ -67,6 +70,7 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
             _paymentService,
             _distributedLock,
             _outbox,
+            _refundLedger,
             _unitOfWork,
             _currentUser,
             _dateTimeProvider,
@@ -382,6 +386,77 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
             .Returns(match);
 
         return match;
+    }
+
+    [Fact]
+    public async Task Should_WriteTheRefundDown_When_TheProviderRefusesToGiveTheMoneyBack()
+    {
+        // Arrange - the sale is lost and the compensation is refused too, which is the double fault that
+        // used to leave nothing behind but a log line.
+        var match = GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+        GivenTheWriteLosesTheRace();
+
+        _paymentService
+            .RefundPaymentAsync(Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<CancellationToken>())
+            .Returns(PaymentResult.Failure("charge_already_refunded", "Stripe would not do it."));
+
+        // Act
+        var buying = () => _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - a row, not a log. The sweeper carries it, the broker redelivers it, and the dead-message
+        // gauge counts it if it never works.
+        await buying.Should().ThrowAsync<ConcurrencyConflictException>();
+        await _refundLedger
+            .Received(1)
+            .RecordAsync(
+                Arg.Is<RefundOwedEvent>(owed =>
+                    owed.PaymentTransactionId == PaymentTransactionId
+                    && owed.Amount == TestData.SeatOf(match, TestData.SeatNumber).Price.Amount
+                    && owed.SeatNumber == TestData.SeatNumber
+                    && owed.MatchId == match.Id),
+                Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_WriteTheRefundDown_When_TheRefundCallItselfThrows()
+    {
+        // Arrange - the provider is unreachable rather than unwilling; the money is owed just the same.
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+        GivenTheWriteLosesTheRace();
+
+        _paymentService
+            .RefundPaymentAsync(Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("the provider is not answering"));
+
+        // Act
+        var buying = () => _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert
+        await buying.Should().ThrowAsync<ConcurrencyConflictException>();
+        await _refundLedger
+            .Received(1)
+            .RecordAsync(Arg.Any<RefundOwedEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_WriteNothingDown_When_TheRefundGoesThroughFirstTime()
+    {
+        // Arrange
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        GivenThePaymentSucceeds();
+        GivenTheWriteLosesTheRace();
+
+        // Act
+        var buying = () => _handler.Handle(Command(), CancellationToken.None);
+
+        // Assert - the ordinary case is a race lost and the money straight back. No row, no message, nothing
+        // for anybody to chase.
+        await buying.Should().ThrowAsync<ConcurrencyConflictException>();
+        await _refundLedger
+            .DidNotReceive()
+            .RecordAsync(Arg.Any<RefundOwedEvent>(), Arg.Any<CancellationToken>());
     }
 
     private void GivenThePaymentSucceeds()

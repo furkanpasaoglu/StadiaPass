@@ -681,13 +681,43 @@ and only then answers **409**. Two details make that safe rather than merely wel
 The charge is keyed the same way — `stadiapass:{matchId}:{seatNumber}` — which is what makes a double-click
 one charge instead of two.
 
-A refund that itself fails is logged at `Error` with the provider's transaction id rather than thrown: the
-caller is already on its way to an error, and replacing that error with this one would hide what actually
-went wrong. That log line is what a person needs to give the money back by hand.
+#### The double fault: a refund that fails too
+
+The refund is the compensation, so what compensates the compensation? For a long time the answer was an
+`Error` log line, and that is not an answer. The whole system had tables, sweepers, retries and dead-letter
+queues for *messages* — and the one thing actually carrying money fell back to something nobody was watching.
+If the logger was not being read, or the line rotated away, the money stayed with the provider and no part of
+the system knew it was owed.
+
+So a failed refund is now **written down**:
+
+```
+charge  ->  sale fails  ->  refund  ->  worked?  ->  done
+                                    \
+                                     -> did not  ->  RefundOwedEvent on the outbox
+                                                     -> sweeper  -> broker  -> refund again
+```
+
+The first attempt stays, because the ordinary reason to be here is losing a race for a seat, the database is
+perfectly healthy, and the money is better back in a second than in five. It is the *second* attempt that
+changed: it is not an attempt at all, it is a row. Once it is a row it inherits everything the outbox already
+does — it survives a restart, the sweeper carries it, the broker redelivers it while it keeps failing, and
+`stadiapass.outbox.dead` counts it if it never works. And because the refund is keyed on the payment, being
+delivered more than once still gives the money back once.
+
+The row is written by `IRefundLedger`, which is not `IOutbox` with a different name. Its caller is holding a
+change tracker full of the sale that has just been rolled back, so staging through the caller's unit of work
+would save the very sale that failed. The ledger opens a scope of its own — its own context, its own
+connection — and commits by itself. That is also what makes it useful when the failure *was* the database: a
+fresh connection may work where the poisoned one did not.
+
+If even that write fails, there is a `Critical` log line and nothing else, and that is honest: the database
+being unreachable is the one situation where nothing can be written down.
 
 > **This is compensation, not atomicity.** Nothing can make a charge and a database write commit together.
-> What is claimed here is narrower and testable: money never stays taken for a seat that was never sold, and
-> no retry of that unwind takes or returns it twice.
+> What is claimed here is narrower and testable: money never stays taken for a seat that was never sold, no
+> retry of that unwind takes or returns it twice, and when the unwind cannot be done now, it is remembered
+> somewhere a person can query rather than somewhere a person must happen to be watching.
 
 ### Choosing a provider
 

@@ -23,7 +23,8 @@ public static class IntegrationEventTypes
             [typeof(TicketPurchasedEvent).FullName!] = typeof(TicketPurchasedEvent),
             [typeof(PaymentSucceeded).FullName!] = typeof(PaymentSucceeded),
             [typeof(PaymentDisputed).FullName!] = typeof(PaymentDisputed),
-            [typeof(PaymentRefunded).FullName!] = typeof(PaymentRefunded)
+            [typeof(PaymentRefunded).FullName!] = typeof(PaymentRefunded),
+            [typeof(RefundOwedEvent).FullName!] = typeof(RefundOwedEvent)
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>

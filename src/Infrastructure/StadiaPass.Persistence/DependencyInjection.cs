@@ -21,6 +21,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
         builder.Services.AddScoped<IOutbox, OutboxWriter>();
         builder.Services.AddScoped<IInbox, InboxWriter>();
+        builder.Services.AddScoped<IRefundLedger, RefundLedger>();
         builder.Services.AddSingleton<OutboxMetrics>();
         builder.Services.AddHostedService<OutboxProcessor>();
         builder.Services.AddHostedService<ExpiredReservationCleanupWorker>();
