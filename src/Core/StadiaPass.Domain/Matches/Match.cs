@@ -245,25 +245,6 @@ public sealed class Match : AggregateRoot
         Raise(new SeatReleasedDomainEvent(Id, seat.Id, seat.SeatNumber.ToString(), now));
     }
 
-    public void Postpone(DateTimeOffset newKickOffUtc, DateTimeOffset now)
-    {
-        if (Status is MatchStatus.Played or MatchStatus.Cancelled)
-        {
-            throw new DomainRuleViolationException(
-                "Match.NotPostponable", $"A {Status} match cannot be postponed.");
-        }
-
-        if (newKickOffUtc <= now)
-        {
-            throw new DomainRuleViolationException(
-                "Match.KickOffInPast", "The new kick-off must be in the future.");
-        }
-
-        KickOffUtc = newKickOffUtc.ToUniversalTime();
-        Status = MatchStatus.Postponed;
-        Raise(new MatchPostponedDomainEvent(Id, newKickOffUtc));
-    }
-
     private void MaterialiseSeats(Venue venue, Money basePrice)
     {
         foreach (var block in venue.Blocks)

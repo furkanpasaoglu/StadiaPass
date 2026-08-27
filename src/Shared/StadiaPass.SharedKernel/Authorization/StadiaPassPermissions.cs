@@ -70,7 +70,6 @@ public static class StadiaPassPermissions
         public const string Default = GroupName + ".Matches";
         public const string View = Default + ".View";
         public const string Create = Default + ".Create";
-        public const string Postpone = Default + ".Postpone";
     }
 
     public static class Tickets

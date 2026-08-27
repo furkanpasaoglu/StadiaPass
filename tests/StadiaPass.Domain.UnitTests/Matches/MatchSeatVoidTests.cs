@@ -121,17 +121,18 @@ public sealed class MatchSeatVoidTests
     [Fact]
     public void Should_StillVoid_When_TheMatchIsNoLongerOnSale()
     {
-        // Arrange - a chargeback arrives whenever the bank feels like it, including after a postponement.
-        // Refusing here would leave the money returned and the seat still marked sold.
-        var match = SoldMatch(out var seatNumber);
-        match.Postpone(TestData.Now.AddDays(30), TestData.Now);
+        // Arrange - a chargeback arrives whenever the bank feels like it, including long after the last seat
+        // went and the match closed itself. Refusing here would leave the money returned and the seat still
+        // marked sold: a seat nobody has paid for and nobody can buy.
+        var match = SoldOutMatch(out var seatNumber);
+        match.Status.Should().Be(MatchStatus.SoldOut);
 
         // Act
         var seat = match.VoidSeatSale(seatNumber, TestData.Now);
 
-        // Assert
+        // Assert - the seat comes back, and the match reopens because there is one to sell again.
         seat.Status.Should().Be(SeatStatus.Available);
-        match.Status.Should().Be(MatchStatus.Postponed);
+        match.Status.Should().Be(MatchStatus.OnSale);
     }
 
     private static Match SoldMatch(out string seatNumber)
@@ -141,6 +142,27 @@ public sealed class MatchSeatVoidTests
 
         match.ReserveSeat(seatNumber, TestData.Holder, TestData.Now);
         match.ConfirmSeatSale(seatNumber, TestData.Holder, TestData.Now);
+
+        return match;
+    }
+
+    /// <summary>
+    /// Every seat sold, so the match closes itself.
+    /// </summary>
+    /// <remarks>
+    /// Selling the lot is the only way to reach a status other than OnSale now that postponing is gone -
+    /// and it is the better arrangement anyway, because it is a state a real fixture actually reaches.
+    /// </remarks>
+    private static Match SoldOutMatch(out string seatNumber)
+    {
+        var match = TestData.FootballMatch();
+        seatNumber = "MARATON-1-1";
+
+        foreach (var seat in match.Seats.Select(seat => seat.SeatNumber.ToString()).ToArray())
+        {
+            match.ReserveSeat(seat, TestData.Holder, TestData.Now);
+            match.ConfirmSeatSale(seat, TestData.Holder, TestData.Now);
+        }
 
         return match;
     }

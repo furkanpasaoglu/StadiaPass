@@ -5,8 +5,6 @@ namespace StadiaPass.Domain.Matches.Events;
 public sealed record MatchCreatedDomainEvent(Guid MatchId, string Category, Guid VenueId, int Capacity)
     : DomainEvent;
 
-public sealed record MatchPostponedDomainEvent(Guid MatchId, DateTimeOffset NewKickOffUtc) : DomainEvent;
-
 public sealed record SeatReservedDomainEvent(
     Guid MatchId,
     Guid SeatId,
