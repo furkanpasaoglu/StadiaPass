@@ -635,6 +635,63 @@ p.sp-note {
 
 /* ------------------------------------------------------------------ filters */
 
+/* ------------------------------------------------------------------ the enquiry at the window
+
+   A single ruled line to write on, the way the paper slip at a box office window is a single ruled
+   line. The security ink appears only under the field being used, so the one saturated colour on the
+   page still means "this is yours" rather than "this is a form". */
+
+.sp-seek {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.1rem;
+}
+
+.sp-seek__field {
+    flex: 1 1 22rem;
+    min-width: 0;
+}
+
+.sp-seek__input {
+    width: 100%;
+    font-family: var(--sp-body);
+    font-size: 0.92rem;
+    color: var(--sp-ink);
+    background: var(--sp-sheet);
+    border: 1px solid var(--sp-rule);
+    border-radius: var(--sp-radius);
+    padding: 0.55rem 0.8rem;
+}
+
+.sp-seek__input::placeholder {
+    color: var(--sp-ink-45);
+}
+
+.sp-seek__input:focus {
+    outline: none;
+    border-color: var(--sp-ink);
+    box-shadow: inset 0 -2px 0 var(--sp-flare);
+}
+
+/* The browser's own clear cross sits on the light stock badly and is a different shape on every
+   engine, so the Clear link beside the button is the one way out. */
+.sp-seek__input::-webkit-search-cancel-button {
+    display: none;
+}
+
+.sp-seek__go {
+    flex: 0 0 auto;
+}
+
+/* Sized to the button beside it rather than to the tabs it borrows its face from. */
+.sp-seek__clear {
+    flex: 0 0 auto;
+    padding: 0.55rem 0.9rem;
+    line-height: 1.2;
+}
+
 .sp-filters {
     display: flex;
     flex-wrap: wrap;

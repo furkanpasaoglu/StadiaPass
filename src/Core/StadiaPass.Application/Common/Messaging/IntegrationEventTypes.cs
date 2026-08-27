@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
+using StadiaPass.Application.Matches.Events;
 using StadiaPass.Application.Payments.Events;
 using StadiaPass.Application.Tickets.Events;
 
@@ -21,6 +22,7 @@ public static class IntegrationEventTypes
         new Dictionary<string, Type>(StringComparer.Ordinal)
         {
             [typeof(TicketPurchasedEvent).FullName!] = typeof(TicketPurchasedEvent),
+            [typeof(MatchCatalogueChangedEvent).FullName!] = typeof(MatchCatalogueChangedEvent),
             [typeof(PaymentSucceeded).FullName!] = typeof(PaymentSucceeded),
             [typeof(PaymentDisputed).FullName!] = typeof(PaymentDisputed),
             [typeof(PaymentRefunded).FullName!] = typeof(PaymentRefunded),

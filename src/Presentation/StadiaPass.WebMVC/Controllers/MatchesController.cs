@@ -12,10 +12,32 @@ namespace StadiaPass.WebMVC.Controllers;
 /// </summary>
 public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controller
 {
+    /// <summary>
+    /// One screen, two ways in. Typing searches the whole catalogue and the answer comes back in relevance
+    /// order; the category tabs browse it. A search is not narrowed by the tab that happened to be open -
+    /// somebody typing a team name means that team, not that team within basketball - so a term takes over
+    /// and the tabs reset to All, which is also what makes clearing the box put everything back.
+    /// </summary>
     [HttpGet]
     [AllowAnonymous]
-    public async Task<IActionResult> Index(string? category, CancellationToken cancellationToken)
+    public async Task<IActionResult> Index(string? category, string? q, CancellationToken cancellationToken)
     {
+        var term = q?.Trim();
+
+        if (term is { Length: > 0 })
+        {
+            var search = await apiClient.SearchMatchesAsync(term, cancellationToken);
+
+            return View(new MatchListViewModel
+            {
+                Matches = search.Matches,
+                Categories = CategoriesOf(search.Matches),
+                SelectedCategory = null,
+                Query = term,
+                SearchAvailable = search.SearchAvailable
+            });
+        }
+
         var matches = await apiClient.GetMatchesAsync(category, cancellationToken);
 
         // The filter tabs come from what is actually on sale rather than a hard-coded list, so a category
@@ -27,10 +49,13 @@ public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controll
         return View(new MatchListViewModel
         {
             Matches = matches,
-            Categories = [.. categories.Select(match => match.Category).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)],
+            Categories = CategoriesOf(categories),
             SelectedCategory = category
         });
     }
+
+    private static IReadOnlyList<string> CategoriesOf(IReadOnlyList<MatchSummary> matches) =>
+        [.. matches.Select(match => match.Category).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
 
     [HttpGet]
     [AllowAnonymous]
@@ -48,8 +73,6 @@ public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controll
 
         var hold = ReadHold(id);
 
-        // A hold is only worth showing while the map still reports the seat as reserved. Once it is sold or
-        // the sweeper has released it the cookie is stale and the panel would offer a seat that is gone.
         if (hold is not null && !IsReserved(seatMap, hold.Value.SeatNumber))
         {
             ForgetHold(id);

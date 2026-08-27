@@ -17,6 +17,14 @@ var messaging = builder.AddRabbitMQ("messaging")
     .WithManagementPlugin()
     .WithLifetime(ContainerLifetime.Persistent);
 
+
+var searchPassword = builder.AddParameter("search-password", "stadiapass-search-dev", secret: true);
+
+var search = builder.AddElasticsearch("search", searchPassword)
+    .WithDataVolume("stadiapass-esdata")
+    .WithEnvironment("ES_JAVA_OPTS", "-Xms512m -Xmx512m")
+    .WithLifetime(ContainerLifetime.Persistent);
+
 var keycloak = builder.AddKeycloak("keycloak", port: 8080)
     .WithRealmImport("./realms")
     .WithEnvironment("QUARKUS_HTTP_LIMITS_MAX_HEADER_SIZE", "32K");
@@ -40,10 +48,12 @@ var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
     .WithReference(cache)
     .WithReference(keycloak)
     .WithReference(messaging)
+    .WithReference(search)
     .WaitFor(database)
     .WaitFor(cache)
     .WaitFor(keycloak)
     .WaitFor(messaging)
+    .WaitFor(search)
     .WithReference(vaultEndpoint)
     .WaitFor(vault)
     .WithEnvironment("Vault__Address", vaultEndpoint)
@@ -106,6 +116,8 @@ builder.Eventing.Subscribe<ResourceReadyEvent>(vault.Resource, async (@event, ca
             await cache.Resource.ConnectionStringExpression.GetValueAsync(cancellationToken),
         ["ConnectionStrings:messaging"] =
             await messaging.Resource.ConnectionStringExpression.GetValueAsync(cancellationToken),
+        ["ConnectionStrings:search"] =
+            await search.Resource.ConnectionStringExpression.GetValueAsync(cancellationToken),
         ["Keycloak:AdminClientSecret"] = "stadiapass-admin-dev-secret",
         ["Keycloak:ClientSecret"] = "stadiapass-mvc-dev-secret",
         ["PaymentProvider:Type"] = builder.Configuration["PaymentProvider:Type"],

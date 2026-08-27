@@ -27,10 +27,10 @@
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.11" />
     <PackageVersion Include="Stripe.net" Version="52.3.0" />
-    <!-- 8.x is the last Apache-2.0 line; 9 moved to a commercial licence, as MediatR did at 13. -->
     <PackageVersion Include="MassTransit" Version="8.5.10" />
     <PackageVersion Include="MassTransit.RabbitMQ" Version="8.5.10" />
     <PackageVersion Include="MailKit" Version="4.17.0" />
+    <PackageVersion Include="Aspire.Elastic.Clients.Elasticsearch" Version="13.3.0" />
   </ItemGroup>
   <ItemGroup Label="Presentation">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
@@ -42,6 +42,7 @@
     <PackageVersion Include="Aspire.Hosting.Redis" Version="13.5.2" />
     <PackageVersion Include="Aspire.Hosting.RabbitMQ" Version="13.5.2" />
     <PackageVersion Include="Aspire.Hosting.Keycloak" Version="13.5.2-preview.1.26421.6" />
+    <PackageVersion Include="Aspire.Hosting.Elasticsearch" Version="13.3.0" />
   </ItemGroup>
   <ItemGroup Label="ServiceDefaults">
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.6.0" />

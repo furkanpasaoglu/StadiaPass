@@ -6,6 +6,8 @@ public interface IStadiaPassApiClient
 {
     Task<IReadOnlyList<MatchSummary>> GetMatchesAsync(string? category = null, CancellationToken cancellationToken = default);
 
+    Task<MatchSearchResult> SearchMatchesAsync(string term, CancellationToken cancellationToken = default);
+
     Task<SeatMap?> GetSeatMapAsync(Guid matchId, CancellationToken cancellationToken = default);
 
     Task<ApiResult<SeatReservation>> ReserveSeatAsync(Guid matchId, string seatNumber, CancellationToken cancellationToken = default);

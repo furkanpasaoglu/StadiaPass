@@ -1,6 +1,8 @@
 using MediatR;
 using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Common.Exceptions;
+using StadiaPass.Application.Infrastructure.Abstractions;
+using StadiaPass.Application.Matches.Events;
 using StadiaPass.Domain.Abstractions;
 using StadiaPass.Domain.Categories;
 using StadiaPass.Domain.Common.ValueObjects;
@@ -14,6 +16,7 @@ internal sealed class CreateMatchCommandHandler(
     IVenueRepository venueRepository,
     ISportCategoryRepository categoryRepository,
     ICacheService cacheService,
+    IOutbox outbox,
     IUnitOfWork unitOfWork,
     IDateTimeProvider dateTimeProvider) : IRequestHandler<CreateMatchCommand, MatchDto>
 {
@@ -35,6 +38,12 @@ internal sealed class CreateMatchCommandHandler(
             dateTimeProvider.UtcNow);
 
         await matchRepository.AddAsync(match, cancellationToken);
+
+        // Staged before the save, so the row that tells the search index about this fixture is written by the
+        // same SaveChanges as the fixture itself. Publishing afterwards would let the two disagree: a match
+        // nobody can find, or a message about a match that rolled back.
+        outbox.Enqueue(new MatchCatalogueChangedEvent(match.Id));
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         await cacheService.RemoveAsync(MatchCacheKeys.Upcoming, cancellationToken);

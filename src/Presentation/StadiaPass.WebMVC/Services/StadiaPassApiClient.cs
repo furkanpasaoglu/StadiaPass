@@ -18,6 +18,21 @@ internal sealed class StadiaPassApiClient(HttpClient httpClient) : IStadiaPassAp
         return await httpClient.GetFromJsonAsync<IReadOnlyList<MatchSummary>>(route, cancellationToken) ?? [];
     }
 
+    /// <summary>
+    /// Asks the API to search. A search that cannot be reached at all is the same to this page as one the
+    /// API could not run: the listing, and a flag saying the box did not do what it looks like it did.
+    /// </summary>
+    public async Task<MatchSearchResult> SearchMatchesAsync(
+        string term,
+        CancellationToken cancellationToken = default)
+    {
+        var route = $"/api/v1/matches/search?q={Uri.EscapeDataString(term)}";
+
+        var result = await httpClient.GetFromJsonAsync<MatchSearchResult>(route, cancellationToken);
+
+        return result ?? new MatchSearchResult(term, SearchAvailable: false, []);
+    }
+
     public async Task<SeatMap?> GetSeatMapAsync(Guid matchId, CancellationToken cancellationToken = default)
     {
         var response = await httpClient.GetAsync(

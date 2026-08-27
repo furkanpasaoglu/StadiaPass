@@ -9,6 +9,21 @@ public interface IMatchRepository : IRepository<Match>
         string? categoryName = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The matches behind a list of identifiers, for a caller that already knows which ones it wants.
+    /// </summary>
+    /// <remarks>
+    /// This is the second half of a search: the index answers with identifiers in relevance order and the
+    /// rows come from here, so what reaches the screen is what the database says now rather than whatever
+    /// was true when the index was last written. Two things are left to the caller. The order is not kept -
+    /// <c>IN</c> promises nothing about it - so anyone who cares about relevance has to put the rows back in
+    /// the order they were asked for. And an identifier with no row behind it simply does not come back,
+    /// which is the right answer for an index that has fallen behind the database.
+    /// </remarks>
+    Task<IReadOnlyList<Match>> GetByIdsAsync(
+        IReadOnlyCollection<Guid> matchIds,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Loads the match together with its full seat map - use only for seat map screens.</summary>
     Task<Match?> GetWithSeatMapAsync(Guid matchId, CancellationToken cancellationToken = default);
 

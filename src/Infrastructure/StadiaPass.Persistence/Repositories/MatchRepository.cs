@@ -19,6 +19,23 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
             .ToListAsync(cancellationToken);
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<Match>> GetByIdsAsync(
+        IReadOnlyCollection<Guid> matchIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (matchIds.Count is 0)
+        {
+            // A search that matched nothing does not need a round trip, and there is no sensible SQL for an
+            // empty IN list anyway.
+            return [];
+        }
+
+        return await Set.AsNoTracking()
+            .Where(match => matchIds.Contains(match.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     public Func<CancellationToken, Task> PrepareSeatSaleCounters(Match match)
     {
         // The aggregate has already moved its own counters in memory, and it should: that is what keeps the

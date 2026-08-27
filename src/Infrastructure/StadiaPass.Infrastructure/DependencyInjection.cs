@@ -6,12 +6,14 @@ using Microsoft.Extensions.Options;
 using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Identity;
 using StadiaPass.Application.Infrastructure.Abstractions;
+using StadiaPass.Application.Matches.Search;
 using StadiaPass.Infrastructure.Caching;
 using StadiaPass.Infrastructure.Email;
 using StadiaPass.Infrastructure.Identity;
 using StadiaPass.Infrastructure.Locking;
 using StadiaPass.Infrastructure.Messaging;
 using StadiaPass.Infrastructure.Payments;
+using StadiaPass.Infrastructure.Search;
 using StadiaPass.Infrastructure.Time;
 using Stripe;
 
@@ -24,6 +26,11 @@ public static class DependencyInjection
     public const string MessagingConnectionName = "messaging";
 
     public const string KeycloakServiceName = "keycloak";
+
+    public const string SearchConnectionName = "search";
+
+    /// <summary>How long any one call to Elasticsearch may take before it is given up on.</summary>
+    private static readonly TimeSpan SearchRequestTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>Named client so the Stripe timeout is a configuration value rather than a default.</summary>
     public const string StripeHttpClientName = "stripe";
@@ -59,10 +66,45 @@ public static class DependencyInjection
                 client.BaseAddress = new Uri($"https+http://{KeycloakServiceName}"));
 
         builder.AddPayments();
+        builder.AddSearch();
         builder.AddMessaging();
         builder.AddEmail();
 
         return builder;
+    }
+
+    /// <summary>
+    /// Elasticsearch, and only for search.
+    /// </summary>
+    /// <remarks>
+    /// The listing, the seat map and every number on them come from PostgreSQL and keep coming from
+    /// PostgreSQL. What is here answers one question - which fixtures match the words a visitor typed - and
+    /// answers it with an analyzer and a relevance score, which is the part a <c>LIKE</c> cannot do. The
+    /// index holds no counters and is not a source of truth: it can be dropped and rebuilt from the database
+    /// at any moment, and the reindex command exists to do exactly that.
+    /// </remarks>
+    private static void AddSearch(this IHostApplicationBuilder builder)
+    {
+        builder.AddElasticsearchClient(
+            SearchConnectionName,
+            settings =>
+                // Not part of this API's readiness, deliberately. The default registration puts the cluster
+                // into /health, which would have a search outage report the whole service as unable to take
+                // traffic - while it is in fact still listing fixtures, holding seats and taking payments.
+                // A cluster that is down is visible where it belongs: on the search resource's own health in
+                // the dashboard, in the warning the query handler logs, and in the searchAvailable flag the
+                // API hands back. Measured before it was written: with the check in, one stopped container
+                // made /health hang until it timed out.
+                settings.DisableHealthChecks = true,
+            clientSettings => clientSettings
+                // Without a ceiling the client spends a minute discovering that an unreachable cluster is
+                // unreachable, and the request that was supposed to fall back to the plain listing hangs for
+                // the whole of it. Long enough for a slow bulk write, short enough that a visitor waiting on
+                // a dead cluster gets their listing instead.
+                .RequestTimeout(SearchRequestTimeout));
+
+        builder.Services.AddScoped<IMatchSearchIndex, ElasticMatchSearchIndex>();
+        builder.Services.AddHostedService<SearchIndexInitializer>();
     }
 
     /// <summary>
@@ -104,6 +146,7 @@ public static class DependencyInjection
             bus.AddConsumer<PaymentDisputedConsumer>();
             bus.AddConsumer<PaymentRefundedConsumer>();
             bus.AddConsumer<RefundOwedConsumer>();
+            bus.AddConsumer<MatchCatalogueChangedConsumer>();
 
             bus.UsingRabbitMq((context, rabbit) =>
             {

@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using StadiaPass.Application.Matches;
 using StadiaPass.Application.Matches.Commands.CreateMatch;
+using StadiaPass.Application.Matches.Commands.ReindexMatches;
 using StadiaPass.Application.Matches.Queries.GetMatchSeatMap;
 using StadiaPass.Application.Matches.Queries.GetUpcomingMatches;
+using StadiaPass.Application.Matches.Queries.SearchMatches;
 using StadiaPass.Application.Tickets;
 using StadiaPass.Application.Tickets.Commands.ReserveSeat;
 using StadiaPass.SharedKernel.Authorization;
@@ -25,6 +27,20 @@ internal sealed class MatchEndpoints : IEndpoint
             .WithName("GetUpcomingMatches")
             .WithSummary("Returns upcoming matches, optionally filtered by sport category.")
             .AllowAnonymous();
+
+        // Public for the same reason browsing is: looking for a fixture is not something to sign in for.
+        group.MapGet("/search", SearchAsync)
+            .WithName("SearchMatches")
+            .WithSummary("Finds upcoming matches by team, venue, city or sport, most relevant first.")
+            .AllowAnonymous();
+
+        // Guarded by the permission that opens a fixture rather than one of its own. Whoever puts matches on
+        // sale is who rebuilds the index of what is on sale, and a permission has to be in the realm before
+        // anybody can hold it - inventing one here would only buy a role nobody has.
+        group.MapPost("/search/reindex", ReindexAsync)
+            .WithName("ReindexMatchSearch")
+            .WithSummary("Rebuilds the match search index from the database.")
+            .RequireAuthorization(StadiaPassPermissions.Matches.Create);
 
         group.MapPost("/", CreateAsync)
             .WithName("CreateMatch")
@@ -54,6 +70,17 @@ internal sealed class MatchEndpoints : IEndpoint
         ISender sender,
         CancellationToken cancellationToken) =>
         TypedResults.Ok(await sender.Send(new GetUpcomingMatchesQuery(category), cancellationToken));
+
+    private static async Task<Ok<MatchSearchResultDto>> SearchAsync(
+        [FromQuery] string? q,
+        ISender sender,
+        CancellationToken cancellationToken) =>
+        TypedResults.Ok(await sender.Send(new SearchMatchesQuery(q ?? string.Empty), cancellationToken));
+
+    private static async Task<Ok<ReindexMatchesResultDto>> ReindexAsync(
+        ISender sender,
+        CancellationToken cancellationToken) =>
+        TypedResults.Ok(await sender.Send(new ReindexMatchesCommand(), cancellationToken));
 
     private static async Task<Created<MatchDto>> CreateAsync(
         CreateMatchCommand command,

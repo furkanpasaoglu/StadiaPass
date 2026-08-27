@@ -200,6 +200,12 @@ public sealed class SeatSelectionViewModel
     public DateTimeOffset? ReservationExpiresAtUtc { get; init; }
 }
 
+/// <summary>What the API answers a search with: the fixtures, and whether it really searched.</summary>
+public sealed record MatchSearchResult(
+    string Term,
+    bool SearchAvailable,
+    IReadOnlyList<MatchSummary> Matches);
+
 public sealed class MatchListViewModel
 {
     public required IReadOnlyList<MatchSummary> Matches { get; init; }
@@ -207,4 +213,16 @@ public sealed class MatchListViewModel
     public required IReadOnlyList<string> Categories { get; init; }
 
     public string? SelectedCategory { get; init; }
+
+    /// <summary>What the visitor typed, carried back so the box still holds it after the round trip.</summary>
+    public string? Query { get; init; }
+
+    /// <summary>
+    /// <see langword="false"/> when the search index could not be reached and these matches are the whole
+    /// listing rather than an answer. The page says so out loud: showing everything and pretending it was
+    /// searched is how somebody concludes the fixture they wanted is not on sale.
+    /// </summary>
+    public bool SearchAvailable { get; init; } = true;
+
+    public bool IsSearch => Query is { Length: > 0 };
 }

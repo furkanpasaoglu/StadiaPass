@@ -1,24 +1,68 @@
 @using StadiaPass.WebMVC.Models
 @model MatchListViewModel
 @{
-    ViewData["Title"] = "Matches";
+    ViewData["Title"] = Model.IsSearch ? $"\"{Model.Query}\"" : "Matches";
     var openSeats = Model.Matches.Sum(match => match.AvailableSeatCount);
+
+    // Somebody typed AND the index answered. A term with the index down is a listing wearing a search's
+    // clothes: calling six fixtures "found" would be the page claiming to have done something it did not.
+    var searched = Model.IsSearch && Model.SearchAvailable;
 }
 
 <div class="sp-marquee">
-    <span class="sp-eyebrow">@(Model.SelectedCategory ?? "All sports") &middot; on sale now</span>
-    <h1 class="sp-title sp-title--lead">Upcoming matches</h1>
+    <span class="sp-eyebrow">
+        @if (searched)
+        {
+            @:Searching for &ldquo;@Model.Query&rdquo;
+        }
+        else
+        {
+            @(Model.SelectedCategory ?? "All sports")<text> &middot; on sale now</text>
+        }
+    </span>
+    <h1 class="sp-title sp-title--lead">@(searched ? "Search results" : "Upcoming matches")</h1>
     <div class="sp-marquee__figures">
-        <span><b>@Model.Matches.Count</b> @(Model.Matches.Count == 1 ? "match" : "matches") listed</span>
-        <span><b>@openSeats.ToString("N0")</b> seats still free</span>
-        <span><b>10</b> minutes to pay once you pick</span>
+        <span><b>@Model.Matches.Count</b> @(Model.Matches.Count == 1 ? "match" : "matches") @(searched ? "found" : "listed")</span>
+        @* Nothing found means nothing to count seats for, and "0 seats still free" beside a search that
+           matched nothing reads as a sold-out fixture rather than as no fixture. *@
+        @if (Model.Matches.Count > 0)
+        {
+            <span><b>@openSeats.ToString("N0")</b> seats still free</span>
+            <span><b>10</b> minutes to pay once you pick</span>
+        }
     </div>
 </div>
 
 @await Html.PartialAsync("_Alerts")
 
+@* Asks the server on submit rather than on every keystroke. A ticket search is a sentence somebody
+   finishes typing, not a filter they scrub through, and every keystroke is a query the cluster runs. *@
+<form class="sp-seek" method="get" asp-action="Index" role="search">
+    <div class="sp-seek__field">
+        <input class="sp-seek__input" type="search" name="q" value="@Model.Query"
+               autocomplete="off" spellcheck="false"
+               aria-label="Search matches by team, venue, city or sport"
+               placeholder="Team, venue, city or sport &mdash; Fenerbahce, Sukru Saracoglu, Istanbul" />
+    </div>
+    <button class="btn btn-primary sp-seek__go" type="submit">Search</button>
+    @if (Model.IsSearch)
+    {
+        <a class="sp-filter sp-seek__clear" asp-action="Index">Clear</a>
+    }
+</form>
+
+@if (!Model.SearchAvailable)
+{
+    @* Said rather than hidden. Showing the whole catalogue as though it were an answer is how somebody
+       decides the fixture they came for is not on sale. *@
+    <div class="alert alert-warning" role="status">
+        Search is unavailable at the moment, so every upcoming match is listed below instead. Buying a
+        ticket is unaffected.
+    </div>
+}
+
 <div class="sp-filters">
-    <a class="sp-filter @(Model.SelectedCategory is null ? "is-current" : "")" asp-action="Index">All</a>
+    <a class="sp-filter @(Model.SelectedCategory is null && !searched ? "is-current" : "")" asp-action="Index">All</a>
     @foreach (var category in Model.Categories)
     {
         var current = string.Equals(Model.SelectedCategory, category, StringComparison.OrdinalIgnoreCase);
@@ -30,10 +74,21 @@
 @if (Model.Matches.Count is 0)
 {
     <div class="sp-empty">
-        <span class="sp-eyebrow">Nothing on sale</span>
-        <h2>No matches in this category yet</h2>
-        <p>Once a match is opened against a venue its full seating plan goes on sale here.</p>
-        <a class="btn btn-outline-secondary" asp-action="Index">Show every category</a>
+        @if (searched)
+        {
+            <span class="sp-eyebrow">No match for &ldquo;@Model.Query&rdquo;</span>
+            <h2>Nothing on sale under that name</h2>
+            <p>Try a team on its own, the venue, or the city it is played in. Spelling it without Turkish
+               characters is fine &mdash; so is getting a letter wrong.</p>
+            <a class="btn btn-outline-secondary" asp-action="Index">Show every match</a>
+        }
+        else
+        {
+            <span class="sp-eyebrow">Nothing on sale</span>
+            <h2>No matches in this category yet</h2>
+            <p>Once a match is opened against a venue its full seating plan goes on sale here.</p>
+            <a class="btn btn-outline-secondary" asp-action="Index">Show every category</a>
+        }
     </div>
 }
 else

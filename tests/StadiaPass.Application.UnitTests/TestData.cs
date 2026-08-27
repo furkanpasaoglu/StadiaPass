@@ -24,7 +24,10 @@ internal static class TestData
     public static MatchSeat SeatOf(Match match, string seatNumber) =>
         match.Seats.Single(seat => seat.SeatNumber.ToString() == seatNumber);
 
-    public static Match FootballMatch() =>
+    public static Match FootballMatch() => FootballMatch("Fenerbahce");
+
+    /// <summary>The same fixture under a different home team, for tests that must tell two of them apart.</summary>
+    public static Match FootballMatch(string homeTeam) =>
         Match.Create(
             SportCategory.Define("Football", null, [VenueKind.Stadium]),
             Venue.Define(
@@ -32,7 +35,7 @@ internal static class TestData
                 "Istanbul",
                 VenueKind.Stadium,
                 [new BlockLayout("MARATON", RowCount: 2, SeatsPerRow: 3)]),
-            "Fenerbahce",
+            homeTeam,
             "Galatasaray",
             Now.AddDays(30),
             Money.Create(100m),
