@@ -71,7 +71,10 @@ public static class Extensions
                     // system is trying to send, one for what a provider has already been told we have and
                     // will therefore never send again.
                     .AddMeter("StadiaPass.Outbox")
-                    .AddMeter("StadiaPass.Inbox");
+                    .AddMeter("StadiaPass.Inbox")
+                    // How long the search box takes, how often it could not answer at all, and whether the
+                    // index still holds what the database says it should.
+                    .AddMeter("StadiaPass.Search");
             })
             .WithTracing(tracing =>
             {

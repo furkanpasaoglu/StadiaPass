@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
 using Elastic.Clients.Elasticsearch.Core.Search;
@@ -15,7 +16,7 @@ namespace StadiaPass.Infrastructure.Search;
 /// asks <see cref="IMatchSearchIndex"/> for identifiers, and everything about analyzers, relevance and
 /// fuzziness stops here.
 /// </remarks>
-internal sealed class ElasticMatchSearchIndex(ElasticsearchClient client) : IMatchSearchIndex
+internal sealed class ElasticMatchSearchIndex(ElasticsearchClient client, SearchMetrics metrics) : IMatchSearchIndex
 {
     /// <summary>What a visitor waiting on a search box will spend before being handed the listing instead.</summary>
     private static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(2);
@@ -121,15 +122,46 @@ internal sealed class ElasticMatchSearchIndex(ElasticsearchClient client) : IMat
             }
         };
 
-        var response = await client.SearchAsync<MatchSearchDocument>(request, cancellationToken);
+        // Timed here rather than in the handler, because what is being measured is the round trip to the
+        // cluster - the part that can be slow and the part that can be missing. A cancelled request is
+        // neither: the visitor left, and recording it would put their impatience in the latency figures.
+        var started = Stopwatch.GetTimestamp();
+
+        try
+        {
+            var response = await client.SearchAsync<MatchSearchDocument>(request, cancellationToken);
+
+            if (!response.IsValidResponse)
+            {
+                throw new InvalidOperationException(
+                    $"Elasticsearch refused the match search: {response.DebugInformation}");
+            }
+
+            metrics.RecordAnswered(Stopwatch.GetElapsedTime(started));
+
+            return [.. response.Hits.Select(hit => Guid.Parse(hit.Id!))];
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Recorded and rethrown. The caller still decides what to do about it - and it falls back to the
+            // listing - but by then nothing is left to say how long the cluster took to not answer.
+            metrics.RecordUnavailable(Stopwatch.GetElapsedTime(started));
+
+            throw;
+        }
+    }
+
+    public async Task<long> CountAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await client.CountAsync(new CountRequest(MatchSearchIndex.Name), cancellationToken);
 
         if (!response.IsValidResponse)
         {
             throw new InvalidOperationException(
-                $"Elasticsearch refused the match search: {response.DebugInformation}");
+                $"Elasticsearch refused to count the match index: {response.DebugInformation}");
         }
 
-        return [.. response.Hits.Select(hit => Guid.Parse(hit.Id!))];
+        return response.Count;
     }
 
     public async Task IndexAsync(

@@ -12,11 +12,25 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
         DateTimeOffset fromUtc,
         string? categoryName = null,
         CancellationToken cancellationToken = default) =>
-        await Set.AsNoTracking()
-            .Where(match => match.KickOffUtc >= fromUtc && match.Status != MatchStatus.Cancelled)
-            .Where(match => categoryName == null || match.CategoryName == categoryName)
+        await Upcoming(fromUtc, categoryName)
             .OrderBy(match => match.KickOffUtc)
             .ToListAsync(cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<int> CountUpcomingAsync(
+        DateTimeOffset fromUtc,
+        CancellationToken cancellationToken = default) =>
+        await Upcoming(fromUtc, categoryName: null).CountAsync(cancellationToken);
+
+    /// <summary>
+    /// What "on sale from here on" means, written once. The listing reads these rows, the reindex writes
+    /// exactly these into the search index, and the freshness gauge counts them - so the three cannot
+    /// disagree about which matches belong where.
+    /// </summary>
+    private IQueryable<Match> Upcoming(DateTimeOffset fromUtc, string? categoryName) =>
+        Set.AsNoTracking()
+            .Where(match => match.KickOffUtc >= fromUtc && match.Status != MatchStatus.Cancelled)
+            .Where(match => categoryName == null || match.CategoryName == categoryName);
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<Match>> GetByIdsAsync(

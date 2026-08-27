@@ -103,8 +103,10 @@ public static class DependencyInjection
                 // a dead cluster gets their listing instead.
                 .RequestTimeout(SearchRequestTimeout));
 
+        builder.Services.AddSingleton<SearchMetrics>();
         builder.Services.AddScoped<IMatchSearchIndex, ElasticMatchSearchIndex>();
         builder.Services.AddHostedService<SearchIndexInitializer>();
+        builder.Services.AddHostedService<SearchIndexFreshnessWorker>();
     }
 
     /// <summary>

@@ -48,6 +48,17 @@ public interface IMatchSearchIndex
     /// </returns>
     Task<IReadOnlyList<Guid>> SearchAsync(string term, int limit, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// How many documents the index is holding.
+    /// </summary>
+    /// <remarks>
+    /// Only ever asked for the sake of the graph beside it. On its own the number says nothing; against the
+    /// count of matches the database thinks belong in the index it is the one thing that catches an index
+    /// somebody dropped - because every search still succeeds afterwards and simply finds nothing, which
+    /// looks exactly like a catalogue with nothing in it.
+    /// </remarks>
+    Task<long> CountAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Writes documents into the index, replacing any already there under the same identifier.</summary>
     Task IndexAsync(
         IReadOnlyCollection<MatchSearchDocument> documents,

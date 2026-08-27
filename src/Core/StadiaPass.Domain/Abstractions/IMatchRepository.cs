@@ -10,6 +10,17 @@ public interface IMatchRepository : IRepository<Match>
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// How many matches <see cref="GetUpcomingAsync"/> would return, without returning them.
+    /// </summary>
+    /// <remarks>
+    /// For the search index to be measured against. The two have to agree on what "belongs in the index"
+    /// means, so this counts the same rows that method selects rather than a filter written out again next
+    /// to it - a projection judged against a slightly different question would drift on paper while being
+    /// perfectly correct.
+    /// </remarks>
+    Task<int> CountUpcomingAsync(DateTimeOffset fromUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The matches behind a list of identifiers, for a caller that already knows which ones it wants.
     /// </summary>
     /// <remarks>
