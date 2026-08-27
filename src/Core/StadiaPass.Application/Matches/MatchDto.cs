@@ -53,17 +53,22 @@ internal static class MatchMappings
         match.ReservedSeatCount,
         match.SoldSeatCount);
 
-    public static SeatMapDto ToSeatMapDto(this Match match, DateTimeOffset now) => new(
-        match.Id,
-        match.CategoryName,
-        match.VenueName,
-        match.HomeTeam,
-        match.AwayTeam,
-        match.KickOffUtc,
-        match.Status.ToString(),
-        match.Capacity,
-        match.AvailableSeatCount,
-        [.. match.Seats
+    /// <summary>
+    /// The seat map counts its own seats rather than reading the match counters, and the two are not always
+    /// the same number.
+    /// </summary>
+    /// <remarks>
+    /// A hold that has run out is free to take: the seat renders white and a visitor can click it, because
+    /// the transition refuses nobody once the deadline has passed. The counters do not know that yet - a
+    /// lapsed hold is still <c>Reserved</c> in them until the sweeper comes round, up to a minute later.
+    /// Taking the headline from <c>match.AvailableSeatCount</c> therefore put a number above the map that
+    /// disagreed with the map, and with the block counts beside it, which were already counted this way.
+    /// Every seat is already loaded here, so counting them is both free and the only answer that matches
+    /// what the visitor is looking at. The listing keeps the counters, because it never loads a seat.
+    /// </remarks>
+    public static SeatMapDto ToSeatMapDto(this Match match, DateTimeOffset now)
+    {
+        var blocks = match.Seats
             .GroupBy(seat => seat.SeatNumber.Block, StringComparer.Ordinal)
             .OrderBy(block => block.Key, StringComparer.Ordinal)
             .Select(block => new SeatBlockDto(
@@ -81,5 +86,19 @@ internal static class MatchMappings
                                 seat.SeatNumber.Number,
                                 seat.Price.Amount,
                                 seat.Price.Currency,
-                                (seat.IsReservationExpired(now) ? SeatStatus.Available : seat.Status).ToString()))]))]))]);
+                                (seat.IsReservationExpired(now) ? SeatStatus.Available : seat.Status).ToString()))]))]))
+            .ToArray();
+
+        return new SeatMapDto(
+            match.Id,
+            match.CategoryName,
+            match.VenueName,
+            match.HomeTeam,
+            match.AwayTeam,
+            match.KickOffUtc,
+            match.Status.ToString(),
+            match.Capacity,
+            blocks.Sum(block => block.AvailableSeatCount),
+            blocks);
+    }
 }
