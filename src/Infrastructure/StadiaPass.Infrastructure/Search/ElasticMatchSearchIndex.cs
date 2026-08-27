@@ -155,6 +155,17 @@ internal sealed class ElasticMatchSearchIndex(ElasticsearchClient client, Search
     {
         var response = await client.CountAsync(new CountRequest(MatchSearchIndex.Name), cancellationToken);
 
+        // An index that is not there holds nothing, and that is a count rather than a failure. Treating the
+        // 404 as an error was worse than useless: the gauge pair exists to catch an index somebody dropped,
+        // and throwing here made the worker log a warning and leave both gauges frozen at their last values
+        // - so the one failure these numbers were added to make visible was the one they hid. Saying zero
+        // draws the gap instead. It also keeps a reindex quiet, since dropping and rebuilding leaves exactly
+        // this window open for a moment.
+        if (response.ApiCallDetails?.HttpStatusCode is 404)
+        {
+            return 0;
+        }
+
         if (!response.IsValidResponse)
         {
             throw new InvalidOperationException(
