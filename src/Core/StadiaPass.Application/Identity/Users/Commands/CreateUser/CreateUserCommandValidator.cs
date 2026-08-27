@@ -23,5 +23,10 @@ internal sealed class CreateUserCommandValidator : AbstractValidator<CreateUserC
             .NotEmpty().WithMessage("Password is required.")
             .MinimumLength(6).WithMessage("Password must be at least 6 characters.")
             .MaximumLength(128).WithMessage("Password cannot exceed 128 characters.");
+
+        // A new account is the other door into the same room; see UpdateUserRolesCommandValidator.
+        RuleForEach(command => command.Roles)
+            .Must(BusinessRoles.IsAssignableToUser)
+            .WithMessage(BusinessRoles.RefusalMessage);
     }
 }
