@@ -219,8 +219,13 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
 
     /// <summary>
     /// The amount comes from the seat rather than from the request: a client that could name its own price
-    /// would be a rather serious hole. The reference is stable per seat, which is what lets a provider treat
-    /// a repeated call as the same charge.
+    /// would be a rather serious hole.
+    /// <para>
+    /// The reference names one attempt at this seat, not the seat itself. A provider treats it as an
+    /// idempotency key and refuses to reuse a key with different parameters, so a reference stable per seat
+    /// would let the first card ever tried decide the answer for every card tried afterwards - and would keep
+    /// deciding it for the next customer, because the seat goes back on sale long before the key expires.
+    /// </para>
     /// </summary>
     private PaymentRequest BuildPaymentRequest(
         ConfirmTicketPurchaseCommand request,
@@ -234,7 +239,9 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
                 request.ExpirationMonth,
                 request.ExpirationYear,
                 request.Cvv.Trim()),
-            string.Create(CultureInfo.InvariantCulture, $"stadiapass:{match.Id}:{seat.SeatNumber}"),
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"stadiapass:{match.Id}:{seat.SeatNumber}:{AttemptOf(request)}"),
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"{match.HomeTeam} vs {match.AwayTeam} - seat {seat.SeatNumber}"),
@@ -244,6 +251,13 @@ internal sealed partial class ConfirmTicketPurchaseCommandHandler(
                 ["seatNumber"] = seat.SeatNumber.ToString(),
                 ["holderReference"] = currentUser.Reference
             });
+
+    /// <summary>
+    /// A caller that names its attempt gets double-click protection; one that does not is given a fresh id
+    /// so its request is at least never mistaken for somebody else's.
+    /// </summary>
+    private static Guid AttemptOf(ConfirmTicketPurchaseCommand request) =>
+        request.AttemptId == Guid.Empty ? Guid.CreateVersion7() : request.AttemptId;
 
 
     /// <summary>

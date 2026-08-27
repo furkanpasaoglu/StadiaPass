@@ -119,6 +119,61 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
                 Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// The reference is handed to the provider as an idempotency key, and a provider refuses to reuse a key
+    /// with different parameters. A reference stable per seat therefore turned "try another card" into an
+    /// error, and made the first card's answer the answer for every card after it - including the next
+    /// customer's, since the seat goes back on sale long before the key expires.
+    /// </summary>
+    [Fact]
+    public async Task Should_UseADifferentPaymentReference_When_TheSameSeatIsAttemptedAgain()
+    {
+        // Arrange
+        var references = new List<string>();
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        _paymentService
+            .ProcessPaymentAsync(
+                Arg.Do<PaymentRequest>(request => references.Add(request.Reference)),
+                Arg.Any<CancellationToken>())
+            .Returns(PaymentResult.Failure("insufficient_funds", "The card has insufficient funds."));
+
+        // Act - one declined attempt, then a second go at the same seat.
+        var first = () => _handler.Handle(Command(), CancellationToken.None);
+        await first.Should().ThrowAsync<PaymentFailedException>();
+
+        var second = () => _handler.Handle(Command(), CancellationToken.None);
+        await second.Should().ThrowAsync<PaymentFailedException>();
+
+        // Assert
+        references.Should().HaveCount(2).And.OnlyHaveUniqueItems();
+    }
+
+    /// <summary>The other half of it: repeating one attempt must stay one charge.</summary>
+    [Fact]
+    public async Task Should_KeepThePaymentReference_When_TheSameAttemptIsSentTwice()
+    {
+        // Arrange
+        var references = new List<string>();
+        var attemptId = Guid.CreateVersion7();
+        GivenASeatHeldBy(TestData.CurrentUserId);
+        _paymentService
+            .ProcessPaymentAsync(
+                Arg.Do<PaymentRequest>(request => references.Add(request.Reference)),
+                Arg.Any<CancellationToken>())
+            .Returns(PaymentResult.Failure("insufficient_funds", "The card has insufficient funds."));
+
+        // Act - the same checkout form submitted twice, as a double-click sends it.
+        var first = () => _handler.Handle(Command(attemptId), CancellationToken.None);
+        await first.Should().ThrowAsync<PaymentFailedException>();
+
+        var second = () => _handler.Handle(Command(attemptId), CancellationToken.None);
+        await second.Should().ThrowAsync<PaymentFailedException>();
+
+        // Assert
+        references.Should().HaveCount(2);
+        references[0].Should().Be(references[1]);
+    }
+
     [Fact]
     public async Task Should_LeaveTheSeatReservedAndSaveNothing_When_ThePaymentIsDeclined()
     {
@@ -376,7 +431,7 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
         _outbox.Received(1).Enqueue(Arg.Any<TicketPurchasedEvent>());
     }
 
-    private static ConfirmTicketPurchaseCommand Command() =>
+    private static ConfirmTicketPurchaseCommand Command(Guid attemptId = default) =>
         new(
             Guid.CreateVersion7(),
             TestData.SeatNumber,
@@ -384,7 +439,8 @@ public sealed class ConfirmTicketPurchaseCommandHandlerTests
             CardNumber: "4242 4242 4242 4242",
             ExpirationMonth: 12,
             ExpirationYear: TestData.Now.Year + 2,
-            Cvv: "123");
+            Cvv: "123",
+            AttemptId: attemptId);
 
     private Match GivenASeatHeldBy(string holderReference)
     {
