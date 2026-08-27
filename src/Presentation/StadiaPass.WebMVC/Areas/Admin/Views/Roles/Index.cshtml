@@ -3,13 +3,14 @@
     ViewData["Title"] = "Roles and permissions";
 }
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="sp-head">
     <div>
-        <h1 class="h4 mb-1">Roles &amp; permissions</h1>
-        <div class="text-muted small">
+        <span class="sp-eyebrow">Back office</span>
+        <h1 class="sp-title">Roles &amp; permissions</h1>
+        <p class="sp-note mt-2">
             Roles live in Keycloak. A role grants a set of permissions; a token issued to its members carries
             every one of them.
-        </div>
+        </p>
     </div>
     <a class="btn btn-primary" asp-action="Create">New role</a>
 </div>
@@ -21,7 +22,7 @@
         <div class="list-group">
             @if (Model.Roles.Count is 0)
             {
-                <div class="list-group-item text-muted">No business roles defined yet.</div>
+                <div class="list-group-item sp-note">No business roles defined yet.</div>
             }
             @foreach (var role in Model.Roles)
             {
@@ -29,15 +30,13 @@
                              && string.Equals(Model.Selected.Name, role.Name, StringComparison.Ordinal);
                 <a class="list-group-item list-group-item-action @(active ? "active" : "")"
                    asp-action="Index" asp-route-role="@role.Name">
-                    <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex justify-content-between align-items-center gap-2">
                         <strong>@role.Name</strong>
-                        <span class="badge @(active ? "bg-light text-dark" : "bg-secondary")">
-                            @role.Permissions.Count
-                        </span>
+                        <span class="sp-mono small">@role.Permissions.Count</span>
                     </div>
                     @if (!string.IsNullOrWhiteSpace(role.Description))
                     {
-                        <div class="small @(active ? "" : "text-muted")">@role.Description</div>
+                        <div class="small @(active ? "" : "sp-note")">@role.Description</div>
                     }
                 </a>
             }
@@ -47,7 +46,11 @@
     <div class="col-lg-8">
         @if (Model.Selected is null)
         {
-            <div class="alert alert-info mb-0">Pick a role on the left to edit its permissions.</div>
+            <div class="sp-empty">
+                <span class="sp-eyebrow">Nothing selected</span>
+                <h2>Pick a role to edit</h2>
+                <p>Choose a role on the left and its permissions open here, grouped by the area they cover.</p>
+            </div>
         }
         else
         {
@@ -55,12 +58,12 @@
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="RoleName" value="@Model.Selected.Name"/>
 
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>@Model.Selected.Name</strong>
-                        <span class="text-muted small">@Model.Selected.Permissions.Count granted</span>
+                <div class="sp-card">
+                    <div class="sp-block__head">
+                        <h2 class="sp-block__name mb-0">@Model.Selected.Name</h2>
+                        <span class="sp-block__count">@Model.Selected.Permissions.Count granted</span>
                     </div>
-                    <div class="card-body">
+                    <div class="p-3">
                         @foreach (var group in Model.PermissionCatalogue)
                         {
                             var groupId = $"group-{group.Name}";
@@ -82,7 +85,7 @@
                                                        data-group="@group.Name" checked="@granted"/>
                                                 <label class="form-check-label small" for="@id">
                                                     @permission[(permission.LastIndexOf('.') + 1)..]
-                                                    <span class="text-muted">(@permission)</span>
+                                                    <span class="sp-mono">@permission</span>
                                                 </label>
                                             </div>
                                         </div>
@@ -91,13 +94,14 @@
                             </div>
                         }
                     </div>
-                    <div class="card-footer d-flex justify-content-between">
+                    <div class="card-footer">
                         <button type="submit" class="btn btn-primary">Save permissions</button>
                     </div>
                 </div>
             </form>
 
-            <form method="post" asp-action="Delete" class="mt-3">
+            <form method="post" asp-action="Delete" class="mt-3"
+                  data-confirm="Delete the role @Model.Selected.Name? Anyone holding it loses these permissions.">
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="roleName" value="@Model.Selected.Name"/>
                 <button type="submit" class="btn btn-outline-danger btn-sm">Delete role</button>

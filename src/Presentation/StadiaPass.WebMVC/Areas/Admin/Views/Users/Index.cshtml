@@ -3,89 +3,101 @@
     ViewData["Title"] = "Users";
 }
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="sp-head">
     <div>
-        <h1 class="h4 mb-1">Users</h1>
-        <div class="text-muted small">Accounts live in Keycloak; the portal brokers every change through the API.</div>
+        <span class="sp-eyebrow">Back office</span>
+        <h1 class="sp-title">Users</h1>
+        <p class="sp-note mt-2">Accounts live in Keycloak; the portal brokers every change through the API.</p>
     </div>
     <a class="btn btn-primary" asp-action="Create">New user</a>
 </div>
 
 @await Html.PartialAsync("_Alerts")
 
-<form method="get" class="row g-2 mb-3">
-    <div class="col-auto">
-        <input class="form-control" name="search" value="@Model.Search" placeholder="Search username or email"/>
-    </div>
-    <div class="col-auto">
-        <button class="btn btn-outline-secondary" type="submit">Search</button>
-    </div>
+<form method="get" class="d-flex flex-wrap gap-2 mb-3">
+    <input class="form-control" name="search" value="@Model.Search" style="max-width: 22rem;"
+           placeholder="Search username or email"/>
+    <button class="btn btn-outline-secondary" type="submit">Search</button>
+    @if (!string.IsNullOrWhiteSpace(Model.Search))
+    {
+        <a class="btn btn-link" asp-action="Index">Clear</a>
+    }
 </form>
 
 @if (Model.Users.Count is 0)
 {
-    <div class="alert alert-info">No users matched.</div>
+    <div class="sp-empty">
+        <span class="sp-eyebrow">No match</span>
+        <h2>Nothing matched that search</h2>
+        <p>Search by username or email address, or clear the box to list everyone.</p>
+        <a class="btn btn-outline-secondary" asp-action="Index">List everyone</a>
+    </div>
 }
 else
 {
-    <table class="table align-middle">
-        <thead>
-            <tr>
-                <th>Username</th>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th class="text-end">Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-        @foreach (var user in Model.Users)
-        {
-            var currentRole = user.Roles.FirstOrDefault();
-            <tr>
-                <td><code>@user.Username</code></td>
-                <td>@($"{user.FirstName} {user.LastName}".Trim())</td>
-                <td>@(user.Email ?? "-")</td>
-                <td style="min-width: 16rem;">
-                    <form method="post" asp-action="UpdateRole" class="d-flex gap-1">
-                        @Html.AntiForgeryToken()
-                        <input type="hidden" name="userId" value="@user.Id"/>
-                        <select name="role" class="form-select form-select-sm">
-                            <option value="">(no role)</option>
-                            @foreach (var role in Model.AssignableRoles)
-                            {
-                                <option value="@role" selected="@(string.Equals(role, currentRole, StringComparison.Ordinal))">@role</option>
-                            }
-                        </select>
-                        <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
-                    </form>
-                </td>
-                <td>
-                    <span class="badge @(user.Enabled ? "bg-success" : "bg-secondary")">
-                        @(user.Enabled ? "Enabled" : "Disabled")
-                    </span>
-                </td>
-                <td class="text-end">
-                    <form method="post" asp-action="ToggleEnabled" class="d-inline">
-                        @Html.AntiForgeryToken()
-                        <input type="hidden" name="userId" value="@user.Id"/>
-                        <input type="hidden" name="email" value="@user.Email"/>
-                        <input type="hidden" name="firstName" value="@user.FirstName"/>
-                        <input type="hidden" name="lastName" value="@user.LastName"/>
-                        <input type="hidden" name="enabled" value="@((!user.Enabled).ToString().ToLowerInvariant())"/>
-                        <button type="submit" class="btn btn-sm btn-outline-secondary">
-                            @(user.Enabled ? "Disable" : "Enable")
-                        </button>
-                    </form>
-                    <form method="post" asp-action="Delete" class="d-inline">
-                        @Html.AntiForgeryToken()
-                        <input type="hidden" name="userId" value="@user.Id"/>
-                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                    </form>
-                </td>
-            </tr>
-        }
-        </tbody>
-    </table>
+    <div class="sp-table-scroll">
+        <table class="sp-table">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var user in Model.Users)
+            {
+                var currentRole = user.Roles.FirstOrDefault();
+                <tr>
+                    <td class="sp-mono">@user.Username</td>
+                    <td class="sp-cell-name">@($"{user.FirstName} {user.LastName}".Trim())</td>
+                    <td class="sp-note">@(user.Email ?? "-")</td>
+                    <td style="min-width: 16rem;">
+                        <form method="post" asp-action="UpdateRole" class="d-flex gap-1">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="userId" value="@user.Id"/>
+                            <select name="role" class="form-select form-select-sm">
+                                <option value="">(no role)</option>
+                                @foreach (var role in Model.AssignableRoles)
+                                {
+                                    <option value="@role" selected="@(string.Equals(role, currentRole, StringComparison.Ordinal))">@role</option>
+                                }
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+                        </form>
+                    </td>
+                    <td>
+                        <span class="sp-stamp @(user.Enabled ? "sp-stamp--go" : "sp-stamp--mute")">
+                            @(user.Enabled ? "Enabled" : "Disabled")
+                        </span>
+                    </td>
+                    <td class="text-end">
+                        <div class="d-inline-flex gap-1">
+                            <form method="post" asp-action="ToggleEnabled" class="d-inline">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="userId" value="@user.Id"/>
+                                <input type="hidden" name="email" value="@user.Email"/>
+                                <input type="hidden" name="firstName" value="@user.FirstName"/>
+                                <input type="hidden" name="lastName" value="@user.LastName"/>
+                                <input type="hidden" name="enabled" value="@((!user.Enabled).ToString().ToLowerInvariant())"/>
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                    @(user.Enabled ? "Disable" : "Enable")
+                                </button>
+                            </form>
+                            <form method="post" asp-action="Delete" class="d-inline"
+                                  data-confirm="Delete the account @user.Username? This cannot be undone.">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="userId" value="@user.Id"/>
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
 }

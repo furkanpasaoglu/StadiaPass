@@ -22,9 +22,14 @@ internal static class ApiErrorExtensions
 
         foreach (var (property, messages) in validationErrors)
         {
+            // A key the form never bound has no field to sit next to, and a ModelOnly summary ignores keyed
+            // errors - so it would vanish and the page would look like nothing happened. Those are reported
+            // at the top instead.
+            var key = controller.ModelState.ContainsKey(property) ? property : string.Empty;
+
             foreach (var message in messages)
             {
-                controller.ModelState.AddModelError(property, message);
+                controller.ModelState.AddModelError(key, message);
             }
         }
     }

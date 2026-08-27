@@ -1,60 +1,79 @@
-﻿<!DOCTYPE html>
+@{
+    // The chrome marks where you are. Customer pages and back office pages sit in the same bar but on
+    // opposite sides of a fence, because they are two different jobs done by two different people.
+    var area = ViewContext.RouteData.Values["area"]?.ToString();
+    var controller = ViewContext.RouteData.Values["controller"]?.ToString();
+
+    string Current(string forController, string? forArea = null) =>
+        string.Equals(controller, forController, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(area ?? "", forArea ?? "", StringComparison.OrdinalIgnoreCase)
+            ? "is-current"
+            : "";
+
+    var backOffice = User.HasPermission(StadiaPassPermissions.Matches.Create)
+                     || User.HasPermission(StadiaPassPermissions.Categories.View)
+                     || User.HasPermission(StadiaPassPermissions.Venues.View)
+                     || User.HasPermission(StadiaPassPermissions.Users.Manage)
+                     || User.HasPermission(StadiaPassPermissions.Roles.Manage);
+}
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - StadiaPass</title>
     <script type="importmap"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Bricolage+Grotesque:wght@700;800&family=Martian+Mono:wght@400;600&display=swap" />
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/stadiapass.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/StadiaPass.WebMVC.styles.css" asp-append-version="true" />
     @await RenderSectionAsync("Styles", required: false)
 </head>
 <body>
-    <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
-            <div class="container-fluid">
-                <a class="navbar-brand" asp-area="" asp-controller="Matches" asp-action="Index">StadiaPass</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Toggle navigation">
+    <header class="sp-shell">
+        <nav class="navbar navbar-expand-lg py-0" data-bs-theme="dark">
+            <div class="container-fluid px-3">
+                <a class="sp-brand" asp-area="" asp-controller="Matches" asp-action="Index">Stadia<span>Pass</span></a>
+                <button class="navbar-toggler border-0 my-2" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#sp-nav" aria-controls="sp-nav" aria-expanded="false"
+                        aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
                 </button>
-                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    <ul class="navbar-nav flex-grow-1">
+                <div class="collapse navbar-collapse" id="sp-nav">
+                    <ul class="navbar-nav sp-nav flex-grow-1 align-items-lg-center">
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Matches" asp-action="Index">Matches</a>
+                            <a class="nav-link @Current("Matches")" asp-area="" asp-controller="Matches" asp-action="Index">Matches</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Tickets" asp-action="Index">My tickets</a>
+                            <a class="nav-link @Current("Tickets")" asp-area="" asp-controller="Tickets" asp-action="Index">My tickets</a>
                         </li>
-                        @if (User.HasPermission(StadiaPassPermissions.Matches.Create))
+                        @if (backOffice)
                         {
-                            <li class="nav-item">
-                                <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Match" asp-action="Create">Create match</a>
-                            </li>
-                        }
-                        @if (User.HasPermission(StadiaPassPermissions.Categories.View))
-                        {
-                            <li class="nav-item">
-                                <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Categories" asp-action="Index">Categories</a>
-                            </li>
-                        }
-                        @if (User.HasPermission(StadiaPassPermissions.Venues.View))
-                        {
-                            <li class="nav-item">
-                                <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Venues" asp-action="Index">Venues</a>
-                            </li>
-                        }
-                        @if (User.HasPermission(StadiaPassPermissions.Users.Manage))
-                        {
-                            <li class="nav-item">
-                                <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Users" asp-action="Index">Users</a>
-                            </li>
-                        }
-                        @if (User.HasPermission(StadiaPassPermissions.Roles.Manage))
-                        {
-                            <li class="nav-item">
-                                <a class="nav-link text-dark fw-semibold" asp-area="Admin" asp-controller="Roles" asp-action="Index">Roles &amp; permissions</a>
+                            <li class="nav-item sp-nav-fence">
+                                @if (User.HasPermission(StadiaPassPermissions.Matches.Create))
+                                {
+                                    <a class="nav-link @Current("Match", "Admin")" asp-area="Admin" asp-controller="Match" asp-action="Create">New match</a>
+                                }
+                                @if (User.HasPermission(StadiaPassPermissions.Categories.View))
+                                {
+                                    <a class="nav-link @Current("Categories", "Admin")" asp-area="Admin" asp-controller="Categories" asp-action="Index">Categories</a>
+                                }
+                                @if (User.HasPermission(StadiaPassPermissions.Venues.View))
+                                {
+                                    <a class="nav-link @Current("Venues", "Admin")" asp-area="Admin" asp-controller="Venues" asp-action="Index">Venues</a>
+                                }
+                                @if (User.HasPermission(StadiaPassPermissions.Users.Manage))
+                                {
+                                    <a class="nav-link @Current("Users", "Admin")" asp-area="Admin" asp-controller="Users" asp-action="Index">Users</a>
+                                }
+                                @if (User.HasPermission(StadiaPassPermissions.Roles.Manage))
+                                {
+                                    <a class="nav-link @Current("Roles", "Admin")" asp-area="Admin" asp-controller="Roles" asp-action="Index">Roles</a>
+                                }
                             </li>
                         }
                     </ul>
@@ -63,17 +82,18 @@
             </div>
         </nav>
     </header>
-    <div class="container">
-        <main role="main" class="pb-3">
-            @RenderBody()
-        </main>
-    </div>
 
-    <footer class="border-top footer text-muted">
-        <div class="container">
-            &copy; 2026 - StadiaPass
+    <main role="main" class="sp-page">
+        @RenderBody()
+    </main>
+
+    <footer class="sp-foot">
+        <div class="sp-page sp-split">
+            <span>&copy; 2026 StadiaPass</span>
+            <a class="text-reset" asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
         </div>
     </footer>
+
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>

@@ -5,87 +5,99 @@
     var venueKinds = (string[])ViewBag.VenueKinds;
 }
 
-<h1 class="h4 mb-1">@ViewData["Title"]</h1>
-<p class="text-muted">
-    Each block multiplies the match base price, so a VIP block can cost more than the terraces.
-    @if (!isNew)
-    {
-        <text>Reshaping the plan is refused once a match has been opened against this venue.</text>
-    }
-</p>
+<div class="sp-head">
+    <div>
+        <span class="sp-eyebrow">Back office &middot; venues</span>
+        <h1 class="sp-title">@ViewData["Title"]</h1>
+        <p class="sp-note mt-2">
+            Each block multiplies the match base price, so a VIP block can cost more than the terraces.
+            @if (!isNew)
+            {
+                <text>Reshaping the plan is refused once a match has been opened against this venue.</text>
+            }
+        </p>
+    </div>
+</div>
 
-<form method="post" asp-action="@(isNew ? "Create" : "Edit")" class="col-lg-8">
+<form method="post" asp-action="@(isNew ? "Create" : "Edit")" style="max-width: 60rem;">
     <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
     @if (!isNew)
     {
         <input type="hidden" asp-for="Id"/>
     }
 
-    <div class="row">
-        <div class="col mb-3">
-            <label asp-for="Name" class="form-label"></label>
-            <input asp-for="Name" class="form-control" placeholder="Sukru Saracoglu"/>
-            <span asp-validation-for="Name" class="text-danger"></span>
-        </div>
-        <div class="col mb-3">
-            <label asp-for="City" class="form-label"></label>
-            <input asp-for="City" class="form-control" placeholder="Istanbul"/>
-            <span asp-validation-for="City" class="text-danger"></span>
-        </div>
-        <div class="col mb-3">
-            <label asp-for="Kind" class="form-label"></label>
-            <select asp-for="Kind" class="form-select">
-                @foreach (var kind in venueKinds)
-                {
-                    <option value="@kind">@kind</option>
-                }
-            </select>
-            <span asp-validation-for="Kind" class="text-danger"></span>
+    <div class="sp-card p-4 mb-3">
+        <div class="row">
+            <div class="col-md mb-3">
+                <label asp-for="Name" class="form-label"></label>
+                <input asp-for="Name" class="form-control" placeholder="Sukru Saracoglu"/>
+                <span asp-validation-for="Name" class="text-danger"></span>
+            </div>
+            <div class="col-md mb-3">
+                <label asp-for="City" class="form-label"></label>
+                <input asp-for="City" class="form-control" placeholder="Istanbul"/>
+                <span asp-validation-for="City" class="text-danger"></span>
+            </div>
+            <div class="col-md mb-3">
+                <label asp-for="Kind" class="form-label"></label>
+                <select asp-for="Kind" class="form-select">
+                    @foreach (var kind in venueKinds)
+                    {
+                        <option value="@kind">@kind</option>
+                    }
+                </select>
+                <span asp-validation-for="Kind" class="text-danger"></span>
+            </div>
         </div>
     </div>
 
-    <div class="card mb-3">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <strong>Seating plan</strong>
+    <div class="sp-card mb-3">
+        <div class="sp-block__head">
+            <h2 class="sp-block__name mb-0">Seating plan</h2>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="add-block">Add block</button>
         </div>
-        <div class="card-body" id="blocks">
+        <div class="p-3" id="blocks">
             @for (var index = 0; index < Model.Blocks.Count; index++)
             {
                 <div class="row g-2 align-items-end block-row mb-2">
-                    <div class="col-3">
-                        <label class="form-label small">Block</label>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label">Block</label>
                         <input name="Blocks[@index].Name" value="@Model.Blocks[index].Name" class="form-control"/>
                     </div>
-                    <div class="col-2">
-                        <label class="form-label small">Rows</label>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label">Rows</label>
                         <input name="Blocks[@index].RowCount" value="@Model.Blocks[index].RowCount"
                                type="number" min="1" max="500" class="form-control"/>
                     </div>
-                    <div class="col-2">
-                        <label class="form-label small">Seats / row</label>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label">Seats / row</label>
                         <input name="Blocks[@index].SeatsPerRow" value="@Model.Blocks[index].SeatsPerRow"
                                type="number" min="1" max="500" class="form-control"/>
                     </div>
-                    <div class="col-3">
-                        <label class="form-label small">Price multiplier</label>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label">Price multiplier</label>
                         <input name="Blocks[@index].PriceMultiplier"
                                value="@Model.Blocks[index].PriceMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture)"
                                type="number" inputmode="decimal" step="0.01" min="0.01" max="20" class="form-control"/>
                     </div>
-                    <div class="col-2">
+                    <div class="col-12 col-md-2">
                         <button type="button" class="btn btn-outline-danger w-100 remove-block">Remove</button>
                     </div>
                 </div>
             }
         </div>
-        <div class="card-footer text-muted small">
-            Leave the plan untouched to keep it as it is. Total is capped at 25000 seats.
+        <div class="card-footer">
+            <span asp-validation-for="Blocks" class="text-danger d-block mb-1"></span>
+            <span class="sp-note">
+                Leave the plan untouched to keep it as it is. Total is capped at 25000 seats.
+            </span>
         </div>
     </div>
 
-    <button type="submit" class="btn btn-primary">@(isNew ? "Create venue" : "Save changes")</button>
-    <a class="btn btn-link" asp-action="Index">Cancel</a>
+    <div class="d-flex gap-2 align-items-center">
+        <button type="submit" class="btn btn-primary">@(isNew ? "Create venue" : "Save changes")</button>
+        <a class="btn btn-link" asp-action="Index">Cancel</a>
+    </div>
 </form>
 
 @section Scripts {

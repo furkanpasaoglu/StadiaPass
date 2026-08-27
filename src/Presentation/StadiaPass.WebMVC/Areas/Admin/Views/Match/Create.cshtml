@@ -6,73 +6,83 @@
     var venues = (IReadOnlyList<VenueSummary>)ViewBag.Venues;
 }
 
-<h1 class="h4 mb-1">Create match</h1>
-<p class="text-muted">The full seating plan of the chosen venue is materialised as available seats.</p>
+<div class="sp-head">
+    <div>
+        <span class="sp-eyebrow">Back office &middot; matches</span>
+        <h1 class="sp-title">Create match</h1>
+        <p class="sp-note mt-2">The full seating plan of the chosen venue is materialised as available seats.</p>
+    </div>
+</div>
 
-<form method="post" class="col-lg-7">
+<form method="post" style="max-width: 54rem;">
     <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
 
-    <div class="row">
-        <div class="col mb-3">
-            <label asp-for="CategoryId" class="form-label"></label>
-            <select asp-for="CategoryId" class="form-select">
-                @foreach (var category in categories)
-                {
-                    <option value="@category.Id">@category.Name</option>
-                }
-            </select>
-            <span asp-validation-for="CategoryId" class="text-danger"></span>
+    <div class="sp-card p-4 mb-3">
+        <div class="row">
+            <div class="col-md mb-3">
+                <label asp-for="CategoryId" class="form-label"></label>
+                <select asp-for="CategoryId" class="form-select">
+                    @foreach (var category in categories)
+                    {
+                        <option value="@category.Id">@category.Name</option>
+                    }
+                </select>
+                <span asp-validation-for="CategoryId" class="text-danger"></span>
+            </div>
+            <div class="col-md mb-3">
+                <label asp-for="VenueId" class="form-label"></label>
+                <select asp-for="VenueId" class="form-select">
+                    @foreach (var venue in venues)
+                    {
+                        <option value="@venue.Id">@venue.Name (@venue.Kind, @venue.Capacity seats)</option>
+                    }
+                </select>
+                <span asp-validation-for="VenueId" class="text-danger"></span>
+            </div>
         </div>
-        <div class="col mb-3">
-            <label asp-for="VenueId" class="form-label"></label>
-            <select asp-for="VenueId" class="form-select">
-                @foreach (var venue in venues)
-                {
-                    <option value="@venue.Id">@venue.Name (@venue.Kind, @venue.Capacity seats)</option>
-                }
-            </select>
-            <span asp-validation-for="VenueId" class="text-danger"></span>
+
+        <div class="row">
+            <div class="col-md mb-3">
+                <label asp-for="HomeTeam" class="form-label"></label>
+                <input asp-for="HomeTeam" class="form-control"/>
+                <span asp-validation-for="HomeTeam" class="text-danger"></span>
+            </div>
+            <div class="col-md mb-3">
+                <label asp-for="AwayTeam" class="form-label"></label>
+                <input asp-for="AwayTeam" class="form-control"/>
+                <span asp-validation-for="AwayTeam" class="text-danger"></span>
+            </div>
         </div>
+
+        <div class="row">
+            <div class="col-md mb-3">
+                <label asp-for="KickOffLocal" class="form-label"></label>
+                <input asp-for="KickOffLocal" type="datetime-local" class="form-control"/>
+                <span asp-validation-for="KickOffLocal" class="text-danger"></span>
+            </div>
+            <div class="col-md mb-3">
+                <label asp-for="BasePrice" class="form-label"></label>
+                <input asp-for="BasePrice" class="form-control" type="number" inputmode="decimal"
+                       step="0.01" min="0.01" max="100000"/>
+                <span asp-validation-for="BasePrice" class="text-danger"></span>
+            </div>
+            <div class="col-md mb-3">
+                <label asp-for="Currency" class="form-label"></label>
+                <input asp-for="Currency" class="form-control"/>
+                <span asp-validation-for="Currency" class="text-danger"></span>
+            </div>
+        </div>
+
+        <p class="sp-note mb-0">
+            Each block applies its own price multiplier to the base price, so a VIP block costs more than the
+            terraces.
+        </p>
     </div>
 
-    <div class="row">
-        <div class="col mb-3">
-            <label asp-for="HomeTeam" class="form-label"></label>
-            <input asp-for="HomeTeam" class="form-control"/>
-            <span asp-validation-for="HomeTeam" class="text-danger"></span>
-        </div>
-        <div class="col mb-3">
-            <label asp-for="AwayTeam" class="form-label"></label>
-            <input asp-for="AwayTeam" class="form-control"/>
-            <span asp-validation-for="AwayTeam" class="text-danger"></span>
-        </div>
+    <div class="d-flex gap-2 align-items-center">
+        <button type="submit" class="btn btn-primary">Create match</button>
+        <a class="btn btn-link" asp-controller="Matches" asp-action="Index" asp-area="">Cancel</a>
     </div>
-
-    <div class="row">
-        <div class="col mb-3">
-            <label asp-for="KickOffLocal" class="form-label"></label>
-            <input asp-for="KickOffLocal" type="datetime-local" class="form-control"/>
-            <span asp-validation-for="KickOffLocal" class="text-danger"></span>
-        </div>
-        <div class="col mb-3">
-            <label asp-for="BasePrice" class="form-label"></label>
-            <input asp-for="BasePrice" class="form-control" type="number" inputmode="decimal"
-                   step="0.01" min="0.01" max="100000"/>
-            <span asp-validation-for="BasePrice" class="text-danger"></span>
-        </div>
-        <div class="col mb-3">
-            <label asp-for="Currency" class="form-label"></label>
-            <input asp-for="Currency" class="form-control"/>
-            <span asp-validation-for="Currency" class="text-danger"></span>
-        </div>
-    </div>
-
-    <p class="text-muted small">
-        Each block applies its own price multiplier to the base price, so a VIP block costs more than the terraces.
-    </p>
-
-    <button type="submit" class="btn btn-primary">Create match</button>
-    <a class="btn btn-link" asp-controller="Matches" asp-action="Index" asp-area="">Cancel</a>
 </form>
 
 @section Scripts {

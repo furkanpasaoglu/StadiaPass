@@ -1,0 +1,1097 @@
+/*
+   StadiaPass design system.
+   ------------------------------------------------------------------------------------------------
+   The product prints tickets, so the interface is built out of the things a ticket is made of:
+   cool card stock, one saturated security ink, monospaced serials, and a perforated stub.
+
+   A seat is drawn the same way. Instead of a traffic light, seats read as a print run:
+   unprinted (free) -> hatched (someone is holding it) -> solid ink (sold). The only saturated
+   colour on the page is the seat held for the person looking at it.
+
+   Loaded after Bootstrap: Bootstrap keeps the grid, the collapse and the modal behaviour, this
+   sheet owns every colour, face and edge. Component classes are prefixed sp- so they never race
+   with Bootstrap utilities; the handful of Bootstrap classes restyled below are matched at the
+   same specificity and win on order alone.
+*/
+
+:root {
+    /* Ink: the chrome, the body copy, a sold seat. Blue-violet cast, never flat black. */
+    --sp-ink: #14162b;
+    --sp-ink-70: #3c405c;
+    --sp-ink-45: #6e7290;
+    --sp-rule: #c9cbd8;
+
+    /* Stock: the page is card, the cards are fresh sheets. */
+    --sp-stock: #e7e8ef;
+    --sp-sheet: #ffffff;
+
+    /* Security ink: primary action, and the seat that belongs to you. Used nowhere else. */
+    --sp-flare: #d6006e;
+    --sp-flare-deep: #9e0050;
+
+    --sp-go: #0b6e5f;
+    --sp-stop: #a61b2b;
+
+    --sp-display: "Bricolage Grotesque", "Archivo", system-ui, sans-serif;
+    --sp-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --sp-mono: "Martian Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+    --sp-radius: 4px;
+    --sp-stamp-shadow: 3px 3px 0 var(--sp-ink);
+
+    /* Bootstrap speaks through its own variables wherever it can. */
+    --bs-primary: #d6006e;
+    --bs-primary-rgb: 214, 0, 110;
+    --bs-link-color: #9e0050;
+    --bs-link-hover-color: #d6006e;
+    --bs-border-color: #c9cbd8;
+    --bs-body-color: #14162b;
+    --bs-body-font-family: var(--sp-body);
+    --bs-border-radius: 4px;
+    --bs-border-radius-sm: 3px;
+    --bs-border-radius-lg: 4px;
+}
+
+html {
+    font-size: 15px;
+}
+
+@media (min-width: 768px) {
+    html {
+        font-size: 16px;
+    }
+}
+
+body {
+    background-color: var(--sp-stock);
+    color: var(--sp-ink);
+    font-family: var(--sp-body);
+    font-feature-settings: "tnum" 1;
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+::selection {
+    background: var(--sp-flare);
+    color: #fff;
+}
+
+/* ------------------------------------------------------------------ type */
+
+.sp-display,
+h1, h2, h3 {
+    font-family: var(--sp-display);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+}
+
+.sp-title {
+    font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.2rem);
+    margin: 0;
+}
+
+.sp-title--lead {
+    font-size: clamp(2rem, 1.2rem + 3.4vw, 3.6rem);
+}
+
+.sp-eyebrow {
+    font-family: var(--sp-mono);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--sp-ink-45);
+    display: block;
+    margin-bottom: 0.4rem;
+}
+
+.sp-note {
+    color: var(--sp-ink-45);
+    font-size: 0.86rem;
+    margin: 0;
+}
+
+/* Measure belongs to running text only: on a table cell or a card footer it would cut the rule short. */
+p.sp-note {
+    max-width: 62ch;
+}
+
+.sp-mono {
+    font-family: var(--sp-mono);
+    font-size: 0.78em;
+    letter-spacing: -0.02em;
+}
+
+/* ------------------------------------------------------------------ the box office window */
+
+.sp-shell {
+    background: var(--sp-ink);
+    color: #fff;
+    border-bottom: 3px solid var(--sp-flare);
+}
+
+.sp-shell .container-fluid {
+    max-width: 1320px;
+}
+
+.sp-brand {
+    font-family: var(--sp-display);
+    font-weight: 800;
+    font-size: 1.28rem;
+    letter-spacing: -0.03em;
+    color: #fff;
+    text-decoration: none;
+    padding: 0.55rem 0;
+}
+
+.sp-brand:hover,
+.sp-brand:focus {
+    color: #fff;
+}
+
+.sp-brand span {
+    color: var(--sp-flare);
+}
+
+.sp-nav {
+    gap: 0.15rem;
+}
+
+.sp-nav .nav-link {
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    padding: 0.55rem 0.7rem;
+    border-bottom: 2px solid transparent;
+}
+
+.sp-nav .nav-link:hover,
+.sp-nav .nav-link:focus {
+    color: #fff;
+    border-bottom-color: rgba(255, 255, 255, 0.35);
+}
+
+.sp-nav .nav-link.is-current {
+    color: #fff;
+    border-bottom-color: var(--sp-flare);
+}
+
+/* The back office is a different job, so it is fenced off rather than mixed into the same row. */
+.sp-nav-fence {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    margin-left: 0.5rem;
+    padding-left: 0.85rem;
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.sp-nav-fence::before {
+    content: "Back office";
+    font-family: var(--sp-mono);
+    font-size: 0.55rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.4);
+    white-space: nowrap;
+    margin-right: 0.3rem;
+}
+
+/* Once the bar collapses there is no row to fence off, so the divider turns into a heading. */
+@media (max-width: 991.98px) {
+    .sp-nav-fence {
+        flex-direction: column;
+        align-items: flex-start;
+        margin: 0.5rem 0 0;
+        padding: 0.5rem 0 0;
+        border-left: 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    .sp-nav-fence::before {
+        margin: 0 0 0.15rem 0.7rem;
+    }
+}
+
+.sp-who {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--sp-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+    color: rgba(255, 255, 255, 0.78);
+}
+
+.sp-who__initial {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7rem;
+    height: 1.7rem;
+    background: var(--sp-flare);
+    color: #fff;
+    font-weight: 600;
+    border-radius: 2px;
+}
+
+.navbar-toggler {
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.navbar-toggler-icon {
+    filter: invert(1) grayscale(1) brightness(2);
+}
+
+/* ------------------------------------------------------------------ page frame */
+
+.sp-page {
+    max-width: 1320px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 1.75rem 1rem 3rem;
+    flex: 1 0 auto;
+}
+
+.sp-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+}
+
+.sp-foot {
+    border-top: 1px solid var(--sp-rule);
+    padding: 1.1rem 0;
+    font-family: var(--sp-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sp-ink-45);
+}
+
+.sp-foot .sp-page {
+    padding: 0 1rem;
+    flex: 0 0 auto;
+}
+
+.sp-foot a {
+    text-decoration: none;
+}
+
+.sp-foot a:hover {
+    color: var(--sp-flare);
+}
+
+/* ------------------------------------------------------------------ sheets */
+
+.sp-card,
+.card {
+    background: var(--sp-sheet);
+    border: 1px solid var(--sp-rule);
+    border-radius: var(--sp-radius);
+}
+
+.card-header {
+    background: transparent;
+    border-bottom: 1px solid var(--sp-rule);
+    font-weight: 600;
+}
+
+.card-footer {
+    background: transparent;
+    border-top: 1px solid var(--sp-rule);
+}
+
+/* A poster for one match. Hover lifts it onto its printed shadow. */
+.sp-poster {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--sp-sheet);
+    border: 1px solid var(--sp-ink);
+    border-radius: var(--sp-radius);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.sp-poster:hover,
+.sp-poster:focus-within {
+    transform: translate(-2px, -2px);
+    box-shadow: var(--sp-stamp-shadow);
+}
+
+.sp-poster__body {
+    padding: 1.1rem 1.15rem 0.9rem;
+    flex: 1 0 auto;
+}
+
+.sp-poster__foot {
+    padding: 0 1.15rem 1.15rem;
+}
+
+.sp-fixture {
+    font-family: var(--sp-display);
+    font-weight: 800;
+    font-size: 1.32rem;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    margin: 0.55rem 0 0.75rem;
+}
+
+.sp-fixture span {
+    display: block;
+    font-family: var(--sp-mono);
+    font-size: 0.58rem;
+    font-weight: 400;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--sp-ink-45);
+    margin: 0.2rem 0;
+}
+
+.sp-meta {
+    font-family: var(--sp-mono);
+    font-size: 0.66rem;
+    line-height: 1.7;
+    letter-spacing: 0.01em;
+    color: var(--sp-ink-70);
+    margin: 0;
+}
+
+/* Sell-through drawn as seats rather than as a bar: the ticks are the unit being sold. */
+.sp-fill {
+    height: 10px;
+    background-image: repeating-linear-gradient(90deg, var(--sp-rule) 0 3px, transparent 3px 6px);
+    margin: 0.9rem 0 0.45rem;
+}
+
+.sp-fill__in {
+    height: 100%;
+    background-image: repeating-linear-gradient(90deg, var(--sp-ink) 0 3px, transparent 3px 6px);
+}
+
+/* ------------------------------------------------------------------ stamps (badges) */
+
+.sp-stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-family: var(--sp-mono);
+    font-size: 0.58rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.22rem 0.42rem;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    color: var(--sp-ink-70);
+    white-space: nowrap;
+}
+
+.sp-stamp--ink {
+    background: var(--sp-ink);
+    border-color: var(--sp-ink);
+    color: #fff;
+}
+
+.sp-stamp--flare {
+    background: var(--sp-flare);
+    border-color: var(--sp-flare);
+    color: #fff;
+}
+
+.sp-stamp--go {
+    color: var(--sp-go);
+}
+
+.sp-stamp--stop {
+    color: var(--sp-stop);
+}
+
+.sp-stamp--mute {
+    color: var(--sp-ink-45);
+}
+
+/* ------------------------------------------------------------------ tables */
+
+.sp-table {
+    width: 100%;
+    background: var(--sp-sheet);
+    border: 1px solid var(--sp-rule);
+    border-radius: var(--sp-radius);
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+}
+
+.sp-table thead th {
+    background: var(--sp-ink);
+    color: rgba(255, 255, 255, 0.82);
+    font-family: var(--sp-mono);
+    font-size: 0.58rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 0.6rem 0.85rem;
+    white-space: nowrap;
+}
+
+.sp-table tbody td {
+    padding: 0.7rem 0.85rem;
+    border-top: 1px solid var(--sp-rule);
+    vertical-align: middle;
+    font-size: 0.88rem;
+}
+
+.sp-table tbody tr:first-child td {
+    border-top: 0;
+}
+
+.sp-table tbody tr:hover td {
+    background: rgba(214, 0, 110, 0.035);
+}
+
+.sp-table .sp-cell-name {
+    font-weight: 600;
+}
+
+.sp-table-scroll {
+    overflow-x: auto;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+.btn {
+    --bs-btn-border-radius: 3px;
+    font-family: var(--sp-body);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.52rem 1rem;
+    border-width: 1px;
+}
+
+.btn-sm {
+    font-size: 0.66rem;
+    padding: 0.34rem 0.6rem;
+    letter-spacing: 0.07em;
+}
+
+.btn-primary {
+    --bs-btn-bg: var(--sp-flare);
+    --bs-btn-border-color: var(--sp-flare);
+    --bs-btn-hover-bg: var(--sp-flare-deep);
+    --bs-btn-hover-border-color: var(--sp-flare-deep);
+    --bs-btn-active-bg: var(--sp-flare-deep);
+    --bs-btn-active-border-color: var(--sp-flare-deep);
+    --bs-btn-disabled-bg: var(--sp-ink-45);
+    --bs-btn-disabled-border-color: var(--sp-ink-45);
+}
+
+.btn-success {
+    --bs-btn-bg: var(--sp-ink);
+    --bs-btn-border-color: var(--sp-ink);
+    --bs-btn-hover-bg: #23273f;
+    --bs-btn-hover-border-color: #23273f;
+    --bs-btn-active-bg: #23273f;
+    --bs-btn-active-border-color: #23273f;
+    --bs-btn-disabled-bg: var(--sp-ink-45);
+    --bs-btn-disabled-border-color: var(--sp-ink-45);
+}
+
+.btn-outline-primary {
+    --bs-btn-color: var(--sp-flare-deep);
+    --bs-btn-border-color: var(--sp-rule);
+    --bs-btn-hover-bg: var(--sp-flare);
+    --bs-btn-hover-border-color: var(--sp-flare);
+    --bs-btn-active-bg: var(--sp-flare);
+    --bs-btn-active-border-color: var(--sp-flare);
+}
+
+.btn-outline-secondary {
+    --bs-btn-color: var(--sp-ink);
+    --bs-btn-border-color: var(--sp-rule);
+    --bs-btn-hover-bg: var(--sp-ink);
+    --bs-btn-hover-border-color: var(--sp-ink);
+    --bs-btn-active-bg: var(--sp-ink);
+    --bs-btn-active-border-color: var(--sp-ink);
+}
+
+.btn-outline-danger {
+    --bs-btn-color: var(--sp-stop);
+    --bs-btn-border-color: var(--sp-rule);
+    --bs-btn-hover-bg: var(--sp-stop);
+    --bs-btn-hover-border-color: var(--sp-stop);
+    --bs-btn-active-bg: var(--sp-stop);
+    --bs-btn-active-border-color: var(--sp-stop);
+}
+
+.btn-link {
+    --bs-btn-color: var(--sp-ink-45);
+    --bs-btn-hover-color: var(--sp-ink);
+    text-decoration: none;
+}
+
+.sp-shell .btn-outline-secondary {
+    --bs-btn-color: rgba(255, 255, 255, 0.8);
+    --bs-btn-border-color: rgba(255, 255, 255, 0.28);
+    --bs-btn-hover-bg: #fff;
+    --bs-btn-hover-color: var(--sp-ink);
+    --bs-btn-hover-border-color: #fff;
+}
+
+.sp-shell .btn-outline-primary {
+    --bs-btn-color: #fff;
+    --bs-btn-border-color: rgba(255, 255, 255, 0.28);
+    --bs-btn-hover-bg: #fff;
+    --bs-btn-hover-color: var(--sp-ink);
+    --bs-btn-hover-border-color: #fff;
+}
+
+.form-label {
+    font-family: var(--sp-mono);
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sp-ink-70);
+    margin-bottom: 0.3rem;
+}
+
+.form-control,
+.form-select {
+    background-color: var(--sp-sheet);
+    border: 1px solid var(--sp-rule);
+    border-radius: 3px;
+    color: var(--sp-ink);
+    font-size: 0.9rem;
+    padding: 0.5rem 0.65rem;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--sp-flare);
+    box-shadow: 0 0 0 3px rgba(214, 0, 110, 0.16);
+}
+
+.form-control::placeholder {
+    color: #a8abbe;
+}
+
+.form-check-input:checked {
+    background-color: var(--sp-flare);
+    border-color: var(--sp-flare);
+}
+
+/* Bootstrap qualifies its own indeterminate rule with [type=checkbox], so this has to match it to win. */
+.form-check-input[type="checkbox"]:indeterminate {
+    background-color: var(--sp-flare);
+    border-color: var(--sp-flare);
+}
+
+.form-check-input:focus {
+    border-color: var(--sp-flare);
+    box-shadow: 0 0 0 3px rgba(214, 0, 110, 0.16);
+}
+
+.form-check-label {
+    font-size: 0.86rem;
+}
+
+.form-text {
+    color: var(--sp-ink-45);
+    font-size: 0.78rem;
+}
+
+/* A field the validator rejected keeps its mark after the caret leaves it. */
+.input-validation-error {
+    border-color: var(--sp-stop);
+}
+
+.input-validation-error:focus {
+    border-color: var(--sp-stop);
+    box-shadow: 0 0 0 3px rgba(166, 27, 35, 0.16);
+}
+
+:focus-visible {
+    outline: 2px solid var(--sp-flare);
+    outline-offset: 2px;
+}
+
+.btn:focus,
+.btn:active:focus,
+.form-control:focus,
+.form-check-input:focus {
+    box-shadow: 0 0 0 3px rgba(214, 0, 110, 0.16);
+}
+
+/* ------------------------------------------------------------------ filters */
+
+.sp-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1.6rem;
+    padding-bottom: 1.1rem;
+    border-bottom: 1px solid var(--sp-rule);
+}
+
+.sp-filter {
+    font-family: var(--sp-mono);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sp-ink-70);
+    text-decoration: none;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--sp-rule);
+    border-radius: 2px;
+    background: var(--sp-sheet);
+}
+
+.sp-filter:hover {
+    border-color: var(--sp-ink);
+    color: var(--sp-ink);
+}
+
+.sp-filter.is-current {
+    background: var(--sp-ink);
+    border-color: var(--sp-ink);
+    color: #fff;
+}
+
+/* ------------------------------------------------------------------ notices */
+
+.alert {
+    border: 1px solid var(--sp-rule);
+    border-left: 4px solid var(--sp-ink-45);
+    border-radius: 3px;
+    background: var(--sp-sheet);
+    color: var(--sp-ink);
+    font-size: 0.88rem;
+    padding: 0.8rem 1rem;
+}
+
+.alert-success {
+    border-left-color: var(--sp-go);
+}
+
+.alert-danger {
+    border-left-color: var(--sp-stop);
+}
+
+.alert-info,
+.alert-secondary {
+    border-left-color: var(--sp-flare);
+}
+
+.sp-empty {
+    background: var(--sp-sheet);
+    border: 1px dashed var(--sp-rule);
+    border-radius: var(--sp-radius);
+    padding: 2.4rem 1.5rem;
+    text-align: center;
+}
+
+.sp-empty h2 {
+    font-size: 1.1rem;
+    margin: 0 0 0.4rem;
+}
+
+.sp-empty p {
+    color: var(--sp-ink-45);
+    font-size: 0.88rem;
+    margin: 0 auto 1rem;
+    max-width: 46ch;
+}
+
+.text-danger {
+    color: var(--sp-stop) !important;
+    font-size: 0.82rem;
+}
+
+/* ------------------------------------------------------------------ the seat map, printed */
+
+.sp-pitch {
+    background: var(--sp-ink);
+    color: rgba(255, 255, 255, 0.6);
+    font-family: var(--sp-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+    text-align: center;
+    padding: 0.85rem;
+    border-radius: var(--sp-radius) var(--sp-radius) 22px 22px;
+    margin-bottom: 1.5rem;
+}
+
+.sp-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.1rem;
+    align-items: center;
+    font-family: var(--sp-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sp-ink-70);
+    margin-bottom: 1.1rem;
+}
+
+.sp-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* A block is as wide as its widest row, centred like the stand it stands for, rather than a full-bleed card
+   with a postage stamp of seats adrift in it. Wide venues hit the ceiling and scroll inside the body. */
+.sp-block {
+    background: var(--sp-sheet);
+    border: 1px solid var(--sp-rule);
+    border-radius: var(--sp-radius);
+    margin: 0 auto 1rem;
+    width: fit-content;
+    min-width: min(100%, 26rem);
+    max-width: 100%;
+}
+
+.sp-block__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.6rem 0.9rem;
+    border-bottom: 1px solid var(--sp-rule);
+}
+
+.sp-block__name {
+    font-family: var(--sp-display);
+    font-weight: 800;
+    font-size: 0.95rem;
+    letter-spacing: -0.01em;
+}
+
+.sp-block__count {
+    font-family: var(--sp-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--sp-ink-45);
+}
+
+.sp-block__body {
+    padding: 0.9rem;
+    overflow-x: auto;
+}
+
+.sp-row {
+    display: flex;
+    align-items: center;
+    /* Centred while the block fits, pinned left the moment it has to scroll. */
+    justify-content: safe center;
+    gap: 3px;
+    margin-bottom: 3px;
+    white-space: nowrap;
+}
+
+.sp-row__label {
+    width: 2rem;
+    flex: 0 0 2rem;
+    font-family: var(--sp-mono);
+    font-size: 0.55rem;
+    color: var(--sp-ink-45);
+    text-align: right;
+    padding-right: 0.4rem;
+}
+
+.sp-seat {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.55rem;
+    height: 1.55rem;
+    flex: 0 0 1.55rem;
+    padding: 0;
+    border-radius: 3px 3px 1px 1px;
+    font-family: var(--sp-mono);
+    font-size: 0.52rem;
+    line-height: 1;
+}
+
+/* Unprinted stock: nobody has claimed it. */
+.sp-seat--free {
+    background: var(--sp-sheet);
+    border: 1px solid var(--sp-rule);
+    color: var(--sp-ink-45);
+    cursor: pointer;
+    transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.sp-seat--free:hover {
+    border-color: var(--sp-flare);
+    color: var(--sp-flare);
+    transform: translateY(-2px);
+}
+
+/* Going through the press: held by someone else, not yours to take. */
+.sp-seat--held {
+    background-color: var(--sp-sheet);
+    background-image: repeating-linear-gradient(45deg, var(--sp-rule) 0 2px, transparent 2px 5px);
+    border: 1px solid var(--sp-rule);
+    color: var(--sp-ink-45);
+}
+
+/* Printed: sold, and out of the run. */
+.sp-seat--sold {
+    background: var(--sp-ink);
+    border: 1px solid var(--sp-ink);
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* The one saturated thing on the page. */
+.sp-seat--mine {
+    background: var(--sp-flare);
+    border: 1px solid var(--sp-flare-deep);
+    color: #fff;
+    cursor: pointer;
+}
+
+/* Clicked before signing in, but nobody is holding it yet - so it is marked, not claimed. */
+.sp-seat--pending {
+    background: var(--sp-sheet);
+    border: 1px dashed var(--sp-flare);
+    color: var(--sp-flare);
+    cursor: pointer;
+}
+
+.sp-seat-form {
+    display: inline-flex;
+}
+
+/* ------------------------------------------------------------------ the stub */
+
+.sp-stub {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    background: var(--sp-sheet);
+    border: 1px solid var(--sp-ink);
+    border-radius: var(--sp-radius);
+    position: relative;
+    overflow: hidden;
+}
+
+.sp-stub--live {
+    box-shadow: var(--sp-stamp-shadow);
+    margin-bottom: 1.5rem;
+}
+
+.sp-stub__main {
+    padding: 1.15rem 1.25rem;
+    min-width: 0;
+}
+
+.sp-stub__seat {
+    font-family: var(--sp-display);
+    font-weight: 800;
+    font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.1rem);
+    letter-spacing: -0.03em;
+    line-height: 1;
+    margin: 0.2rem 0 0.5rem;
+}
+
+.sp-stub__price {
+    font-family: var(--sp-mono);
+    font-size: 0.92rem;
+    font-weight: 600;
+}
+
+/* The tear line: a dashed rule with two punched notches, the way a stub actually comes apart. */
+.sp-stub__tear {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.7rem;
+    padding: 1.15rem 1rem;
+    border-left: 1px dashed var(--sp-rule);
+    background: rgba(20, 22, 43, 0.025);
+    text-align: center;
+}
+
+.sp-stub__tear::before,
+.sp-stub__tear::after {
+    content: "";
+    position: absolute;
+    left: -7px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--sp-stock);
+    border: 1px solid var(--sp-ink);
+}
+
+.sp-stub__tear::before {
+    top: -7px;
+}
+
+.sp-stub__tear::after {
+    bottom: -7px;
+}
+
+.sp-stub--live .sp-stub__tear::before,
+.sp-stub--live .sp-stub__tear::after {
+    background: var(--sp-stock);
+}
+
+.sp-stub__code {
+    font-family: var(--sp-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+}
+
+.sp-stub__clock {
+    font-family: var(--sp-mono);
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--sp-flare);
+    line-height: 1;
+}
+
+.sp-stub__clock.is-out {
+    color: var(--sp-ink-45);
+}
+
+.sp-stub__pay {
+    border-top: 1px dashed var(--sp-rule);
+    grid-column: 1 / -1;
+    padding: 1.15rem 1.25rem;
+}
+
+@media (max-width: 575.98px) {
+    .sp-stub {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sp-stub__tear {
+        border-left: 0;
+        border-top: 1px dashed var(--sp-rule);
+        flex-direction: row;
+        justify-content: space-between;
+    }
+
+    .sp-stub__tear::before,
+    .sp-stub__tear::after {
+        top: -7px;
+        bottom: auto;
+    }
+
+    .sp-stub__tear::before {
+        left: -7px;
+    }
+
+    .sp-stub__tear::after {
+        left: auto;
+        right: -7px;
+    }
+}
+
+.sp-stubs {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+/* ------------------------------------------------------------------ marquee (matches header) */
+
+.sp-marquee {
+    background: var(--sp-ink);
+    color: #fff;
+    border-radius: var(--sp-radius);
+    padding: 1.6rem 1.5rem;
+    margin-bottom: 1.75rem;
+}
+
+.sp-marquee .sp-eyebrow {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.sp-marquee__figures {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.75rem;
+    margin-top: 1.1rem;
+    font-family: var(--sp-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.sp-marquee__figures b {
+    display: block;
+    font-family: var(--sp-display);
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: #fff;
+}
+
+/* ------------------------------------------------------------------ misc */
+
+.sp-split {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sp-stack > * + * {
+    margin-top: 1rem;
+}
+
+.list-group-item {
+    border-color: var(--sp-rule);
+    background: var(--sp-sheet);
+}
+
+.list-group-item.active {
+    background: var(--sp-ink);
+    border-color: var(--sp-ink);
+}
+
+code {
+    font-family: var(--sp-mono);
+    font-size: 0.78em;
+    color: var(--sp-flare-deep);
+}
+
+hr {
+    border-color: var(--sp-rule);
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        transition: none !important;
+        animation: none !important;
+    }
+
+    .sp-poster:hover,
+    .sp-seat--free:hover {
+        transform: none;
+    }
+}

@@ -2,62 +2,93 @@
 @model MatchListViewModel
 @{
     ViewData["Title"] = "Matches";
+    var openSeats = Model.Matches.Sum(match => match.AvailableSeatCount);
 }
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0">Upcoming matches</h1>
+<div class="sp-marquee">
+    <span class="sp-eyebrow">@(Model.SelectedCategory ?? "All sports") &middot; on sale now</span>
+    <h1 class="sp-title sp-title--lead">Upcoming matches</h1>
+    <div class="sp-marquee__figures">
+        <span><b>@Model.Matches.Count</b> @(Model.Matches.Count == 1 ? "match" : "matches") listed</span>
+        <span><b>@openSeats.ToString("N0")</b> seats still free</span>
+        <span><b>10</b> minutes to pay once you pick</span>
+    </div>
 </div>
 
 @await Html.PartialAsync("_Alerts")
 
-<ul class="nav nav-pills mb-4">
-    <li class="nav-item">
-        <a class="nav-link @(Model.SelectedCategory is null ? "active" : "")" asp-action="Index">All</a>
-    </li>
+<div class="sp-filters">
+    <a class="sp-filter @(Model.SelectedCategory is null ? "is-current" : "")" asp-action="Index">All</a>
     @foreach (var category in Model.Categories)
     {
-        <li class="nav-item">
-            <a class="nav-link @(string.Equals(Model.SelectedCategory, category, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
-               asp-action="Index" asp-route-category="@category">@category</a>
-        </li>
+        var current = string.Equals(Model.SelectedCategory, category, StringComparison.OrdinalIgnoreCase);
+        <a class="sp-filter @(current ? "is-current" : "")"
+           asp-action="Index" asp-route-category="@category">@category</a>
     }
-</ul>
+</div>
 
 @if (Model.Matches.Count is 0)
 {
-    <div class="alert alert-info">No matches in this category yet.</div>
+    <div class="sp-empty">
+        <span class="sp-eyebrow">Nothing on sale</span>
+        <h2>No matches in this category yet</h2>
+        <p>Once a match is opened against a venue its full seating plan goes on sale here.</p>
+        <a class="btn btn-outline-secondary" asp-action="Index">Show every category</a>
+    </div>
 }
 else
 {
     <div class="row g-3">
         @foreach (var match in Model.Matches)
         {
-            var sold = match.Capacity is 0 ? 0 : (int)Math.Round(100m * match.SoldSeatCount / match.Capacity);
+            var taken = match.SoldSeatCount + match.ReservedSeatCount;
+            var sold = match.Capacity is 0 ? 0 : (int)Math.Round(100m * taken / match.Capacity);
             <div class="col-md-6 col-xl-4">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <span class="badge bg-primary">@match.Category</span>
-                            <span class="badge bg-secondary">@match.Status</span>
+                <article class="sp-poster">
+                    <div class="sp-poster__body">
+                        <div class="sp-split align-items-start">
+                            <span class="sp-stamp sp-stamp--mute">@match.Category</span>
+                            <span class="sp-stamp @(match.Status == "OnSale" ? "sp-stamp--go" : "sp-stamp--mute")">@match.Status</span>
                         </div>
-                        <h5 class="card-title mb-1">@match.HomeTeam <small class="text-muted">vs</small> @match.AwayTeam</h5>
-                        <p class="card-text text-muted mb-2">
-                            @match.VenueName<br/>
-                            @match.KickOffUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+
+                        <h2 class="sp-fixture">
+                            @match.HomeTeam
+                            <span>versus</span>
+                            @match.AwayTeam
+                        </h2>
+
+                        <p class="sp-meta">
+                            @match.VenueName<br />
+                            @match.KickOffUtc.ToLocalTime().ToString("ddd dd MMM yyyy") &middot; @match.KickOffUtc.ToLocalTime().ToString("HH:mm")
                         </p>
-                        <div class="progress mb-2" style="height: 6px;">
-                            <div class="progress-bar bg-dark" role="progressbar" style="width: @sold%"></div>
+
+                        <div class="sp-fill" role="img"
+                             aria-label="@taken of @match.Capacity seats taken">
+                            <div class="sp-fill__in" style="width: @sold%"></div>
                         </div>
-                        <small class="text-muted">
-                            @match.AvailableSeatCount available &middot; @match.ReservedSeatCount held &middot; @match.SoldSeatCount sold
-                        </small>
+                        <p class="sp-meta mb-0">
+                            @match.AvailableSeatCount.ToString("N0") free &middot;
+                            @match.ReservedSeatCount.ToString("N0") held &middot;
+                            @match.SoldSeatCount.ToString("N0") sold
+                        </p>
                     </div>
-                    <div class="card-footer bg-transparent">
-                        <a class="btn btn-sm btn-primary w-100" asp-action="SeatSelection" asp-route-id="@match.Id">
-                            Choose a seat
-                        </a>
+                    <div class="sp-poster__foot">
+                        @* Only an on-sale match can be held, so anything else is offered as a look rather
+                           than as a purchase it would refuse. *@
+                        @if (match.Status == "OnSale")
+                        {
+                            <a class="btn btn-primary w-100" asp-action="SeatSelection" asp-route-id="@match.Id">
+                                Choose a seat
+                            </a>
+                        }
+                        else
+                        {
+                            <a class="btn btn-outline-secondary w-100" asp-action="SeatSelection" asp-route-id="@match.Id">
+                                See the seat map
+                            </a>
+                        }
                     </div>
-                </div>
+                </article>
             </div>
         }
     </div>

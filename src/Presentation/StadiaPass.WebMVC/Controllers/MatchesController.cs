@@ -46,17 +46,44 @@ public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controll
             return NotFound();
         }
 
+        var hold = ReadHold(id);
+
+        // A hold is only worth showing while the map still reports the seat as reserved. Once it is sold or
+        // the sweeper has released it the cookie is stale and the panel would offer a seat that is gone.
+        if (hold is not null && !IsReserved(seatMap, hold.Value.SeatNumber))
+        {
+            ForgetHold(id);
+            hold = null;
+        }
+
         return View(new SeatSelectionViewModel
         {
             SeatMap = seatMap,
-            SelectedSeatNumber = TempData["SelectedSeat"] as string,
+            SelectedSeatNumber = hold?.SeatNumber,
             // Carried back from the sign-in round trip so the visitor lands on the seat they clicked.
             PendingSeatNumber = seat,
-            ReservationExpiresAtUtc = TempData["ReservationExpiresAtUtc"] is string expiry
-                ? DateTimeOffset.Parse(expiry, System.Globalization.CultureInfo.InvariantCulture)
-                : null
+            ReservationExpiresAtUtc = hold?.ExpiresAtUtc
         });
     }
+
+    /// <summary>
+    /// What to put in front of the customer when the API refuses. A validation problem carries its detail
+    /// per field - "That card number is not valid.", "The card has expired." - while its title is the
+    /// generic "One or more validation errors occurred.", which tells a customer nothing about what to
+    /// change. The redirect that follows cannot carry ModelState, so the field messages are joined into the
+    /// banner instead of being dropped.
+    /// </summary>
+    private static string Explain<T>(ApiResult<T> result) =>
+        result.ValidationErrors is { Count: > 0 } errors
+            ? string.Join(" ", errors.SelectMany(entry => entry.Value).Distinct(StringComparer.Ordinal))
+            : result.Error ?? "The request could not be completed.";
+
+    private static bool IsReserved(SeatMap seatMap, string seatNumber) =>
+        seatMap.Blocks
+            .SelectMany(block => block.Rows)
+            .SelectMany(row => row.Seats)
+            .Any(candidate => string.Equals(candidate.SeatNumber, seatNumber, StringComparison.Ordinal)
+                              && candidate.Status == "Reserved");
 
     [HttpPost]
     [ValidateAntiForgeryToken]
@@ -69,20 +96,20 @@ public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controll
         {
             TempData["Message"] = $"Seat {seatNumber} is held for you until "
                                   + $"{result.Value!.ReservationExpiresAtUtc.ToLocalTime():HH:mm:ss}.";
-            TempData["SelectedSeat"] = seatNumber;
-            TempData["ReservationExpiresAtUtc"] = result.Value.ReservationExpiresAtUtc.ToString("O");
+            RememberHold(id, seatNumber, result.Value.ReservationExpiresAtUtc);
         }
         else
         {
-            TempData["Error"] = result.Error;
+            TempData["Error"] = Explain(result);
         }
 
         return RedirectToAction(nameof(SeatSelection), new { id });
     }
 
     /// <summary>
-    /// The card is read off the form, handed to the API and forgotten. Only the seat number goes into
-    /// TempData on failure - carrying card details through a redirect would put them in a cookie.
+    /// The card is read off the form, handed to the API and forgotten. Nothing but the error message goes
+    /// into TempData on failure - carrying card details through a redirect would put them in a cookie. The
+    /// seat does not need carrying either: the hold cookie still names it.
     /// </summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
@@ -92,7 +119,6 @@ public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controll
         if (!ModelState.IsValid)
         {
             TempData["Error"] = "Check the card details and try again.";
-            TempData["SelectedSeat"] = input.SeatNumber;
 
             return RedirectToAction(nameof(SeatSelection), new { id });
         }
@@ -103,14 +129,74 @@ public sealed class MatchesController(IStadiaPassApiClient apiClient) : Controll
         {
             // A decline is not a dead end: the seat is still held, so the customer lands back on the seat
             // map with the panel open and can try another card while the hold lasts.
-            TempData["Error"] = result.Error;
-            TempData["SelectedSeat"] = input.SeatNumber;
+            TempData["Error"] = Explain(result);
 
             return RedirectToAction(nameof(SeatSelection), new { id });
         }
 
         TempData["Message"] = $"Ticket {result.Value!.AccessCode} issued for seat {result.Value.SeatNumber}.";
+        ForgetHold(id);
 
         return RedirectToAction("Index", "Tickets");
+    }
+
+    // ---------------------------------------------------------------------------------------------------
+    // The hold cookie.
+    //
+    // A hold outlives the redirect that created it: the customer has ten minutes, and refreshing the page or
+    // stepping away to look at their tickets must not lose the checkout panel. TempData is read-once, so it
+    // cannot carry this - the seat would look like somebody else's the moment the page was reloaded. The
+    // cookie expires exactly when the hold does, and the seat map is still the authority: a hold whose seat
+    // no longer reads as reserved is dropped on sight.
+    // ---------------------------------------------------------------------------------------------------
+
+    private const string HoldCookiePrefix = ".StadiaPass.Hold.";
+
+    private static string HoldCookieName(Guid matchId) => HoldCookiePrefix + matchId.ToString("N");
+
+    private void RememberHold(Guid matchId, string seatNumber, DateTimeOffset expiresAtUtc) =>
+        Response.Cookies.Append(
+            HoldCookieName(matchId),
+            // Stamped with who holds it: a shared browser must not offer the next person a checkout panel
+            // for a seat that is not theirs, even though the API would refuse the charge anyway.
+            $"{User.Identity?.Name}|{seatNumber}|{expiresAtUtc:O}",
+            new CookieOptions
+            {
+                HttpOnly = true,
+                IsEssential = true,
+                Secure = Request.IsHttps,
+                SameSite = SameSiteMode.Lax,
+                Expires = expiresAtUtc
+            });
+
+    private void ForgetHold(Guid matchId) => Response.Cookies.Delete(HoldCookieName(matchId));
+
+    private (string SeatNumber, DateTimeOffset ExpiresAtUtc)? ReadHold(Guid matchId)
+    {
+        if (!Request.Cookies.TryGetValue(HoldCookieName(matchId), out var value))
+        {
+            return null;
+        }
+
+        var parts = value.Split('|', 3);
+
+        if (parts.Length is not 3
+            || !DateTimeOffset.TryParse(
+                parts[2],
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out var expiresAtUtc)
+            || expiresAtUtc <= DateTimeOffset.UtcNow)
+        {
+            ForgetHold(matchId);
+
+            return null;
+        }
+
+        // Somebody else's hold on a shared browser: left alone to expire on its own rather than deleted out
+        // from under whoever it belongs to.
+        return string.Equals(parts[0], User.Identity?.Name, StringComparison.Ordinal)
+            ? (parts[1], expiresAtUtc)
+            : null;
     }
 }

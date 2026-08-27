@@ -3,10 +3,11 @@
     ViewData["Title"] = "Sport categories";
 }
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="sp-head">
     <div>
-        <h1 class="h4 mb-1">Sport categories</h1>
-        <div class="text-muted small">A category decides which kinds of venue its matches can be opened in.</div>
+        <span class="sp-eyebrow">Back office</span>
+        <h1 class="sp-title">Sport categories</h1>
+        <p class="sp-note mt-2">A category decides which kinds of venue its matches can be opened in.</p>
     </div>
     @if (User.HasPermission(StadiaPassPermissions.Categories.Create))
     {
@@ -18,53 +19,68 @@
 
 @if (Model.Categories.Count is 0)
 {
-    <div class="alert alert-info">No categories defined yet.</div>
+    <div class="sp-empty">
+        <span class="sp-eyebrow">Empty</span>
+        <h2>No categories defined yet</h2>
+        <p>A match needs a category before it can be opened, so start here.</p>
+        @if (User.HasPermission(StadiaPassPermissions.Categories.Create))
+        {
+            <a class="btn btn-primary" asp-action="Create">New category</a>
+        }
+    </div>
 }
 else
 {
-    <table class="table align-middle">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Description</th>
-                <th>Playable in</th>
-                <th>Status</th>
-                <th class="text-end">Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-        @foreach (var category in Model.Categories)
-        {
-            <tr>
-                <td><strong>@category.Name</strong></td>
-                <td class="text-muted">@(category.Description ?? "-")</td>
-                <td>
-                    @foreach (var kind in category.AllowedVenueKinds)
-                    {
-                        <span class="badge bg-secondary">@kind</span>
-                    }
-                </td>
-                <td>
-                    <span class="badge @(category.IsActive ? "bg-success" : "bg-secondary")">
-                        @(category.IsActive ? "Active" : "Inactive")
-                    </span>
-                </td>
-                <td class="text-end">
-                    @if (User.HasPermission(StadiaPassPermissions.Categories.Update))
-                    {
-                        <a class="btn btn-sm btn-outline-primary" asp-action="Edit" asp-route-id="@category.Id">Edit</a>
-                    }
-                    @if (User.HasPermission(StadiaPassPermissions.Categories.Delete))
-                    {
-                        <form method="post" asp-action="Delete" class="d-inline">
-                            @Html.AntiForgeryToken()
-                            <input type="hidden" name="id" value="@category.Id"/>
-                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                        </form>
-                    }
-                </td>
-            </tr>
-        }
-        </tbody>
-    </table>
+    <div class="sp-table-scroll">
+        <table class="sp-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Playable in</th>
+                    <th>Status</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var category in Model.Categories)
+            {
+                <tr>
+                    <td class="sp-cell-name">@category.Name</td>
+                    <td class="sp-note">@(category.Description ?? "-")</td>
+                    <td>
+                        <div class="d-flex flex-wrap gap-1">
+                            @foreach (var kind in category.AllowedVenueKinds)
+                            {
+                                <span class="sp-stamp sp-stamp--mute">@kind</span>
+                            }
+                        </div>
+                    </td>
+                    <td>
+                        <span class="sp-stamp @(category.IsActive ? "sp-stamp--go" : "sp-stamp--mute")">
+                            @(category.IsActive ? "Active" : "Inactive")
+                        </span>
+                    </td>
+                    <td class="text-end">
+                        <div class="d-inline-flex gap-1">
+                            @if (User.HasPermission(StadiaPassPermissions.Categories.Update))
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" asp-action="Edit" asp-route-id="@category.Id">Edit</a>
+                            }
+                            @if (User.HasPermission(StadiaPassPermissions.Categories.Delete))
+                            {
+                                <form method="post" asp-action="Delete" class="d-inline"
+                                      data-confirm="Delete the category @category.Name? This cannot be undone.">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@category.Id"/>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                </form>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
 }

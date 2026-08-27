@@ -1,25 +1,21 @@
-﻿@model ErrorViewModel
+@model ErrorViewModel
 @{
     ViewData["Title"] = "Error";
 }
 
-<h1 class="text-danger">Error.</h1>
-<h2 class="text-danger">An error occurred while processing your request.</h2>
-
-@if (Model.ShowRequestId)
-{
+<div class="sp-empty">
+    <span class="sp-eyebrow">Error</span>
+    <h2>The request did not complete</h2>
     <p>
-        <strong>Request ID:</strong> <code>@Model.RequestId</code>
+        Nothing on this page was saved. Go back to the matches list and try again — a seat already held for
+        you stays yours until its hold runs out.
     </p>
-}
+    <a class="btn btn-primary" asp-area="" asp-controller="Matches" asp-action="Index">Back to matches</a>
 
-<h3>Development Mode</h3>
-<p>
-    Swapping to <strong>Development</strong> environment will display more detailed information about the error that occurred.
-</p>
-<p>
-    <strong>The Development environment shouldn't be enabled for deployed applications.</strong>
-    It can result in displaying sensitive information from exceptions to end users.
-    For local debugging, enable the <strong>Development</strong> environment by setting the <strong>ASPNETCORE_ENVIRONMENT</strong> environment variable to <strong>Development</strong>
-    and restarting the app.
-</p>
+    @if (Model.ShowRequestId)
+    {
+        <p class="sp-note mx-auto mt-4 mb-0">
+            Quote this reference when you report it: <code>@Model.RequestId</code>
+        </p>
+    }
+</div>

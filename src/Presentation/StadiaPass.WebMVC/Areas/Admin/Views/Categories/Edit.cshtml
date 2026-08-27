@@ -5,10 +5,15 @@
     var venueKinds = (string[])ViewBag.VenueKinds;
 }
 
-<h1 class="h4 mb-1">@ViewData["Title"]</h1>
-<p class="text-muted">Matches can only be opened in the venue kinds ticked below.</p>
+<div class="sp-head">
+    <div>
+        <span class="sp-eyebrow">Back office &middot; categories</span>
+        <h1 class="sp-title">@ViewData["Title"]</h1>
+        <p class="sp-note mt-2">Matches can only be opened in the venue kinds ticked below.</p>
+    </div>
+</div>
 
-<form method="post" asp-action="@(isNew ? "Create" : "Edit")" class="col-lg-6">
+<form method="post" asp-action="@(isNew ? "Create" : "Edit")" class="sp-card p-4" style="max-width: 44rem;">
     <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
     @if (!isNew)
     {
@@ -29,7 +34,7 @@
 
     <div class="mb-3">
         <label class="form-label">@Html.DisplayNameFor(model => model.AllowedVenueKinds)</label>
-        <div class="border rounded p-2">
+        <div class="border rounded p-3">
             @foreach (var kind in venueKinds)
             {
                 var selected = Model.AllowedVenueKinds.Contains(kind, StringComparer.OrdinalIgnoreCase);
@@ -51,8 +56,10 @@
         </div>
     }
 
-    <button type="submit" class="btn btn-primary">@(isNew ? "Create category" : "Save changes")</button>
-    <a class="btn btn-link" asp-action="Index">Cancel</a>
+    <div class="d-flex gap-2 align-items-center pt-2">
+        <button type="submit" class="btn btn-primary">@(isNew ? "Create category" : "Save changes")</button>
+        <a class="btn btn-link" asp-action="Index">Cancel</a>
+    </div>
 </form>
 
 @section Scripts {

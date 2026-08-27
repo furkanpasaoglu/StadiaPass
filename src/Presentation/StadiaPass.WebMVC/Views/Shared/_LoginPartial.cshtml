@@ -1,14 +1,19 @@
 @{
     var returnUrl = Context.Request.Path + Context.Request.QueryString;
+
+    // An identity provider is free to hand back a blank name, and slicing one character off an empty string
+    // throws - which would take the whole layout, and therefore every page, down with it.
+    var displayName = User.Identity?.Name ?? string.Empty;
+    var initial = displayName.Length > 0 ? displayName[..1].ToUpperInvariant() : "?";
 }
 
 @if (User.Identity?.IsAuthenticated == true)
 {
-    <ul class="navbar-nav align-items-center">
+    <ul class="navbar-nav align-items-lg-center gap-2 py-2 py-lg-0">
         <li class="nav-item">
-            <span class="nav-link text-dark">
-                <span class="badge rounded-pill bg-primary me-1">@(User.Identity.Name?[..1].ToUpperInvariant())</span>
-                @User.Identity.Name
+            <span class="sp-who">
+                <span class="sp-who__initial">@initial</span>
+                @displayName
             </span>
         </li>
         <li class="nav-item">
@@ -21,7 +26,7 @@
 }
 else
 {
-    <ul class="navbar-nav align-items-center gap-2">
+    <ul class="navbar-nav align-items-lg-center gap-2 py-2 py-lg-0">
         <li class="nav-item">
             <a class="btn btn-sm btn-outline-primary"
                asp-area="" asp-controller="Account" asp-action="Login" asp-route-returnUrl="@returnUrl">Log in</a>

@@ -58,7 +58,8 @@ internal sealed class StadiaPassApiClient(HttpClient httpClient) : IStadiaPassAp
             cardNumber = input.CardNumber,
             expirationMonth = input.ExpirationMonth,
             expirationYear = input.ExpirationYear,
-            cvv = input.Cvv
+            cvv = input.Cvv,
+            attemptId = input.AttemptId
         };
 
         var response = await httpClient.PostAsJsonAsync("/api/v1/tickets", payload, cancellationToken);

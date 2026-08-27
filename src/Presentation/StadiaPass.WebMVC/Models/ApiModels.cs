@@ -131,6 +131,12 @@ public sealed class PurchaseInput
     [Required]
     public string SeatNumber { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Stamped into the form when the checkout panel is rendered, so pressing the button twice is one
+    /// attempt at the provider while coming back with another card after a decline is a new one.
+    /// </summary>
+    public Guid AttemptId { get; set; }
+
     [Required(ErrorMessage = "The name printed on the card is required.")]
     [StringLength(128)]
     [Display(Name = "Name on card")]
@@ -162,7 +168,10 @@ public sealed class PurchaseInput
     {
         get
         {
-            var digits = string.Concat(ExpirationDate.Where(char.IsAsciiDigit));
+            // An empty form field binds to null, and validation reads this property before it looks at
+            // whether the field was required - so this has to survive a blank submission rather than throw
+            // and turn a missing expiry into a 500.
+            var digits = string.Concat((ExpirationDate ?? string.Empty).Where(char.IsAsciiDigit));
 
             return digits.Length is 4
                    && int.TryParse(digits[..2], CultureInfo.InvariantCulture, out var month)

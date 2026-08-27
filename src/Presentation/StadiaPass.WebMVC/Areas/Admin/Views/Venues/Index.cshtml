@@ -3,13 +3,14 @@
     ViewData["Title"] = "Venues";
 }
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="sp-head">
     <div>
-        <h1 class="h4 mb-1">Venues</h1>
-        <div class="text-muted small">
+        <span class="sp-eyebrow">Back office</span>
+        <h1 class="sp-title">Venues</h1>
+        <p class="sp-note mt-2">
             A match materialises its seat map from the plan defined here, so a plan cannot be reshaped once a
             match uses it.
-        </div>
+        </p>
     </div>
     @if (User.HasPermission(StadiaPassPermissions.Venues.Create))
     {
@@ -21,57 +22,72 @@
 
 @if (Model.Venues.Count is 0)
 {
-    <div class="alert alert-info">No venues defined yet.</div>
+    <div class="sp-empty">
+        <span class="sp-eyebrow">Empty</span>
+        <h2>No venues defined yet</h2>
+        <p>A venue carries the seating plan every match copies, so define one before opening a match.</p>
+        @if (User.HasPermission(StadiaPassPermissions.Venues.Create))
+        {
+            <a class="btn btn-primary" asp-action="Create">New venue</a>
+        }
+    </div>
 }
 else
 {
-    <table class="table align-middle">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>City</th>
-                <th>Kind</th>
-                <th>Blocks</th>
-                <th>Capacity</th>
-                <th class="text-end">Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-        @foreach (var venue in Model.Venues)
-        {
-            <tr>
-                <td><strong>@venue.Name</strong></td>
-                <td>@venue.City</td>
-                <td><span class="badge bg-secondary">@venue.Kind</span></td>
-                <td>
-                    @foreach (var block in venue.Blocks)
-                    {
-                        <span class="badge bg-light text-dark border me-1">
-                            @block.Name @block.RowCount&times;@block.SeatsPerRow
-                            @if (block.PriceMultiplier != 1m)
+    <div class="sp-table-scroll">
+        <table class="sp-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>City</th>
+                    <th>Kind</th>
+                    <th>Blocks</th>
+                    <th>Capacity</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var venue in Model.Venues)
+            {
+                <tr>
+                    <td class="sp-cell-name">@venue.Name</td>
+                    <td>@venue.City</td>
+                    <td><span class="sp-stamp sp-stamp--mute">@venue.Kind</span></td>
+                    <td>
+                        <div class="d-flex flex-wrap gap-1">
+                            @foreach (var block in venue.Blocks)
                             {
-                                <span class="text-primary">&times;@block.PriceMultiplier.ToString("0.##")</span>
+                                <span class="sp-stamp">
+                                    @block.Name @block.RowCount&times;@block.SeatsPerRow
+                                    @if (block.PriceMultiplier != 1m)
+                                    {
+                                        <span style="color: var(--sp-flare);">&times;@block.PriceMultiplier.ToString("0.##")</span>
+                                    }
+                                </span>
                             }
-                        </span>
-                    }
-                </td>
-                <td>@venue.Capacity</td>
-                <td class="text-end">
-                    @if (User.HasPermission(StadiaPassPermissions.Venues.Update))
-                    {
-                        <a class="btn btn-sm btn-outline-primary" asp-action="Edit" asp-route-id="@venue.Id">Edit</a>
-                    }
-                    @if (User.HasPermission(StadiaPassPermissions.Venues.Delete))
-                    {
-                        <form method="post" asp-action="Delete" class="d-inline">
-                            @Html.AntiForgeryToken()
-                            <input type="hidden" name="id" value="@venue.Id"/>
-                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                        </form>
-                    }
-                </td>
-            </tr>
-        }
-        </tbody>
-    </table>
+                        </div>
+                    </td>
+                    <td class="sp-mono">@venue.Capacity.ToString("N0")</td>
+                    <td class="text-end">
+                        <div class="d-inline-flex gap-1">
+                            @if (User.HasPermission(StadiaPassPermissions.Venues.Update))
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" asp-action="Edit" asp-route-id="@venue.Id">Edit</a>
+                            }
+                            @if (User.HasPermission(StadiaPassPermissions.Venues.Delete))
+                            {
+                                <form method="post" asp-action="Delete" class="d-inline"
+                                      data-confirm="Delete the venue @venue.Name? This cannot be undone.">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@venue.Id"/>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                </form>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
 }

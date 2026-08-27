@@ -6,96 +6,56 @@
     var canReserve = User.HasPermission(StadiaPassPermissions.Tickets.Reserve);
     var canPurchase = User.HasPermission(StadiaPassPermissions.Tickets.Purchase);
 
+    // Only an on-sale match will accept a hold. Saying so up front beats letting somebody click a seat and
+    // collect a refusal from the API.
+    var onSale = map.Status == "OnSale";
+
     // Where Keycloak sends the visitor back to. The seat they clicked rides along so the page can offer it
     // straight away instead of making them hunt for it again.
     var returnPath = Url.Action("SeatSelection", "Matches", new { id = map.MatchId })!;
 }
 
-<div class="d-flex justify-content-between align-items-start mb-3">
+<div class="sp-head">
     <div>
-        <h1 class="h4 mb-1">@map.HomeTeam <small class="text-muted">vs</small> @map.AwayTeam</h1>
-        <div class="text-muted">
-            <span class="badge bg-primary">@map.Category</span>
-            @map.VenueName &middot; @map.KickOffUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")
-            &middot; @map.AvailableSeatCount / @map.Capacity available
-        </div>
+        <span class="sp-eyebrow">@map.Category &middot; @map.VenueName</span>
+        <h1 class="sp-title">@map.HomeTeam <span class="text-body-secondary fw-normal">v</span> @map.AwayTeam</h1>
+        <p class="sp-meta mt-2 mb-0">
+            @map.KickOffUtc.ToLocalTime().ToString("ddd dd MMM yyyy") &middot;
+            @map.KickOffUtc.ToLocalTime().ToString("HH:mm") &middot;
+            @map.AvailableSeatCount.ToString("N0") of @map.Capacity.ToString("N0") seats free
+        </p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" asp-action="Index">Back to matches</a>
+    <a class="btn btn-sm btn-outline-secondary" asp-action="Index">All matches</a>
 </div>
 
 @await Html.PartialAsync("_Alerts")
 
-@if (!isAuthenticated)
+@if (!onSale)
 {
-    <div class="alert alert-secondary d-flex justify-content-between align-items-center">
-        <span>You are browsing as a guest. Pick a seat and we will ask you to sign in.</span>
+    var reason = map.Status switch
+    {
+        "Scheduled" => "This match is not on sale yet.",
+        "SoldOut" => "Every seat for this match has been sold.",
+        "Postponed" => "This match has been postponed.",
+        "Cancelled" => "This match has been cancelled.",
+        "Played" => "This match has already been played.",
+        _ => $"This match is {map.Status.ToLowerInvariant()}."
+    };
+
+    <div class="alert alert-secondary mb-4">
+        <strong>@reason</strong> The map below is here to look at; no seat can be held.
+    </div>
+}
+else if (!isAuthenticated)
+{
+    <div class="alert alert-secondary sp-split mb-4">
+        <span>Pick a seat and we will ask you to sign in before it is held.</span>
         <a class="btn btn-sm btn-primary"
            asp-controller="Account" asp-action="Login" asp-route-returnUrl="@returnPath">Sign in</a>
     </div>
 }
 
-<div class="d-flex gap-3 mb-3 small">
-    <span><span class="seat seat-available"></span> Available</span>
-    <span><span class="seat seat-mine"></span> Held for you</span>
-    <span><span class="seat seat-reserved"></span> Held by someone else</span>
-    <span><span class="seat seat-sold"></span> Sold</span>
-</div>
-
-<div class="pitch mb-4">PITCH / COURT</div>
-
-@foreach (var block in map.Blocks)
-{
-    <div class="card mb-3">
-        <div class="card-header d-flex justify-content-between">
-            <strong>Block @block.Block</strong>
-            <span class="text-muted small">@block.AvailableSeatCount available</span>
-        </div>
-        <div class="card-body seat-block">
-            @foreach (var row in block.Rows)
-            {
-                <div class="seat-row">
-                    <span class="seat-row-label">@row.Row</span>
-                    @foreach (var seat in row.Seats)
-                    {
-                        var isMine = string.Equals(seat.SeatNumber, Model.SelectedSeatNumber, StringComparison.Ordinal);
-                        var isPending = string.Equals(seat.SeatNumber, Model.PendingSeatNumber, StringComparison.Ordinal);
-                        var css = seat.Status switch
-                        {
-                            "Sold" => "seat-sold",
-                            "Reserved" when isMine => "seat-mine",
-                            "Reserved" => "seat-reserved",
-                            "Blocked" => "seat-sold",
-                            _ => isMine || isPending ? "seat-mine" : "seat-available"
-                        };
-                        var selectable = seat.Status == "Available" || (seat.Status == "Reserved" && isMine);
-                        var title = $"{seat.SeatNumber} - {seat.Price.ToString("N2")} {seat.Currency}";
-
-                        if (selectable && isAuthenticated && canReserve)
-                        {
-                            <form method="post" asp-action="Reserve" asp-route-id="@map.MatchId" class="d-inline">
-                                @Html.AntiForgeryToken()
-                                <input type="hidden" name="seatNumber" value="@seat.SeatNumber"/>
-                                <button type="submit" class="seat @css" title="@title">@seat.Number</button>
-                            </form>
-                        }
-                        else if (selectable && !isAuthenticated)
-                        {
-                            <button type="button" class="seat @css js-sign-in-required"
-                                    data-seat="@seat.SeatNumber" title="@title - sign in to hold this seat">
-                                @seat.Number
-                            </button>
-                        }
-                        else
-                        {
-                            <span class="seat @css" title="@seat.SeatNumber - @seat.Status">@seat.Number</span>
-                        }
-                    }
-                </div>
-            }
-        </div>
-    </div>
-}
-
+@* The seat you are holding is the job on this page, so it sits above the map rather than below it. *@
 @if (canPurchase && Model.SelectedSeatNumber is { Length: > 0 } heldSeat)
 {
     var heldSeatDetails = map.Blocks
@@ -103,26 +63,41 @@
         .SelectMany(row => row.Seats)
         .FirstOrDefault(seat => string.Equals(seat.SeatNumber, heldSeat, StringComparison.Ordinal));
 
-    <div class="card border-success mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <div>
-                <strong>Seat @heldSeat</strong> is held for you
-                @if (Model.ReservationExpiresAtUtc is { } expiry)
-                {
-                    <span class="text-muted">until @expiry.ToLocalTime().ToString("HH:mm:ss")</span>
-                }
-            </div>
+    <section class="sp-stub sp-stub--live">
+        <div class="sp-stub__main">
+            <span class="sp-eyebrow">Held for you</span>
+            <p class="sp-stub__seat">Seat @heldSeat</p>
+            <p class="sp-meta mb-0">
+                @map.HomeTeam v @map.AwayTeam &middot; @map.VenueName
+            </p>
             @if (heldSeatDetails is not null)
             {
-                <span class="fs-5 fw-semibold">
+                <p class="sp-stub__price mt-2 mb-0">
                     @heldSeatDetails.Price.ToString("N2") @heldSeatDetails.Currency
-                </span>
+                </p>
             }
         </div>
-        <div class="card-body">
+
+        <div class="sp-stub__tear">
+            <span class="sp-eyebrow mb-0">Time left</span>
+            @if (Model.ReservationExpiresAtUtc is { } expiry)
+            {
+                <span class="sp-stub__clock" id="sp-hold-clock" data-expires="@expiry.ToString("o")">--:--</span>
+                <span class="sp-meta">until @expiry.ToLocalTime().ToString("HH:mm:ss")</span>
+            }
+            else
+            {
+                <span class="sp-stub__clock">--:--</span>
+            }
+        </div>
+
+        <div class="sp-stub__pay">
             <form method="post" asp-action="Purchase" asp-route-id="@map.MatchId" autocomplete="off" novalidate>
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="SeatNumber" value="@heldSeat"/>
+                @* One attempt, named when the panel is drawn: two clicks on this button are the same charge,
+                   while a second card after a decline arrives on a freshly rendered form with a new id. *@
+                <input type="hidden" name="AttemptId" value="@Guid.CreateVersion7()"/>
 
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
@@ -150,7 +125,7 @@
                                data-mask="security-code" placeholder="123"/>
                     </div>
                     <div class="col-12 col-md-6 d-flex align-items-end">
-                        <button type="submit" class="btn btn-success w-100">Pay and get ticket</button>
+                        <button type="submit" class="btn btn-primary w-100" id="sp-pay">Pay and get ticket</button>
                     </div>
                 </div>
             </form>
@@ -161,35 +136,141 @@
                 Card details are used for this one charge and are never stored.
             </p>
         </div>
-    </div>
+    </section>
 }
-else if (canReserve && Model.PendingSeatNumber is { Length: > 0 } pendingSeat)
+else if (Model.SelectedSeatNumber is { Length: > 0 } heldWithoutCheckout)
 {
-    <div class="card border-primary mb-4">
-        <div class="card-body d-flex justify-content-between align-items-center">
-            <div>Welcome back. You were looking at <strong>seat @pendingSeat</strong>.</div>
-            <form method="post" asp-action="Reserve" asp-route-id="@map.MatchId">
-                @Html.AntiForgeryToken()
-                <input type="hidden" name="seatNumber" value="@pendingSeat"/>
-                <button type="submit" class="btn btn-primary">Hold this seat</button>
-            </form>
+    @* Holding without being allowed to buy is a dead end unless the page says so. *@
+    <section class="sp-stub sp-stub--live">
+        <div class="sp-stub__main">
+            <span class="sp-eyebrow">Held for you</span>
+            <p class="sp-stub__seat">Seat @heldWithoutCheckout</p>
+            <p class="sp-meta mb-0">
+                Your account can hold a seat but not buy one. A colleague with box office rights can take the
+                payment while the hold lasts.
+            </p>
         </div>
-    </div>
+        <div class="sp-stub__tear">
+            <span class="sp-eyebrow mb-0">Time left</span>
+            @if (Model.ReservationExpiresAtUtc is { } holdExpiry)
+            {
+                <span class="sp-stub__clock" id="sp-hold-clock" data-expires="@holdExpiry.ToString("o")">--:--</span>
+                <span class="sp-meta">until @holdExpiry.ToLocalTime().ToString("HH:mm:ss")</span>
+            }
+            else
+            {
+                <span class="sp-stub__clock">--:--</span>
+            }
+        </div>
+    </section>
+}
+else if (canReserve && onSale && Model.PendingSeatNumber is { Length: > 0 } pendingSeat)
+{
+    // Signing in takes as long as it takes, and the seat was never held during it. Whether it survived is a
+    // question for the map, not something to assert on its behalf.
+    var pendingDetails = map.Blocks
+        .SelectMany(block => block.Rows)
+        .SelectMany(row => row.Seats)
+        .FirstOrDefault(seat => string.Equals(seat.SeatNumber, pendingSeat, StringComparison.Ordinal));
+
+    <section class="sp-stub sp-stub--live">
+        <div class="sp-stub__main">
+            <span class="sp-eyebrow">Where you left off</span>
+            <p class="sp-stub__seat">Seat @pendingSeat</p>
+            @if (pendingDetails?.Status == "Available")
+            {
+                <p class="sp-meta mb-0">Still free. Hold it now and the 10 minutes start.</p>
+            }
+            else
+            {
+                <p class="sp-meta mb-0">Somebody got there first while you were signing in. Pick another seat below.</p>
+            }
+        </div>
+        <div class="sp-stub__tear">
+            @if (pendingDetails?.Status == "Available")
+            {
+                <form method="post" asp-action="Reserve" asp-route-id="@map.MatchId">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="seatNumber" value="@pendingSeat"/>
+                    <button type="submit" class="btn btn-primary">Hold this seat</button>
+                </form>
+            }
+            else
+            {
+                <span class="sp-stamp sp-stamp--mute">@(pendingDetails?.Status ?? "Gone")</span>
+            }
+        </div>
+    </section>
 }
 
-@section Styles {
-    <style>
-        .pitch { background: #146c43; color: #fff; text-align: center; padding: .75rem; border-radius: .5rem; letter-spacing: .3em; font-size: .8rem; }
-        .seat-block { overflow-x: auto; }
-        .seat-row { display: flex; align-items: center; gap: 3px; margin-bottom: 3px; white-space: nowrap; }
-        .seat-row-label { width: 2rem; font-size: .7rem; color: #6c757d; text-align: right; padding-right: .3rem; }
-        .seat { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; border-radius: .25rem; border: 0; font-size: .65rem; color: #fff; }
-        .seat-available { background: #198754; cursor: pointer; }
-        .seat-available:hover { background: #146c43; }
-        .seat-mine { background: #0d6efd; }
-        .seat-reserved { background: #ffc107; color: #000; }
-        .seat-sold { background: #adb5bd; }
-    </style>
+<div class="sp-legend">
+    <span><span class="sp-seat sp-seat--free"></span> Free</span>
+    <span><span class="sp-seat sp-seat--mine"></span> Yours</span>
+    <span><span class="sp-seat sp-seat--held"></span> Held by someone else</span>
+    <span><span class="sp-seat sp-seat--sold"></span> Sold</span>
+</div>
+
+<div class="sp-pitch">@map.VenueName</div>
+
+@foreach (var block in map.Blocks)
+{
+    <section class="sp-block">
+        <div class="sp-block__head">
+            <h2 class="sp-block__name mb-0">Block @block.Block</h2>
+            <span class="sp-block__count">@block.AvailableSeatCount.ToString("N0") free</span>
+        </div>
+        <div class="sp-block__body">
+            @foreach (var row in block.Rows)
+            {
+                <div class="sp-row">
+                    <span class="sp-row__label">@row.Row</span>
+                    @foreach (var seat in row.Seats)
+                    {
+                        var isMine = string.Equals(seat.SeatNumber, Model.SelectedSeatNumber, StringComparison.Ordinal);
+                        var isPending = string.Equals(seat.SeatNumber, Model.PendingSeatNumber, StringComparison.Ordinal);
+                        var css = seat.Status switch
+                        {
+                            "Sold" => "sp-seat--sold",
+                            "Reserved" when isMine => "sp-seat--mine",
+                            "Reserved" => "sp-seat--held",
+                            "Blocked" => "sp-seat--sold",
+                            _ when isMine => "sp-seat--mine",
+                            // Clicked before the sign-in round trip: marked so it can be found again, but
+                            // not painted as held, because nobody is holding it yet.
+                            _ when isPending => "sp-seat--pending",
+                            _ => "sp-seat--free"
+                        };
+                        var selectable = onSale
+                                         && (seat.Status == "Available" || (seat.Status == "Reserved" && isMine));
+                        var title = $"Seat {seat.SeatNumber} - {seat.Price.ToString("N2")} {seat.Currency}";
+
+                        if (selectable && isAuthenticated && canReserve)
+                        {
+                            <form method="post" asp-action="Reserve" asp-route-id="@map.MatchId" class="sp-seat-form">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="seatNumber" value="@seat.SeatNumber"/>
+                                <button type="submit" class="sp-seat @css" title="@title" aria-label="@title">@seat.Number</button>
+                            </form>
+                        }
+                        else if (selectable && !isAuthenticated)
+                        {
+                            <button type="button" class="sp-seat @css js-sign-in-required"
+                                    data-seat="@seat.SeatNumber"
+                                    title="@title - sign in to hold it"
+                                    aria-label="@title - sign in to hold it">
+                                @seat.Number
+                            </button>
+                        }
+                        else
+                        {
+                            <span class="sp-seat @css" title="@seat.SeatNumber - @seat.Status"
+                                  aria-label="Seat @seat.SeatNumber - @seat.Status">@seat.Number</span>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </section>
 }
 
 @section Scripts {
@@ -198,6 +279,40 @@ else if (canReserve && Model.PendingSeatNumber is { Length: > 0 } pendingSeat)
             var isAuthenticated = @(isAuthenticated ? "true" : "false");
             var loginUrl = '@Url.Action("Login", "Account", new { area = "" })';
             var returnPath = '@returnPath';
+
+            // The hold is the tense part of this page, so the stub counts it down instead of printing a
+            // wall clock time and leaving the arithmetic to the visitor. The server still owns the deadline:
+            // this only reports it.
+            var clock = document.getElementById('sp-hold-clock');
+
+            if (clock) {
+                var deadline = new Date(clock.dataset.expires).getTime();
+                var payButton = document.getElementById('sp-pay');
+
+                var tick = function () {
+                    var left = Math.floor((deadline - Date.now()) / 1000);
+
+                    if (left <= 0) {
+                        clock.textContent = '00:00';
+                        clock.classList.add('is-out');
+
+                        if (payButton) {
+                            payButton.disabled = true;
+                            payButton.textContent = 'Hold expired - pick a seat again';
+                        }
+
+                        clearInterval(timer);
+                        return;
+                    }
+
+                    var minutes = Math.floor(left / 60);
+                    var seconds = left % 60;
+                    clock.textContent = (minutes < 10 ? '0' : '') + minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+                };
+
+                var timer = setInterval(tick, 1000);
+                tick();
+            }
 
             if (isAuthenticated) { return; }
 

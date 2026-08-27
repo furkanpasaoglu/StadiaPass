@@ -2,7 +2,12 @@
     ViewData["Title"] = "Access denied";
 }
 
-<div class="alert alert-danger">
-    <h1 class="h4">Access denied</h1>
-    <p class="mb-0">Your account does not carry the permission required for this action.</p>
+<div class="sp-empty">
+    <span class="sp-eyebrow">Access denied</span>
+    <h2>Your account does not carry this permission</h2>
+    <p>
+        Permissions come from the role your account holds. Ask an administrator to grant it, then sign out and
+        back in so a fresh token picks it up.
+    </p>
+    <a class="btn btn-outline-secondary" asp-area="" asp-controller="Matches" asp-action="Index">Back to matches</a>
 </div>
