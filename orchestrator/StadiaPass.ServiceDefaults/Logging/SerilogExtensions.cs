@@ -62,6 +62,14 @@ public static class SerilogExtensions
     /// that are polled by machines - health probes and the Prometheus scrape - are dropped to Verbose so they
     /// never reach the sinks: at a five second scrape interval they would otherwise dominate the log.
     /// </summary>
+    /// <remarks>
+    /// That machine-polled test is deliberately made before the status code is looked at, and the order is
+    /// the whole point. A readiness probe answering 503 is not a failed request - it is the probe doing its
+    /// job, saying "not yet" while the broker finishes connecting on a cold start. Reading the status code
+    /// first logged one of those as an application error on every single start, which is untrue and is the
+    /// quickest way to teach somebody that the error log is not worth reading. An exception still wins over
+    /// both: that means the probe itself broke, which is a fault whatever it was probing.
+    /// </remarks>
     public static WebApplication UseStadiaPassRequestLogging(this WebApplication app)
     {
         app.UseSerilogRequestLogging(options =>
@@ -71,10 +79,10 @@ public static class SerilogExtensions
 
             options.GetLevel = static (httpContext, elapsed, exception) => exception is not null
                 ? LogEventLevel.Error
-                : httpContext.Response.StatusCode >= StatusCodes.Status500InternalServerError
-                    ? LogEventLevel.Error
-                    : IsMachinePolled(httpContext.Request.Path)
-                        ? LogEventLevel.Verbose
+                : IsMachinePolled(httpContext.Request.Path)
+                    ? LogEventLevel.Verbose
+                    : httpContext.Response.StatusCode >= StatusCodes.Status500InternalServerError
+                        ? LogEventLevel.Error
                         : LogEventLevel.Information;
 
             options.EnrichDiagnosticContext = static (diagnostic, httpContext) =>
