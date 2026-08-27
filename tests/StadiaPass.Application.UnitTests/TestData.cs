@@ -40,4 +40,19 @@ internal static class TestData
             Now.AddDays(30),
             Money.Create(100m),
             Now);
+
+    /// <summary>A fixture in a different sport, for tests about narrowing a listing to one of them.</summary>
+    public static Match BasketballMatch(string homeTeam) =>
+        Match.Create(
+            SportCategory.Define("Basketball", null, [VenueKind.Arena]),
+            Venue.Define(
+                "Sinan Erdem",
+                "Istanbul",
+                VenueKind.Arena,
+                [new BlockLayout("KUZEY", RowCount: 2, SeatsPerRow: 3)]),
+            homeTeam,
+            "Fenerbahce Beko",
+            Now.AddDays(20),
+            Money.Create(100m),
+            Now);
 }
