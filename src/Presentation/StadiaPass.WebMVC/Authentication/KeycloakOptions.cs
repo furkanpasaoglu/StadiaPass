@@ -25,6 +25,11 @@ public sealed class KeycloakOptions
     [Required]
     public string ApiClientId { get; init; } = "stadiapass-api";
 
-    [Required]
-    public string PublicAuthority { get; init; } = "https://localhost:8080";
+    // There is deliberately no PublicAuthority here. The API needs one, because Scalar runs an OAuth flow in
+    // the reader's browser and the browser cannot resolve a container name. This application does not: the
+    // OIDC handler is registered against the Aspire resource name, and the address service discovery hands
+    // back is the one the browser is redirected to. The property used to exist, marked [Required], with the
+    // AppHost passing an environment variable to fill it - and nothing ever read it. A required-looking
+    // setting that changes nothing is worse than no setting, because the next person to debug a redirect
+    // will change it first and learn nothing from the result.
 }

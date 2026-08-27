@@ -78,7 +78,9 @@ builder.AddProject<Projects.StadiaPass_WebMVC>("webmvc")
     .WithEnvironment("Vault__Address", vaultEndpoint)
     .WithEnvironment("Vault__Token", vaultRootToken)
     .WithEnvironment("Vault__Path", vaultSecretPath)
-    .WithEnvironment("Keycloak__PublicAuthority", keycloak.GetEndpoint("http"))
+    // No Keycloak__PublicAuthority here, unlike the API. The OIDC handler in the portal is registered
+    // against the resource name and redirects the browser to whatever service discovery resolves; the
+    // setting was passed for years and read by nothing.
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
