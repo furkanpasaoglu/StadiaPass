@@ -4,10 +4,11 @@
 
 Stadyum ve arena biletleme sistemi; referans kalitesinde bir **.NET 10 / C# 14** Clean Architecture çözümü
 olarak yazıldı: Minimal API arka uç, MVC ön yüz, DDD domain modeli, MediatR ile CQRS, Keycloak destekli
-dinamik izin (permission) yetkilendirmesi ve .NET Aspire orkestrasyonu.
+dinamik izin (permission) yetkilendirmesi, arama kutusunun arkasında Elasticsearch ve .NET Aspire orkestrasyonu.
 
-Maçlar bir spor kategorisine ait olur ve bir mekânın koltuk planı üzerinden açılır. Müşteri interaktif
-haritadan bir koltuk seçer, koltuk onun adına tutulur, ve satın alma o tutmayı bilete dönüştürür.
+Maçlar bir spor kategorisine ait olur ve bir mekânın koltuk planı üzerinden açılır. Müşteri maçı adıyla
+arar ya da listeden seçer, interaktif haritadan bir koltuk seçer, koltuk onun adına tutulur, ve satın alma
+o tutmayı bilete dönüştürür.
 
 Buradaki asıl ilginç kısım o son cümlede saklı. İki kişi aynı koltuğu istiyor, para internetin öbür ucundaki
 bir şirkette el değiştiriyor, ve sonrasında olan hiçbir şeyin checkout'u düşürebilmesi gerekmiyor — bu yüzden
@@ -46,7 +47,7 @@ StadiaPass.slnx
 │   │       ├── Categories           # GetCategories / CreateCategory / UpdateCategory / DeleteCategory
 │   │       ├── Identity             # Keycloak Admin portu: Roles / Users dilimleri
 │   │       ├── Venues               # GetVenues / CreateVenue / UpdateVenue / DeleteVenue
-│   │       ├── Matches              # CreateMatch / GetUpcomingMatches / GetMatchSeatMap / EventHandlers
+│   │       ├── Matches              # CreateMatch / GetUpcoming / SearchMatches / Reindex / IndexMatch / Search portu
 │   │       ├── Payments             # sağlayıcı olay kontratları + ReconcilePayment / VoidPaidTicket
 │   │       └── Tickets              # ReserveSeat / ConfirmTicketPurchase / GetMyTickets / GetTicketById
 │   ├── Infrastructure
@@ -59,8 +60,9 @@ StadiaPass.slnx
 │   │   └── StadiaPass.Infrastructure# yukarıdaki portların adaptörleri
 │   │       ├── Email                # SMTP üzerinde MailKit + bilet onay maili şablonu
 │   │       ├── Locking              # Redis SET NX PX + Lua ile compare-and-delete serbest bırakma
-│   │       ├── Messaging            # RabbitMQ üzerinde MassTransit + bilet ve ödeme consumer'ları
-│   │       └── Payments             # Mock ve Stripe adaptörleri, sağlayıcı stratejisi, webhook doğrulama
+│   │       ├── Messaging            # RabbitMQ üzerinde MassTransit + bilet, ödeme ve indeks consumer'ları
+│   │       ├── Payments             # Mock ve Stripe adaptörleri, sağlayıcı stratejisi, webhook doğrulama
+│   │       └── Search               # indeks tanımı, Elasticsearch adaptörü, metrikler, tazelik worker'ı
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint keşfi + Scalar referansı
 │       │   ├── Authorization        # Keycloak JWT bağlantısı, KeycloakOptions, CurrentUser
@@ -194,9 +196,11 @@ sistemin içini anlatırlar.
 | `POST` | `/api/v1/venues` | `StadiaPass.Venues.Create` |
 | `PUT` | `/api/v1/venues/{id}` | `StadiaPass.Venues.Update` |
 | `DELETE` | `/api/v1/venues/{id}` | `StadiaPass.Venues.Delete` |
-| `GET` | `/api/v1/matches?category={sport}` | `StadiaPass.Matches.View` |
+| `GET` | `/api/v1/matches?category={sport}` | yok - gezinme anonim |
+| `GET` | `/api/v1/matches/search?q={text}` | yok - gezinme anonim |
+| `POST` | `/api/v1/matches/search/reindex` | `StadiaPass.Matches.Create` |
 | `POST` | `/api/v1/matches` | `StadiaPass.Matches.Create` |
-| `GET` | `/api/v1/matches/{id}/seats` | `StadiaPass.Matches.View` |
+| `GET` | `/api/v1/matches/{id}/seats` | yok - gezinme anonim |
 | `POST` | `/api/v1/matches/{id}/seats/{seatNumber}/reservation` | `StadiaPass.Tickets.Reserve` |
 | `POST` | `/api/v1/tickets` | `StadiaPass.Tickets.Purchase` (önce kartı çeker, sonra bileti keser) |
 | `POST` | `/api/v1/payments/webhook` | yok — anonim, imzayla doğrulanır |
@@ -310,6 +314,7 @@ koltuk haritasının dolmasını hesapsız izler; yalnızca koltuk tutmak veya s
 | Erişim | Anonim | Giriş yapmış |
 |---|---|---|
 | `GET /api/v1/matches` | evet | evet |
+| `GET /api/v1/matches/search` | evet | evet |
 | `GET /api/v1/matches/{id}/seats` | evet | evet |
 | koltuk tutma, satın alma, back office | hayır | uygun izinle |
 
@@ -327,6 +332,108 @@ Navigasyon misafire **Log in** ve **Register**, aksi halde giriş yapmış kulla
 OIDC challenge'ını Keycloak'ın kayıt endpoint'ine yönlendirir; böylece state, nonce ve PKCE sahipliği
 handler'da kalır. Yeni hesaplar realm'in varsayılan grubuna düşer, o grup da `Customer` rolünü taşır —
 dolayısıyla yeni kaydolan biri hemen satın alabilir.
+
+## Arama
+
+Listede yalnızca bir kategori filtresi vardı; hangi maçı istediğini bilen biri gelene kadar bu yeterlidir.
+Sadece `LIKE` bilen bir veritabanı ona yardım edemez: `Fenerbahce` ile `Fenerbahçe`'nin aynı kelime olduğunu,
+`fener` yazan birinin kelimeyi bitirmediğini, ya da altı sonuçtan birinin diğer beşinden daha ilgili
+olduğunu bilmez.
+
+**Elasticsearch yalnızca bu tek soruyu cevaplar, başka hiçbirini.** Liste, koltuk haritası ve üzerlerindeki
+her sayı PostgreSQL'den gelmeye devam eder. `pg_trgm` ile Postgres tam metin araması bu işi gayet iyi
+yapardı; Elasticsearch analyzer, alaka sıralaması ve yazım hatası toleransı öğrenmek için bilinçli olarak
+seçildi ve bilinçli olarak o sınırda tutuldu — port application katmanında `IMatchSearchIndex`, hiçbir
+Elasticsearch tipi `Infrastructure`'ın üstünde görünmüyor, arada bir "arama servisi" katmanı yok.
+
+### Önce ara, sonra getir
+
+```
+"fenerbahce"  ──►  Elasticsearch  ──►  [ id, id ]  alaka sırasıyla
+                                          │
+                                          ▼
+                            IMatchRepository.GetByIdsAsync
+                                          │
+                                          ▼
+                         PostgreSQL satırları, sıra elle geri uygulanır
+```
+
+İndeks yalnızca kimlik döner; ekrana ulaşan her alan taze okunur. Burada bayat bir koltuk sayısı
+gösterilemez, çünkü burada bayatlayacak bir koltuk sayısı yoktur — doküman bir maçın *adının ne olduğunu* ve
+ne zaman oynandığını tutar, hiç sayaç tutmaz. Boş, tutulu ve satılmış binanın bir yerinde her tıklamada
+değişir; bunları indekste tutmak, satırın bir an sonra zaten verdiği sayılar için her tutmada dokümanı
+yeniden yazmak olurdu.
+
+İki şey çağıranın sorumluluğunda ve ikisi de portun sözleşmesinde yazılı: `IN` sıra konusunda hiçbir söz
+vermez, o yüzden alaka sırası elle geri uygulanır; ve karşılığında satır olmayan bir kimlik sessizce atılır —
+silinmiş bir maçı hâlâ hatırlayan indeks geri kalmıştır, bozuk değil.
+
+### Türkçe analyzer
+
+```
+apostrophe → turkish_lowercase → turkish_stop → asciifolding → turkish_stemmer
+```
+
+Türkçe küçültme, `i`'nin büyüğünün `İ`, `ı`'nın büyüğünün `I` olduğunu bilir; invariant olan bunu iki yönde
+de yanlış yapar. Son üçünün sırası zevk meselesi değil ve tahminle değil ölçerek bulundu:
+
+| | İndekste | Yazılan | Eşleşir mi? |
+|---|---|---|---|
+| folding stemmer'dan **sonra** | `Fenerbahçe` → `fenerbahce` | `fenerbahce` → `fenerbah` | hayır |
+| folding stemmer'dan **önce** | `Fenerbahçe` → `fenerbah` | `fenerbahce` → `fenerbah` | evet |
+
+Stemmer `çe`'yi ek olarak tanımıyor, dolayısıyla `Fenerbahçe` bütün kalıp ancak ondan sonra çengelini
+kaybediyordu — İngilizce klavyede `fenerbahce` yazan ziyaretçi ise stemmer'a gördüğü yerde kestiği ASCII bir
+`ce` uzatıyordu. Folding'in eklenme sebebi olan kişi, tam da onun başarısız olduğu kişiydi. Stopword'ler
+folding'in önünde kalır, çünkü `_turkish_` listesi Türkçe yazılmıştır.
+
+**Yarım yazılmış bir kelime hiç stem'lenemez.** Stemmer, Türkçe kelimelerin nasıl *bittiğine* dair bir
+kurallar bütünüdür; kimsenin bitirmediği bir şeye uygulandığında onu kısaltmaz, değiştirir: `istanb`,
+hecenin sonundaki ünsüzün sertleşmesi kuralı yüzünden `istanp` olur ve `istanbul`'un hiçbir öneki öyle
+başlamaz. Üstelik tutarsız da başarısız olur, çünkü `istan` → `ista` olarak hayatta kalır ve eşleşir. Bu
+yüzden her metin alanı, stopword ve stemmer'sız bir `.prefix` alt-alanı taşır ve önek eşleşmesi onlara bakar.
+
+Bir arama iki şekilde puanlar, birinin tutması yeterlidir: `AUTO` fuzziness ile tam kelimeler (bir harf
+yanlış olabilsin diye) ve son kelime önek olarak (kimse kelimeyi bitirene kadar boş ekranla karşılaşmasın
+diye). İkisi de puanladığı için tam eşleşme yine önde gelir. Saat ikinci bir `must` değil `filter`'dır —
+bir maç ya başlamıştır ya başlamamıştır, puanlanacak bir şey yok — ve cluster tarafından çözülür, böylece bir
+maç iki konteynerin saati uyuşmadığı için sonuçlarda hayatta kalmaz.
+
+| Yazılan | Bulduğu |
+|---|---|
+| `fenerbahce`, `Fenerbahçe`, `FENERBAHÇE` | aynı iki maç |
+| `fener`, `trabzon`, `basket`, `istanb` | önek eşleşmeleri |
+| `galatasary` | Galatasaray, bir harf yanlış |
+| `sukru`, `Şükrü` | mekân adından |
+
+### Cluster ayakta olmadığında
+
+Elasticsearch'ü kaybetmek ziyaretçiye yalnızca arama kutusuna mal olur. Liste, koltuk haritası ve ödeme
+çalışmaya devam eder — ve sayfa bunu açıkça söyler, sessizce her şeyi göstermez; çünkü insan tam o zaman
+aradığı maçın satışta olmadığı sonucuna varır.
+
+Bu önce yazıldı, sonra ölçüldü; doğru olmasının tek sebebi de bu. Client'ın varsayılan ayarlarıyla durmuş bir
+konteyner isteği bir dakika askıda bırakıyordu; üstelik Aspire entegrasyonunun health check'i cluster'ı
+`/health`'e koyuyordu, yani durmuş tek bir konteyner tüm API'nin kendini trafik alamaz ilan etmesine yol
+açıyordu — o sırada API hâlâ fikstür listeliyor, koltuk tutuyor ve ödeme alıyorken. Artık client'ın beş
+saniyelik, aramanın iki saniyelik tavanı var, cluster API'nin readiness'ından çıkarıldı ve düz listeye düşüş
+**2,0 saniye** ölçüldü.
+
+### İndeksi veritabanıyla aynı hizada tutmak
+
+Maç oluşturmak, maçın kendisiyle **aynı transaction'da** [outbox](#outbox)'a bir `MatchCatalogueChangedEvent`
+yazar; böylece commit olan maç indeksin haberdar olduğu maçtır, rollback olan ise olmadığı. Olay yalnızca
+kimliği taşır: consumer satırı yeniden okur, dolayısıyla iki teslimat hangi sırayla gelirse gelsin aynı
+doküman oluşur; doküman maç kimliğiyle anahtarlandığı için tekrar teslimat kopya değil üzerine yazmadır.
+Back office'te açılan bir maç, elle hiçbir şey yapılmadan yaklaşık dokuz saniye sonra aranabilir oluyor.
+
+`POST /api/v1/matches/search/reindex` indeksin tamamını veritabanından yeniden kurar. "PostgreSQL gerçeğin
+kaynağıdır" cümlesini iddia olmaktan çıkarıp gerçek yapan şey budur: indeks silinebilir, konteyneriyle
+kaybolabilir ya da değişen bir analyzer'ın gerisinde kalabilir — bir indeks yerinde yeniden analiz edilemez —
+ve tek bir çağrı onu geri getirir.
+
+> Bilerek yapılmadı: facet ve agregasyon yok, ve arama açık olan kategori sekmesiyle daraltılmıyor. İndeksi
+> besleyen tek olay maç oluşturma, çünkü henüz hiçbir şey bir fikstürü iptal etmiyor ya da ertelemiyor.
 
 ## Kimlik portalı
 
@@ -454,6 +561,7 @@ monitoring
 └── grafana
     ├── provisioning/datasources/prometheus.yml   # data source, otomatik kaydedilir
     ├── provisioning/dashboards/dashboards.yml    # dosya sağlayıcı
+    ├── provisioning/alerting/messaging.yml       # bir insan gerektiren iki kural
     └── dashboards/stadiapass-runtime.json        # dashboard'un kendisi
 ```
 
@@ -472,6 +580,35 @@ kaynak adıyla ulaşır; bu da data source'u Aspire'ın hangi host portunu yayı
 | CPU ve thread pool | `dotnet_process_cpu_time_seconds_total`, `dotnet_thread_pool_thread_count_total` |
 | Exception'lar ve lock contention | `dotnet_exceptions_total`, `dotnet_monitor_lock_contentions_total` |
 | PostgreSQL komut süresi | `db_client_operation_duration_seconds_bucket` |
+| Gönderilmeyi bekleyen, vazgeçilen, derinlik | `stadiapass_outbox_*`, `stadiapass_inbox_*` |
+| Cevaplanan arama, gecikme, listeye düşüş | `outcome`'a göre `stadiapass_search_duration_seconds_*` |
+| Arama indeksi ile veritabanı | `stadiapass_search_indexed_matches`, `stadiapass_search_indexable_matches` |
+
+### Bir insan gerektiren sayılar
+
+Son üç satırın üstündeki her şey altyapıdır: herhangi bir ASP.NET Core uygulamasında aynı görünür ve bu
+uygulamaya dair hiçbir şey söylemez. Son üçü bu sistem için yazılmış olanlar.
+
+Bakılacak panel **"Given up on"**. İki sweeper da yeniden dener, geri çekilir ve sonunda durur; birinin
+durduğu an, o mesajın kendi başına hiçbir yere gitmeyeceği andır — kimsenin almadığı bir bilet onayı, ya da
+parasını geri alan birine koltuğu satılı bırakan bir chargeback. İki alarm kuralı aynı koşulu izler ve
+`provisioning/alerting/messaging.yml`'den provision edilir, böylece klonlayan herkese dashboard'la birlikte
+gelir. Beş dakika bekletilirler: sayaçlar beş saniyede bir yayınlanıyor, yeniden başlatmaya denk gelen tek
+bir scrape gürültüdür, beş dakikası değildir. Contact point tanımlanmadı, dolayısıyla Grafana'nın varsayılan
+politikasına düşerler — arkasında SMTP olmayan bir placeholder adres — ve alarm listesinde görünüp hiçbir
+yere teslim edilmezler; geliştirme ortamı için doğru cevap budur.
+
+**"Search index against the database"** paneli, hiç ses çıkarmayan tek arama arızası için var. Düşmüş bir
+cluster gürültülüdür: sorgu hata fırlatır, handler loglar, sayfa aramanın kapalı olduğunu söyler, histogram
+`unavailable` ile dolar. *Duran ama boş* bir indeks hiçbir şey söylemez — her arama başarılı olur, her arama
+hiçbir şey bulmaz, ve site bozuk bir gişe gibi değil, hiç fikstürü olmayan bir gişe gibi görünür. Bu yüzden
+iki taraf da zamanlayıcıyla sayılır ve üst üste çizilir. Farkları değil ikisi birden, çünkü dört yüzde üç
+gerilik ile üçte üç gerilik aynı olay değildir.
+
+Arama histogramının kova sınırları varsayılana bırakılmadı ve bu süs değil: .NET `0, 5, 10, 25 … 10000` diye
+kovalar; bunlar milisaniye için mantıklı, saniye için işe yaramaz. Gerçek her arama — yaklaşık yirmi
+milisaniye — ilk kovaya düşüyordu ve oradan okunan p95 yaklaşık beş saniye diyordu. Kendinden emin bir
+şekilde, iki büyüklük mertebesi yanlış.
 
 ## Sırlar
 

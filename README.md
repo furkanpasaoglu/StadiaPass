@@ -4,10 +4,11 @@
 
 Stadium and arena ticketing built as a reference-grade **.NET 10 / C# 14** Clean Architecture solution:
 Minimal API backend, MVC front end, DDD domain model, CQRS with MediatR, Keycloak-backed dynamic permission
-authorization, and .NET Aspire orchestration.
+authorization, Elasticsearch behind the search box, and .NET Aspire orchestration.
 
-Matches belong to a sport category and are opened against a venue seating plan. Customers pick a seat off an
-interactive map, the seat is held for them, and the purchase turns that hold into a ticket.
+Matches belong to a sport category and are opened against a venue seating plan. Customers find a fixture by
+name or pick it off the listing, choose a seat on an interactive map, the seat is held for them, and the
+purchase turns that hold into a ticket.
 
 Most of what is interesting here is in that last sentence. Two people want the same seat, money moves at a
 company on the other side of the internet, and the things that happen afterwards must not be able to fail the
@@ -46,7 +47,7 @@ StadiaPass.slnx
 │   │       ├── Categories           # GetCategories / CreateCategory / UpdateCategory / DeleteCategory
 │   │       ├── Identity             # Keycloak Admin port: Roles / Users slices
 │   │       ├── Venues               # GetVenues / CreateVenue / UpdateVenue / DeleteVenue
-│   │       ├── Matches              # CreateMatch / GetUpcomingMatches / GetMatchSeatMap / EventHandlers
+│   │       ├── Matches              # CreateMatch / GetUpcoming / SearchMatches / Reindex / IndexMatch / Search port
 │   │       ├── Payments             # provider event contracts + ReconcilePayment / VoidPaidTicket
 │   │       └── Tickets              # ReserveSeat / ConfirmTicketPurchase / GetMyTickets / GetTicketById
 │   ├── Infrastructure
@@ -59,8 +60,9 @@ StadiaPass.slnx
 │   │   └── StadiaPass.Infrastructure# adapters for the ports above
 │   │       ├── Email                # MailKit over SMTP + the ticket confirmation template
 │   │       ├── Locking              # Redis SET NX PX + a Lua compare-and-delete release
-│   │       ├── Messaging            # MassTransit over RabbitMQ + the ticket and payment consumers
-│   │       └── Payments             # Mock and Stripe adapters, provider strategy, webhook verification
+│   │       ├── Messaging            # MassTransit over RabbitMQ + the ticket, payment and index consumers
+│   │       ├── Payments             # Mock and Stripe adapters, provider strategy, webhook verification
+│   │       └── Search               # index definition, Elasticsearch adapter, metrics, freshness worker
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API - MapGroup + IEndpoint discovery + Scalar reference
 │       │   ├── Authorization        # Keycloak JWT wiring, KeycloakOptions, CurrentUser
@@ -194,9 +196,11 @@ the inside of the system.
 | `POST` | `/api/v1/venues` | `StadiaPass.Venues.Create` |
 | `PUT` | `/api/v1/venues/{id}` | `StadiaPass.Venues.Update` |
 | `DELETE` | `/api/v1/venues/{id}` | `StadiaPass.Venues.Delete` |
-| `GET` | `/api/v1/matches?category={sport}` | `StadiaPass.Matches.View` |
+| `GET` | `/api/v1/matches?category={sport}` | none - browsing is anonymous |
+| `GET` | `/api/v1/matches/search?q={text}` | none - browsing is anonymous |
+| `POST` | `/api/v1/matches/search/reindex` | `StadiaPass.Matches.Create` |
 | `POST` | `/api/v1/matches` | `StadiaPass.Matches.Create` |
-| `GET` | `/api/v1/matches/{id}/seats` | `StadiaPass.Matches.View` |
+| `GET` | `/api/v1/matches/{id}/seats` | none - browsing is anonymous |
 | `POST` | `/api/v1/matches/{id}/seats/{seatNumber}/reservation` | `StadiaPass.Tickets.Reserve` |
 | `POST` | `/api/v1/tickets` | `StadiaPass.Tickets.Purchase` (charges the card, then issues) |
 | `POST` | `/api/v1/payments/webhook` | none - anonymous, verified by signature |
@@ -309,6 +313,7 @@ watches the seat map fill up without an account; only holding or buying a seat a
 | Reached by | Anonymous | Signed in |
 |---|---|---|
 | `GET /api/v1/matches` | yes | yes |
+| `GET /api/v1/matches/search` | yes | yes |
 | `GET /api/v1/matches/{id}/seats` | yes | yes |
 | seat reservation, purchase, back office | no | with the matching permission |
 
@@ -326,6 +331,112 @@ The navigation shows **Log in** and **Register** to a guest and the signed-in us
 retargets the OIDC challenge at Keycloak's registration endpoint, so the handler keeps ownership of state,
 nonce and PKCE. New accounts land in the realm default group, which carries the `Customer` role, so someone
 who just signed up can buy immediately.
+
+## Search
+
+The listing had a category filter and nothing else, which is fine until somebody knows which match they
+want. A database that only knows `LIKE` cannot help them: it has no idea that `Fenerbahce` and `Fenerbahçe`
+are the same word, that somebody typing `fener` has not finished, or that one of six results is more
+interesting than the other five.
+
+**Elasticsearch answers that one question and no others.** The listing, the seat map and every number on
+them still come from PostgreSQL. Postgres full-text search with `pg_trgm` would have done a competent job of
+this; Elasticsearch was chosen to learn analyzers, relevance and typo tolerance, and then deliberately held
+to that line — the port is `IMatchSearchIndex` in the application layer, no Elasticsearch type is visible
+above `Infrastructure`, and there is no search service in between.
+
+### Search then fetch
+
+```
+"fenerbahce"  ──►  Elasticsearch  ──►  [ id, id ]  in relevance order
+                                          │
+                                          ▼
+                            IMatchRepository.GetByIdsAsync
+                                          │
+                                          ▼
+                        rows from PostgreSQL, order re-applied by hand
+```
+
+The index answers with identifiers and nothing else, and every field that reaches the screen is read fresh.
+A visitor cannot be shown a stale seat count here because there is no seat count here to be stale — the
+document holds what a fixture is *called* and when it is played, and no counters at all. Free, held and sold
+change on every click somewhere in the building; keeping them in the index would mean rewriting the document
+on every hold for numbers the row supplies a moment later.
+
+Two things are the caller's to deal with, and both are in the port's contract: `IN` makes no promise about
+order, so relevance is re-applied by hand, and an identifier with no row behind it is dropped without a word
+— an index that still remembers a deleted match is behind, not broken.
+
+### The Turkish analyzer
+
+```
+apostrophe → turkish_lowercase → turkish_stop → asciifolding → turkish_stemmer
+```
+
+Turkish lowercasing knows that the capital of `i` is `İ` and of `ı` is `I`, which the invariant one gets
+wrong in both directions. The order of the last three is not a matter of taste and was measured rather than
+guessed:
+
+| | Indexed | Typed | Match? |
+|---|---|---|---|
+| folding **after** the stemmer | `Fenerbahçe` → `fenerbahce` | `fenerbahce` → `fenerbah` | no |
+| folding **before** the stemmer | `Fenerbahçe` → `fenerbah` | `fenerbahce` → `fenerbah` | yes |
+
+The stemmer does not recognise `çe` as a suffix, so `Fenerbahçe` survived whole and only then lost its
+cedilla — while a visitor typing `fenerbahce` on an English keyboard handed the stemmer an ASCII `ce` it
+strips on sight. The one person the folding was added for was the one it failed. Stopwords stay ahead of the
+folding, because the `_turkish_` list is written in Turkish.
+
+**A half-typed word cannot be stemmed at all.** The stemmer is a set of rules about how Turkish words *end*,
+and applying them to something nobody has finished typing rewrites it rather than shortening it: `istanb`
+comes out as `istanp`, on the rule about consonants hardening at the end of a syllable, and no prefix of
+`istanbul` begins with that. It failed inconsistently, too, since `istan` survives as `ista` and does match.
+Every text field therefore carries a `.prefix` sub-field with the stopwords and the stemmer left out, and
+prefix matching runs against those.
+
+A search scores two ways and needs one of them: whole words with `AUTO` fuzziness so a letter can be wrong,
+and the last word as a prefix so nobody is met with nothing until they finish spelling. Both score, so an
+exact match still wins. The clock is a `filter` rather than a second `must` — a fixture has kicked off or it
+has not, there is nothing to score — and it is resolved by the cluster, so a match does not survive in the
+results because two containers disagree about the time.
+
+| Typed | Finds |
+|---|---|
+| `fenerbahce`, `Fenerbahçe`, `FENERBAHÇE` | the same two fixtures |
+| `fener`, `trabzon`, `basket`, `istanb` | prefix matches |
+| `galatasary` | Galatasaray, one letter wrong |
+| `sukru`, `Şükrü` | by venue |
+
+### When the cluster is not there
+
+Losing Elasticsearch costs the visitor the search box and nothing else. The listing, the seat map and the
+checkout carry on, and the page says so rather than quietly showing everything — which is how somebody
+concludes the fixture they came for is not on sale.
+
+That was written down first and then measured, which is the only reason it is true. With the client's
+default settings a stopped container left the request hanging for a minute, and the Aspire integration's
+health check put the cluster into `/health`, so one stopped container also made the whole API report itself
+unable to serve traffic — while it was still listing fixtures, holding seats and taking payments. The client
+now has a five second ceiling, a search two, the cluster is out of the API's readiness, and the fall back to
+the plain listing was measured at **2.0 seconds**.
+
+### Keeping the index level with the database
+
+Creating a match writes a `MatchCatalogueChangedEvent` to the [outbox](#the-outbox) in the same transaction
+as the fixture, so a match that commits is a match the index hears about and a match that rolls back is one
+it does not. The event carries the identifier and nothing else: the consumer re-reads the row, so two
+deliveries in either order land the same document, and a document keyed by the match id makes a redelivery an
+overwrite rather than a duplicate. A match opened in the back office is findable about nine seconds later
+with nothing done by hand.
+
+`POST /api/v1/matches/search/reindex` rebuilds the whole index from the database. That is what makes
+"PostgreSQL is the source of truth" a fact rather than a claim: the index can be dropped, lost with its
+container, or left behind by a changed analyzer — an index cannot be re-analysed in place — and one call
+puts it back.
+
+> Deliberately not built: facets and aggregations, and a search is not narrowed by whichever category tab
+> happened to be open. Match creation is the only event feeding the index, because nothing cancels or
+> postpones a fixture yet.
 
 ## Identity portal
 
@@ -453,6 +564,7 @@ monitoring
 └── grafana
     ├── provisioning/datasources/prometheus.yml   # data source, auto-registered
     ├── provisioning/dashboards/dashboards.yml    # file provider
+    ├── provisioning/alerting/messaging.yml       # the two rules that need a person
     └── dashboards/stadiapass-runtime.json        # the dashboard itself
 ```
 
@@ -471,6 +583,36 @@ container network, which keeps the data source independent of whichever host por
 | CPU and thread pool | `dotnet_process_cpu_time_seconds_total`, `dotnet_thread_pool_thread_count_total` |
 | Exceptions and lock contention | `dotnet_exceptions_total`, `dotnet_monitor_lock_contentions_total` |
 | PostgreSQL command duration | `db_client_operation_duration_seconds_bucket` |
+| Waiting to be sent, given up on, depth | `stadiapass_outbox_*`, `stadiapass_inbox_*` |
+| Searches answered, latency, fallbacks | `stadiapass_search_duration_seconds_*` by `outcome` |
+| Search index against the database | `stadiapass_search_indexed_matches`, `stadiapass_search_indexable_matches` |
+
+### The numbers that need a person
+
+Everything above the last three rows is infrastructure: it would look the same in any ASP.NET Core
+application and says nothing about this one. The last three are the ones written for this system.
+
+**Given up on** is the panel to look at. Both sweepers retry, back off and eventually stop, and the moment
+one stops is the moment a message is never going anywhere on its own — a ticket confirmation nobody
+received, or a chargeback that left a seat sold to somebody who took their money back. Two alert rules watch
+the same condition, provisioned from `provisioning/alerting/messaging.yml` so a clone gets them with the
+dashboard. They are held for five minutes, because the counts are republished every five seconds and one
+scrape landing mid-restart is noise. No contact point is declared, so they fall through to Grafana's default
+policy — a placeholder address with no SMTP behind it — and are visible in the alert list and delivered
+nowhere, which is the right answer for a development stack.
+
+**Search index against the database** exists for the one search failure that makes no noise. A cluster that
+is down is loud: the query throws, the handler logs it, the page says search is unavailable, the histogram
+fills with `unavailable`. An index that is *there and empty* says nothing at all — every search succeeds,
+every search finds nothing, and the site reads as a box office with no fixtures rather than a broken one. So
+both sides are counted on a timer and drawn on top of each other. They are two lines rather than the
+difference between them, because a lag of three out of four hundred and three out of three are not the same
+event.
+
+The search histogram's bucket boundaries are spelled out rather than defaulted, and that is not decoration:
+.NET buckets at `0, 5, 10, 25 … 10000`, which are sensible for milliseconds and useless for seconds. Every
+real search — about twenty milliseconds — landed in the first bucket and a p95 read off it came back at
+roughly five seconds. Confidently, and wrong by two orders of magnitude.
 
 ## Secrets
 
