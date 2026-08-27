@@ -245,6 +245,98 @@
         }
       ],
       "fieldConfig": { "defaults": { "custom": { "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Waiting to be sent",
+      "description": "Written and not yet handed over: outbox rows the broker has not taken, and provider events the inbox has not put on the bus. A spike is ordinary. A number that climbs and stays up is a sweeper that cannot keep up, or one that cannot reach RabbitMQ.",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "stadiapass-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(stadiapass_outbox_pending{service=~\"$service\"})",
+          "legendFormat": "outbox"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(stadiapass_inbox_pending{service=~\"$service\"})",
+          "legendFormat": "inbox"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "stat",
+      "title": "Given up on",
+      "description": "Messages the sweepers have stopped retrying. Nothing will pick these up again: above zero means a confirmation nobody received or a chargeback nobody acted on, and it is waiting for a person. This is what the provisioned alert fires on.",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "stadiapass-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(stadiapass_outbox_dead{service=~\"$service\"})",
+          "legendFormat": "outbox"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(stadiapass_inbox_dead{service=~\"$service\"})",
+          "legendFormat": "inbox"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox and inbox depth",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "stadiapass-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(stadiapass_outbox_pending{service=~\"$service\"})",
+          "legendFormat": "outbox pending"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(stadiapass_inbox_pending{service=~\"$service\"})",
+          "legendFormat": "inbox pending"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(stadiapass_outbox_dead{service=~\"$service\"})",
+          "legendFormat": "outbox dead"
+        },
+        {
+          "refId": "D",
+          "expr": "sum(stadiapass_inbox_dead{service=~\"$service\"})",
+          "legendFormat": "inbox dead"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "decimals": 0, "custom": { "fillOpacity": 10, "showPoints": "never" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*dead" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          }
+        ]
+      }
     }
   ]
 }

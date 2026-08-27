@@ -1,0 +1,95 @@
+# The two numbers in this system that mean "a person has to do something".
+#
+# Both sweepers retry, back off and eventually stop. Everything up to that point is the system healing
+# itself and is not worth waking anybody for; the moment one of them stops is the moment a message is
+# never going anywhere on its own - a ticket confirmation nobody received, or a chargeback that left a
+# seat sold to somebody who took their money back. The gauges have been exported since the outbox was
+# written and nothing was watching them, which is the same as not measuring at all.
+#
+# Provisioned rather than clicked, so a clone gets the alert with the dashboard instead of a README
+# paragraph asking somebody to recreate it.
+#
+# No contact point is declared here, which means these fall through to Grafana's default notification
+# policy - a receiver called grafana-default-email pointing at <example@email.com> with no SMTP server
+# behind it. So a firing rule is visible in Grafana's alert list and delivered nowhere, which is the right
+# answer for a development stack with no inbox to mail and no pager to raise. Pointing it somewhere real
+# is a deployment decision, not a code one.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: messaging
+    folder: StadiaPass
+    # Faster than this buys nothing: the sweepers publish their counts every five seconds and a message
+    # only reaches this state after minutes of retrying.
+    interval: 1m
+    rules:
+      - uid: stadiapass-outbox-dead
+        title: Outbox messages the sweeper has given up on
+        condition: threshold
+        # Held for five minutes before it fires. The count is republished on a timer, so a single scrape
+        # landing mid-restart is noise; five minutes of it is not.
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: >-
+            The outbox has messages it will never send. Each one is something the system decided to do and
+            then could not tell anybody about - most likely a ticket confirmation. They are in
+            stadiapass.outbox_messages with failed_on_utc set and their error recorded.
+        labels:
+          severity: warning
+        data:
+          - refId: depth
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: stadiapass-prometheus
+            model:
+              refId: depth
+              expr: sum(stadiapass_outbox_dead)
+              instant: true
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              refId: threshold
+              type: threshold
+              expression: depth
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+
+      - uid: stadiapass-inbox-dead
+        title: Provider events the sweeper has given up on
+        condition: threshold
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: >-
+            The inbox has provider events it will never act on. Worse than the outbox: the provider was
+            told we had them and will not send them again, so a refund or a dispute may be recorded at
+            Stripe and nowhere here. They are in stadiapass.inbox_messages with failed_on_utc set.
+        labels:
+          severity: warning
+        data:
+          - refId: depth
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: stadiapass-prometheus
+            model:
+              refId: depth
+              expr: sum(stadiapass_inbox_dead)
+              instant: true
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              refId: threshold
+              type: threshold
+              expression: depth
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
