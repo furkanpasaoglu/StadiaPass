@@ -15,37 +15,47 @@ internal sealed class UserEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder builder)
     {
+        // Per verb, for the reason spelled out in RoleEndpoints: Users.View and Users.Create were declared,
+        // offered in the role editor, and granted nothing while Manage guarded the whole group.
         var group = builder
             .MapGroup("/api/v1/users")
             .WithTags("Users")
-            .RequireAuthorization(StadiaPassPermissions.Users.Manage);
+            .RequireAuthorization();
 
         group.MapGet("/", GetAllAsync)
             .WithName("GetUsers")
-            .WithSummary("Returns a page of users with their roles, plus the assignable role names.");
+            .WithSummary("Returns a page of users with their roles, plus the assignable role names.")
+            .RequireAuthorization(StadiaPassPermissions.Users.View);
 
         group.MapPost("/", CreateAsync)
             .WithName("CreateUser")
             .WithSummary("Creates a user in Keycloak and assigns the selected roles.")
             .ProducesValidationProblem()
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization(StadiaPassPermissions.Users.Create);
 
+        // Editing somebody who already exists - their profile, their roles, or their existence - is Manage.
+        // Handing out roles especially: that is the one call that decides what another person may do.
         group.MapPut("/{userId}", UpdateAsync)
             .WithName("UpdateUser")
             .WithSummary("Updates the profile of a user.")
             .ProducesValidationProblem()
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization(StadiaPassPermissions.Users.Manage);
 
         group.MapPut("/{userId}/roles", UpdateRolesAsync)
             .WithName("UpdateUserRoles")
             .WithSummary("Replaces the roles assigned to a user.")
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization(StadiaPassPermissions.Users.Manage);
 
         group.MapDelete("/{userId}", DeleteAsync)
             .WithName("DeleteUser")
             .WithSummary("Deletes a user.")
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization(StadiaPassPermissions.Users.Manage);
     }
 
     private static async Task<Ok<UserListDto>> GetAllAsync(

@@ -7,7 +7,7 @@ using StadiaPass.WebMVC.Services;
 namespace StadiaPass.WebMVC.Areas.Admin.Controllers;
 
 [Area("Admin")]
-[Authorize(Policy = StadiaPassPermissions.Users.Manage)]
+[Authorize(Policy = StadiaPassPermissions.Users.View)]
 public sealed class UsersController(IStadiaPassIdentityClient identityClient) : Controller
 {
     [HttpGet]
@@ -24,6 +24,7 @@ public sealed class UsersController(IStadiaPassIdentityClient identityClient) : 
     }
 
     [HttpGet]
+    [Authorize(Policy = StadiaPassPermissions.Users.Create)]
     public async Task<IActionResult> Create(CancellationToken cancellationToken)
     {
         ViewBag.AssignableRoles = (await identityClient.GetUsersAsync(null, cancellationToken)).AssignableRoles;
@@ -33,6 +34,7 @@ public sealed class UsersController(IStadiaPassIdentityClient identityClient) : 
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [Authorize(Policy = StadiaPassPermissions.Users.Create)]
     public async Task<IActionResult> Create(CreateUserInput input, CancellationToken cancellationToken)
     {
         if (ModelState.IsValid)
@@ -56,6 +58,7 @@ public sealed class UsersController(IStadiaPassIdentityClient identityClient) : 
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [Authorize(Policy = StadiaPassPermissions.Users.Manage)]
     public async Task<IActionResult> UpdateRole(string userId, string? role, CancellationToken cancellationToken)
     {
         string[] roles = string.IsNullOrWhiteSpace(role) ? [] : [role];
@@ -71,6 +74,7 @@ public sealed class UsersController(IStadiaPassIdentityClient identityClient) : 
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [Authorize(Policy = StadiaPassPermissions.Users.Manage)]
     public async Task<IActionResult> ToggleEnabled(
         string userId,
         string? email,
@@ -91,6 +95,7 @@ public sealed class UsersController(IStadiaPassIdentityClient identityClient) : 
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [Authorize(Policy = StadiaPassPermissions.Users.Manage)]
     public async Task<IActionResult> Delete(string userId, CancellationToken cancellationToken)
     {
         var result = await identityClient.DeleteUserAsync(userId, cancellationToken);

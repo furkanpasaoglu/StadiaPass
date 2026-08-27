@@ -11,7 +11,7 @@ namespace StadiaPass.WebMVC.Areas.Admin.Controllers;
 /// publishes, so a permission added to <see cref="StadiaPassPermissions"/> shows up here with no UI change.
 /// </summary>
 [Area("Admin")]
-[Authorize(Policy = StadiaPassPermissions.Roles.Manage)]
+[Authorize(Policy = StadiaPassPermissions.Roles.View)]
 public sealed class RolesController(IStadiaPassIdentityClient identityClient) : Controller
 {
     [HttpGet]
@@ -30,6 +30,7 @@ public sealed class RolesController(IStadiaPassIdentityClient identityClient) : 
     }
 
     [HttpGet]
+    [Authorize(Policy = StadiaPassPermissions.Roles.Create)]
     public async Task<IActionResult> Create(CancellationToken cancellationToken)
     {
         var list = await identityClient.GetRolesAsync(cancellationToken);
@@ -41,6 +42,7 @@ public sealed class RolesController(IStadiaPassIdentityClient identityClient) : 
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [Authorize(Policy = StadiaPassPermissions.Roles.Create)]
     public async Task<IActionResult> Create(CreateRoleInput input, CancellationToken cancellationToken)
     {
         if (ModelState.IsValid)
@@ -64,6 +66,7 @@ public sealed class RolesController(IStadiaPassIdentityClient identityClient) : 
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [Authorize(Policy = StadiaPassPermissions.Roles.Manage)]
     public async Task<IActionResult> UpdatePermissions(RolePermissionsInput input, CancellationToken cancellationToken)
     {
         var result = await identityClient.UpdateRolePermissionsAsync(
@@ -78,6 +81,7 @@ public sealed class RolesController(IStadiaPassIdentityClient identityClient) : 
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [Authorize(Policy = StadiaPassPermissions.Roles.Manage)]
     public async Task<IActionResult> Delete(string roleName, CancellationToken cancellationToken)
     {
         var result = await identityClient.DeleteRoleAsync(roleName, cancellationToken);
