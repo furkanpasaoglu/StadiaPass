@@ -50,6 +50,24 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<Match>> GetUpcomingByIdsAsync(
+        IReadOnlyCollection<Guid> matchIds,
+        DateTimeOffset fromUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (matchIds.Count is 0)
+        {
+            return [];
+        }
+
+        // The same Upcoming predicate the listing and the freshness count use, narrowed to what the index
+        // named. Writing the filter out again here is exactly the drift it exists to prevent.
+        return await Upcoming(fromUtc, categoryName: null)
+            .Where(match => matchIds.Contains(match.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     public Func<CancellationToken, Task> PrepareSeatSaleCounters(Match match)
     {
         // The aggregate has already moved its own counters in memory, and it should: that is what keeps the
@@ -116,23 +134,13 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
         CancellationToken cancellationToken = default) =>
         await Set.AsNoTracking()
             .Where(match => match.Seats.Any(seat =>
-                seat.Status == SeatStatus.Reserved && seat.ReservationExpiresAtUtc < now))
+                seat.Status == SeatStatus.Reserved
+                && (seat.ReservationExpiresAtUtc < now || match.Status == MatchStatus.Cancelled)))
             .OrderBy(match => match.KickOffUtc)
             .Take(maxMatches)
             .Select(match => match.Id)
             .ToListAsync(cancellationToken);
 
-    /// <inheritdoc />
-    public Task<Match?> GetWithExpiredReservationsAsync(
-        Guid matchId,
-        DateTimeOffset now,
-        CancellationToken cancellationToken = default) =>
-        // Filtered include: a match in a 20k venue comes back carrying only the handful of seats whose hold
-        // has run out, not its whole seat map.
-        Set
-            .Include(match => match.Seats.Where(seat =>
-                seat.Status == SeatStatus.Reserved && seat.ReservationExpiresAtUtc < now))
-            .FirstOrDefaultAsync(match => match.Id == matchId, cancellationToken);
 
     /// <inheritdoc />
     public Func<CancellationToken, Task> PrepareSeatReleaseCounters(Match match, int releasedCount)

@@ -95,7 +95,7 @@ internal sealed partial class ExpiredReservationCleanupWorker(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        var match = await matchRepository.GetWithExpiredReservationsAsync(matchId, now, cancellationToken);
+        var match = await matchRepository.GetWithHeldSeatsAsync(matchId, cancellationToken);
 
         if (match is null)
         {
@@ -105,8 +105,14 @@ internal sealed partial class ExpiredReservationCleanupWorker(
 
         // Read once. The aggregate is about to change its own copy of them, and the count of what was
         // released is what the counter update needs.
+        //
+        // Two ways to qualify. A hold whose ten minutes have run out is the ordinary one. The other is any
+        // hold at all on a fixture that has been called off: cancelling gives back the holds it can see, but
+        // one taken between that read and its commit is not one of them, and nobody can finish buying it
+        // either. Waiting out its full window would leave the seat counted against a fixture that is not
+        // being played.
         var expired = match.Seats
-            .Where(seat => seat.IsReservationExpired(now))
+            .Where(seat => seat.IsReservationExpired(now) || match.Status is MatchStatus.Cancelled)
             .Select(seat => seat.SeatNumber.ToString())
             .ToArray();
 

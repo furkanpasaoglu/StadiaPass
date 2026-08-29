@@ -63,11 +63,16 @@ internal sealed partial class SearchMatchesQueryHandler(
             return new MatchSearchResultDto(term, SearchAvailable: false, await ListAsync(cancellationToken));
         }
 
-        var matches = await matchRepository.GetByIdsAsync(matchIds, cancellationToken);
+        var matches = await matchRepository.GetUpcomingByIdsAsync(
+            matchIds, dateTimeProvider.UtcNow, cancellationToken);
         var byId = matches.ToDictionary(match => match.Id);
 
-        // Identifiers the database did not answer for are dropped without a word: an index that still
-        // remembers a match somebody deleted is behind, not broken, and the next reindex settles it.
+        // Identifiers the fetch did not answer for are dropped without a word, and there are now two ways to
+        // be one. An index that still remembers a match somebody deleted is behind, not broken. So is one
+        // that still remembers a match called off a moment ago - the message that removes its document may
+        // still be in a retry queue - and that one matters more, because the row is there and would have
+        // been shown. The fetch applies the listing's own rule, so a search cannot offer what the listing
+        // has already withdrawn.
         var found = matchIds
             .Where(byId.ContainsKey)
             .Select(matchId => byId[matchId].ToDto())

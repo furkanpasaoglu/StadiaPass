@@ -107,6 +107,27 @@ public sealed class SearchMatchesQueryHandlerTests
             .SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Should_FetchOnlyTheFixturesTheListingWouldShow()
+    {
+        // Arrange
+        var match = Football("Fenerbahce");
+        Indexed(match.Id);
+        Stored(match);
+
+        // Act
+        await _handler.Handle(new SearchMatchesQuery("fener"), CancellationToken.None);
+
+        // Assert - the index is a projection and can be behind. A fixture called off a moment ago still has a
+        // document until the message that removes it is delivered, and its row is still there to be fetched,
+        // so trusting the index would let the search box offer a match the listing has already withdrawn.
+        // Asking through the filtered fetch is what stops the two disagreeing.
+        await _matchRepository.Received(1).GetUpcomingByIdsAsync(
+            Arg.Any<IReadOnlyCollection<Guid>>(), TestData.Now, Arg.Any<CancellationToken>());
+        await _matchRepository.DidNotReceive().GetByIdsAsync(
+            Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>());
+    }
+
     private static Match Football(string homeTeam) => TestData.FootballMatch(homeTeam);
 
     private void Indexed(params Guid[] matchIds) =>
@@ -119,7 +140,7 @@ public sealed class SearchMatchesQueryHandlerTests
     /// </summary>
     private void Stored(params Match[] matches) =>
         _matchRepository
-            .GetByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .GetUpcomingByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
                 var asked = callInfo.Arg<IReadOnlyCollection<Guid>>();

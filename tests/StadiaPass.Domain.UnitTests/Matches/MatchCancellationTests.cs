@@ -79,8 +79,10 @@ public sealed class MatchCancellationTests
         // Act
         match.Cancel(TestData.Now);
 
-        // Assert - everything downstream of a cancellation hangs off this: the refunds, the search index and
-        // the cached listing.
+        // Assert - raised for the sake of the model rather than for a listener. Nothing subscribes to it:
+        // the refunds hang off the outbox message the command stages, the search index off the catalogue
+        // message beside it, and the cached listing off a call in the command itself. It is asserted because
+        // an aggregate that changes this much and announces nothing is the thing worth noticing.
         match.DomainEvents.OfType<MatchCancelledDomainEvent>().Should().ContainSingle()
             .Which.MatchId.Should().Be(match.Id);
     }

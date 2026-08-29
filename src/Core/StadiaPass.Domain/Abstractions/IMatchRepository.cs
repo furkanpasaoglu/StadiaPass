@@ -21,18 +21,34 @@ public interface IMatchRepository : IRepository<Match>
     Task<int> CountUpcomingAsync(DateTimeOffset fromUtc, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The matches behind a list of identifiers, for a caller that already knows which ones it wants.
+    /// The matches behind a list of identifiers, whatever state they are in.
     /// </summary>
     /// <remarks>
-    /// This is the second half of a search: the index answers with identifiers in relevance order and the
-    /// rows come from here, so what reaches the screen is what the database says now rather than whatever
-    /// was true when the index was last written. Two things are left to the caller. The order is not kept -
-    /// <c>IN</c> promises nothing about it - so anyone who cares about relevance has to put the rows back in
-    /// the order they were asked for. And an identifier with no row behind it simply does not come back,
-    /// which is the right answer for an index that has fallen behind the database.
+    /// Unfiltered on purpose. What reads this is the ticket listing, naming the fixture each stub is for, and
+    /// a fixture that has been called off is precisely the one its holder needs to be told about. A caller
+    /// that wants only what is on sale wants <see cref="GetUpcomingByIdsAsync"/> instead.
+    /// <para>
+    /// The order is not kept - <c>IN</c> promises nothing about it - so anyone who cares has to put the rows
+    /// back in the order they asked for them. An identifier with no row behind it simply does not come back.
+    /// </para>
     /// </remarks>
     Task<IReadOnlyList<Match>> GetByIdsAsync(
         IReadOnlyCollection<Guid> matchIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The fixtures among these identifiers that the listing would show: still ahead of us, not called off.
+    /// </summary>
+    /// <remarks>
+    /// What the search box fetches its hits with. The index is a projection and can be behind - a fixture
+    /// cancelled a moment ago may still have a document, and the message that removes it may yet be in a
+    /// retry queue - so the rows are filtered by the same rule the listing uses rather than trusted because
+    /// the index named them. Without it the listing and the search box disagree about what is on sale, which
+    /// is the one thing the shared definition of "upcoming" exists to prevent.
+    /// </remarks>
+    Task<IReadOnlyList<Match>> GetUpcomingByIdsAsync(
+        IReadOnlyCollection<Guid> matchIds,
+        DateTimeOffset fromUtc,
         CancellationToken cancellationToken = default);
 
     /// <summary>Loads the match together with its full seat map - use only for seat map screens.</summary>
@@ -67,9 +83,9 @@ public interface IMatchRepository : IRepository<Match>
     Func<CancellationToken, Task> PrepareSeatReservationCounters(Match match, int reservedCount);
 
     /// <summary>
-    /// Which matches are holding seats whose time has run out. A hold is a promise with a deadline on it;
-    /// nothing releases one when the deadline passes unless something goes looking, and until then the seat
-    /// is unsellable and the counters disagree with the seat map.
+    /// Which matches are holding seats nobody can finish buying. Two ways to qualify: a hold whose ten
+    /// minutes have run out, and any hold at all on a fixture that has been called off - cancelling gives
+    /// back the holds it can see, and one taken between that read and its commit is not one of them.
     /// </summary>
     /// <remarks>
     /// Identifiers rather than aggregates, because each of these is released in a unit of work of its own.
@@ -82,14 +98,6 @@ public interface IMatchRepository : IRepository<Match>
         int maxMatches,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// One match, with only the seats whose hold has run out attached - so releasing them in a 20k venue
-    /// touches a handful of rows rather than the whole seat map.
-    /// </summary>
-    Task<Match?> GetWithExpiredReservationsAsync(
-        Guid matchId,
-        DateTimeOffset now,
-        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Puts released seats back into the counters, as a relative update the database works out for itself -
