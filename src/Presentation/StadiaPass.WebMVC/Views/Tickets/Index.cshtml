@@ -1,5 +1,5 @@
 @using StadiaPass.WebMVC.Models
-@model IReadOnlyList<TicketSummary>
+@model IReadOnlyList<MyTicket>
 @{
     ViewData["Title"] = "My tickets";
 }
@@ -28,24 +28,64 @@
 }
 else
 {
+    @* A fixture that has been called off is the one thing on this page somebody needs told rather than shown,
+       so it is said above the stubs as well as stamped on them. *@
+    var calledOff = Model.Count(ticket => ticket.MatchStatus == "Cancelled");
+    @if (calledOff > 0)
+    {
+        <div class="alert alert-secondary mb-4">
+            <strong>@calledOff of your @(calledOff == 1 ? "matches has" : "matches have") been called off.</strong>
+            Those tickets are no longer valid and the money for them is being refunded to the card that paid.
+            Refunds are issued one ticket at a time and can take a few days to appear on a statement.
+        </div>
+    }
+
     <div class="sp-stubs">
         @foreach (var ticket in Model)
         {
             var live = string.Equals(ticket.Status, "Issued", StringComparison.OrdinalIgnoreCase);
+            var matchCalledOff = ticket.MatchStatus == "Cancelled";
+            var fixtureKnown = ticket.HomeTeam.Length > 0;
             <article class="sp-stub">
                 <div class="sp-stub__main">
-                    <span class="sp-eyebrow">Seat</span>
-                    <p class="sp-stub__seat">@ticket.SeatNumber</p>
+                    @if (fixtureKnown)
+                    {
+                        <span class="sp-eyebrow">@ticket.VenueName</span>
+                        <p class="sp-stub__seat">
+                            @ticket.HomeTeam <span class="text-body-secondary fw-normal">v</span> @ticket.AwayTeam
+                        </p>
+                        <p class="sp-meta mb-1">
+                            @ticket.KickOffUtc.ToLocalTime().ToString("ddd dd MMM yyyy") &middot;
+                            @ticket.KickOffUtc.ToLocalTime().ToString("HH:mm") &middot;
+                            seat <span class="sp-mono">@ticket.SeatNumber</span>
+                        </p>
+                    }
+                    else
+                    {
+                        <span class="sp-eyebrow">Seat</span>
+                        <p class="sp-stub__seat">@ticket.SeatNumber</p>
+                    }
                     <p class="sp-stub__price mb-1">@ticket.Price.ToString("N2") @ticket.Currency</p>
                     <p class="sp-meta mb-0">
                         Issued @ticket.IssuedAtUtc.ToLocalTime().ToString("dd MMM yyyy") &middot;
                         @ticket.IssuedAtUtc.ToLocalTime().ToString("HH:mm")
                     </p>
+                    @if (matchCalledOff)
+                    {
+                        @* Said only when the fixture itself was called off. A ticket cancelled any other way -
+                           a chargeback, say - is not one this page can promise anybody money for. *@
+                        <p class="sp-meta mb-0" style="color: var(--sp-flare);">
+                            This match was called off. Your @ticket.Price.ToString("N2") @ticket.Currency is on
+                            its way back.
+                        </p>
+                    }
                 </div>
                 <div class="sp-stub__tear">
                     <span class="sp-eyebrow mb-0">Access code</span>
                     <span class="sp-stub__code">@ticket.AccessCode</span>
-                    <span class="sp-stamp @(live ? "sp-stamp--go" : "sp-stamp--mute")">@ticket.Status</span>
+                    <span class="sp-stamp @(live && !matchCalledOff ? "sp-stamp--go" : "sp-stamp--mute")">
+                        @(matchCalledOff ? "Match cancelled" : ticket.Status)
+                    </span>
                 </div>
             </article>
         }

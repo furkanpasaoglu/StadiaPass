@@ -46,3 +46,28 @@ internal static class TicketMappings
         seat.Status.ToString(),
         seat.ReservationExpiresAtUtc!.Value);
 }
+
+/// <summary>
+/// A ticket as its holder needs to see it: the seat and the code, and the fixture they are for.
+/// </summary>
+/// <remarks>
+/// The fixture is joined on rather than left out, because a stub carrying a seat number and nothing else
+/// cannot be told apart from the next one when somebody holds tickets to more than one match. It also
+/// carries the fixture's own status, which is what lets the page say a match has been called off - and,
+/// truthfully, that the money is on its way back - rather than showing a bare cancelled ticket and leaving
+/// the holder to guess why.
+/// </remarks>
+public sealed record MyTicketDto(
+    Guid Id,
+    Guid MatchId,
+    string SeatNumber,
+    decimal Price,
+    string Currency,
+    string AccessCode,
+    DateTimeOffset IssuedAtUtc,
+    string Status,
+    string HomeTeam,
+    string AwayTeam,
+    string VenueName,
+    DateTimeOffset KickOffUtc,
+    string MatchStatus);

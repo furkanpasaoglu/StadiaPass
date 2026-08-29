@@ -33,6 +33,10 @@
         "description": "Create a match and materialise its seats"
       },
       {
+        "name": "StadiaPass.Matches.Cancel",
+        "description": "Call a match off and refund every ticket sold for it"
+      },
+      {
         "name": "StadiaPass.Tickets",
         "description": "Ticket module"
       },
@@ -98,6 +102,7 @@
             "StadiaPass.Venues.Create",
             "StadiaPass.Matches.View",
             "StadiaPass.Matches.Create",
+            "StadiaPass.Matches.Cancel",
             "StadiaPass.Tickets.View",
             "StadiaPass.Tickets.Reserve",
             "StadiaPass.Tickets.Purchase",

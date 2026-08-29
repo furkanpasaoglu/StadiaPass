@@ -50,7 +50,7 @@ internal sealed class TicketEndpoints : IEndpoint
         return TypedResults.Created($"/api/v1/tickets/{ticket.Id}", ticket);
     }
 
-    private static async Task<Ok<IReadOnlyList<TicketDto>>> GetMineAsync(
+    private static async Task<Ok<IReadOnlyList<MyTicketDto>>> GetMineAsync(
         ISender sender,
         CancellationToken cancellationToken) =>
         TypedResults.Ok(await sender.Send(new GetMyTicketsQuery(), cancellationToken));

@@ -82,8 +82,8 @@ internal sealed class StadiaPassApiClient(HttpClient httpClient) : IStadiaPassAp
         return await ReadAsync<TicketSummary>(response, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<TicketSummary>> GetMyTicketsAsync(CancellationToken cancellationToken = default) =>
-        await httpClient.GetFromJsonAsync<IReadOnlyList<TicketSummary>>("/api/v1/tickets/mine", cancellationToken) ?? [];
+    public async Task<IReadOnlyList<MyTicket>> GetMyTicketsAsync(CancellationToken cancellationToken = default) =>
+        await httpClient.GetFromJsonAsync<IReadOnlyList<MyTicket>>("/api/v1/tickets/mine", cancellationToken) ?? [];
 
     public async Task<IReadOnlyList<VenueSummary>> GetVenuesAsync(CancellationToken cancellationToken = default)
     {
@@ -112,6 +112,32 @@ internal sealed class StadiaPassApiClient(HttpClient httpClient) : IStadiaPassAp
         var response = await httpClient.PostAsJsonAsync("/api/v1/matches", payload, cancellationToken);
 
         return await ReadAsync<MatchSummary>(response, cancellationToken);
+    }
+
+    public async Task<ApiResult<bool>> CancelMatchAsync(
+        Guid matchId,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await httpClient.PostAsJsonAsync(
+            $"/api/v1/matches/{matchId}/cancellation",
+            new { reason },
+            cancellationToken);
+
+        if (response.IsSuccessStatusCode)
+        {
+            return ApiResult.Success(true);
+        }
+
+        if (response.StatusCode is HttpStatusCode.Forbidden)
+        {
+            return ApiResult.Failure<bool>("Your account does not carry the permission required for this action.");
+        }
+
+        var problem = await TryReadProblemAsync(response, cancellationToken);
+
+        return ApiResult.Failure<bool>(
+            problem?.Detail ?? problem?.Title ?? $"The API responded with {(int)response.StatusCode}.");
     }
 
     private static async Task<ApiResult<T>> ReadAsync<T>(

@@ -226,3 +226,46 @@ public sealed class MatchListViewModel
 
     public bool IsSearch => Query is { Length: > 0 };
 }
+
+/// <summary>
+/// What the cancellation page collects, and what it needs to show while collecting it.
+/// </summary>
+/// <remarks>
+/// The fixture itself is attached on the way to the view rather than posted back with the form. A hidden
+/// field carrying the ticket count would be a number the browser could edit, and this page uses that number
+/// to tell somebody how much money is about to move.
+/// </remarks>
+public sealed class CancelMatchInput
+{
+    public Guid MatchId { get; set; }
+
+    [Required]
+    [StringLength(200, MinimumLength = 3)]
+    [Display(Name = "Why is it being called off?")]
+    public string Reason { get; set; } = string.Empty;
+
+    public MatchSummary? Match { get; private set; }
+
+    public CancelMatchInput For(MatchSummary match)
+    {
+        Match = match;
+
+        return this;
+    }
+}
+
+/// <summary>A ticket as its holder sees it, with the fixture it is for.</summary>
+public sealed record MyTicket(
+    Guid Id,
+    Guid MatchId,
+    string SeatNumber,
+    decimal Price,
+    string Currency,
+    string AccessCode,
+    DateTimeOffset IssuedAtUtc,
+    string Status,
+    string HomeTeam,
+    string AwayTeam,
+    string VenueName,
+    DateTimeOffset KickOffUtc,
+    string MatchStatus);

@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using StadiaPass.Application.Matches;
+using StadiaPass.Application.Matches.Commands.CancelMatch;
 using StadiaPass.Application.Matches.Commands.CreateMatch;
 using StadiaPass.Application.Matches.Commands.ReindexMatches;
 using StadiaPass.Application.Matches.Queries.GetMatchSeatMap;
@@ -50,6 +51,17 @@ internal sealed class MatchEndpoints : IEndpoint
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireAuthorization(StadiaPassPermissions.Matches.Create);
 
+        // Its own permission rather than the one that opens a fixture. Cancelling spends money - every
+        // ticket sold is refunded - and whoever may put a match on sale is not automatically whoever may
+        // hand back a stadium's worth of takings.
+        group.MapPost("/{matchId:guid}/cancellation", CancelAsync)
+            .WithName("CancelMatch")
+            .WithSummary("Calls a match off: selling stops at once and every ticket sold is refunded.")
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireAuthorization(StadiaPassPermissions.Matches.Cancel);
+
         group.MapGet("/{matchId:guid}/seats", GetSeatMapAsync)
             .WithName("GetMatchSeatMap")
             .WithSummary("Returns the seat map of a match grouped by block and row, with each seat status.")
@@ -82,6 +94,17 @@ internal sealed class MatchEndpoints : IEndpoint
         CancellationToken cancellationToken) =>
         TypedResults.Ok(await sender.Send(new ReindexMatchesCommand(), cancellationToken));
 
+    private static async Task<NoContent> CancelAsync(
+        Guid matchId,
+        CancelMatchRequest request,
+        ISender sender,
+        CancellationToken cancellationToken)
+    {
+        await sender.Send(new CancelMatchCommand(matchId, request.Reason), cancellationToken);
+
+        return TypedResults.NoContent();
+    }
+
     private static async Task<Created<MatchDto>> CreateAsync(
         CreateMatchCommand command,
         ISender sender,
@@ -105,3 +128,9 @@ internal sealed class MatchEndpoints : IEndpoint
         CancellationToken cancellationToken) =>
         TypedResults.Ok(await sender.Send(new ReserveSeatCommand(matchId, seatNumber), cancellationToken));
 }
+
+/// <summary>
+/// Why the fixture is being called off. Taken in a body rather than a query string because it travels with
+/// every refund this sets off and ends up on the customer's statement.
+/// </summary>
+internal sealed record CancelMatchRequest(string Reason);

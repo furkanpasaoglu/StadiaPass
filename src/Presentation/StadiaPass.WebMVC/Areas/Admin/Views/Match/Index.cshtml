@@ -1,0 +1,79 @@
+@model IReadOnlyList<MatchSummary>
+@{
+    ViewData["Title"] = "Matches";
+}
+
+<div class="sp-head">
+    <div>
+        <span class="sp-eyebrow">Back office</span>
+        <h1 class="sp-title">Matches</h1>
+        <p class="sp-note mt-2">
+            Fixtures still on sale. A match leaves this list once it kicks off or is called off, because
+            neither can be acted on afterwards.
+        </p>
+    </div>
+    @if (User.HasPermission(StadiaPassPermissions.Matches.Create))
+    {
+        <a class="btn btn-primary" asp-action="Create">New match</a>
+    }
+</div>
+
+@await Html.PartialAsync("_Alerts")
+
+@if (Model.Count is 0)
+{
+    <div class="sp-empty">
+        <span class="sp-eyebrow">Empty</span>
+        <h2>Nothing on sale</h2>
+        <p>Open a match against a venue plan and its seats are materialised ready to be bought.</p>
+        @if (User.HasPermission(StadiaPassPermissions.Matches.Create))
+        {
+            <a class="btn btn-primary" asp-action="Create">New match</a>
+        }
+    </div>
+}
+else
+{
+    <div class="sp-table-scroll">
+        <table class="sp-table">
+            <thead>
+                <tr>
+                    <th>Fixture</th>
+                    <th>Kick-off</th>
+                    <th>Venue</th>
+                    <th>Free</th>
+                    <th>Held</th>
+                    <th>Sold</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var match in Model)
+            {
+                <tr>
+                    <td class="sp-cell-name">
+                        @match.HomeTeam <span class="text-body-secondary fw-normal">v</span> @match.AwayTeam
+                        <div><span class="sp-stamp sp-stamp--mute">@match.Category</span></div>
+                    </td>
+                    <td>
+                        @match.KickOffUtc.ToLocalTime().ToString("ddd dd MMM yyyy")
+                        <div class="sp-meta">@match.KickOffUtc.ToLocalTime().ToString("HH:mm")</div>
+                    </td>
+                    <td>@match.VenueName</td>
+                    <td class="sp-mono">@match.AvailableSeatCount.ToString("N0")</td>
+                    <td class="sp-mono">@match.ReservedSeatCount.ToString("N0")</td>
+                    <td class="sp-mono">@match.SoldSeatCount.ToString("N0")</td>
+                    <td class="text-end">
+                        @if (User.HasPermission(StadiaPassPermissions.Matches.Cancel))
+                        {
+                            @* A page rather than a dialog: this one asks why, and says what it will cost. *@
+                            <a class="btn btn-sm btn-outline-danger"
+                               asp-action="Cancel" asp-route-id="@match.Id">Cancel match</a>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}

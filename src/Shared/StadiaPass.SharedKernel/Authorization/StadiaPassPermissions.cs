@@ -70,6 +70,13 @@ public static class StadiaPassPermissions
         public const string Default = GroupName + ".Matches";
         public const string View = Default + ".View";
         public const string Create = Default + ".Create";
+
+        /// <summary>
+        /// Call a fixture off. Its own permission rather than Create's, because this one spends money: every
+        /// ticket sold for the fixture is refunded, and whoever may open a match for sale is not
+        /// automatically whoever may hand back a stadium's worth of takings.
+        /// </summary>
+        public const string Cancel = Default + ".Cancel";
     }
 
     public static class Tickets

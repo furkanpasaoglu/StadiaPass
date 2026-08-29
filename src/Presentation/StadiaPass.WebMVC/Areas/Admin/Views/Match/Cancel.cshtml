@@ -1,0 +1,65 @@
+@model CancelMatchInput
+@{
+    ViewData["Title"] = "Cancel match";
+    var match = Model.Match!;
+    var owed = match.SoldSeatCount;
+    var held = match.ReservedSeatCount;
+}
+
+<div class="sp-head">
+    <div>
+        <span class="sp-eyebrow">Back office &middot; cancellation</span>
+        <h1 class="sp-title">@match.HomeTeam <span class="text-body-secondary fw-normal">v</span> @match.AwayTeam</h1>
+        <p class="sp-meta mt-2 mb-0">
+            @match.KickOffUtc.ToLocalTime().ToString("ddd dd MMM yyyy") &middot;
+            @match.KickOffUtc.ToLocalTime().ToString("HH:mm") &middot; @match.VenueName
+        </p>
+    </div>
+    <a class="btn btn-sm btn-outline-secondary" asp-action="Index">Back</a>
+</div>
+
+@await Html.PartialAsync("_Alerts")
+
+@* Said plainly and before the form, because it is the part that cannot be undone. *@
+<div class="alert alert-danger mb-4">
+    <strong>This cannot be undone.</strong>
+    Selling stops the moment you confirm, and the fixture disappears from the listing and from search.
+    <ul class="mb-0 mt-2">
+        <li>
+            @if (owed is 0)
+            {
+                <span>No tickets have been sold, so there is nothing to refund.</span>
+            }
+            else
+            {
+                <span><strong>@owed.ToString("N0") sold @(owed is 1 ? "ticket" : "tickets")</strong> will be refunded. The money goes back on its own, one ticket at a time.</span>
+            }
+        </li>
+        @if (held is not 0)
+        {
+            <li>@held.ToString("N0") @(held is 1 ? "seat somebody is holding" : "seats people are holding") will be released.</li>
+        }
+    </ul>
+</div>
+
+<form method="post" class="sp-form" style="max-width: 40rem;">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="MatchId"/>
+
+    <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+
+    <div class="mb-3">
+        <label asp-for="Reason" class="form-label"></label>
+        <input asp-for="Reason" class="form-control" autocomplete="off"
+               placeholder="the pitch is frozen"/>
+        <span asp-validation-for="Reason" class="text-danger"></span>
+        <div class="form-text">
+            This travels with every refund and is what the customer sees on their statement.
+        </div>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-danger">Cancel this match</button>
+        <a class="btn btn-outline-secondary" asp-action="Index">Leave it on sale</a>
+    </div>
+</form>

@@ -17,9 +17,17 @@ public interface IStadiaPassApiClient
         PurchaseInput input,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<TicketSummary>> GetMyTicketsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<MyTicket>> GetMyTicketsAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<VenueSummary>> GetVenuesAsync(CancellationToken cancellationToken = default);
 
     Task<ApiResult<MatchSummary>> CreateMatchAsync(CreateMatchInput input, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Calls a match off. Selling stops at once; the refunds follow on their own.
+    /// </summary>
+    Task<ApiResult<bool>> CancelMatchAsync(
+        Guid matchId,
+        string reason,
+        CancellationToken cancellationToken = default);
 }

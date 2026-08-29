@@ -56,7 +56,7 @@
                             <li class="nav-item sp-nav-fence">
                                 @if (User.HasPermission(StadiaPassPermissions.Matches.Create))
                                 {
-                                    <a class="nav-link @Current("Match", "Admin")" asp-area="Admin" asp-controller="Match" asp-action="Create">New match</a>
+                                    <a class="nav-link @Current("Match", "Admin")" asp-area="Admin" asp-controller="Match" asp-action="Index">Matches</a>
                                 }
                                 @if (User.HasPermission(StadiaPassPermissions.Categories.View))
                                 {
