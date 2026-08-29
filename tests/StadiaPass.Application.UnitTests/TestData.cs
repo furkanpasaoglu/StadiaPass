@@ -24,6 +24,16 @@ internal static class TestData
     public static MatchSeat SeatOf(Match match, string seatNumber) =>
         match.Seats.Single(seat => seat.SeatNumber.ToString() == seatNumber);
 
+    /// <summary>A six-seat stadium: one block, two rows of three, so capacities can be checked by hand.</summary>
+    public static Venue Stadium() =>
+        Venue.Define(
+            "Sukru Saracoglu",
+            "Istanbul",
+            VenueKind.Stadium,
+            [new BlockLayout("MARATON", RowCount: 2, SeatsPerRow: 3)]);
+
+    public static SportCategory Football() => SportCategory.Define("Football", null, [VenueKind.Stadium]);
+
     public static Match FootballMatch() => FootballMatch("Fenerbahce");
 
     /// <summary>The same fixture under a different home team, for tests that must tell two of them apart.</summary>
