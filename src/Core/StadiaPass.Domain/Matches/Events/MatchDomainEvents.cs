@@ -31,3 +31,5 @@ public sealed record SeatSaleVoidedDomainEvent(
     Guid SeatId,
     string SeatNumber,
     DateTimeOffset VoidedAtUtc) : DomainEvent;
+
+public sealed record MatchCancelledDomainEvent(Guid MatchId, DateTimeOffset CancelledAtUtc) : DomainEvent;

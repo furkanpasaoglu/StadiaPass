@@ -222,6 +222,51 @@ public sealed class Match : AggregateRoot
         return seat;
     }
 
+    /// <summary>
+    /// Calls the fixture off: nothing more can be sold, and nobody is left holding a seat.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Sold seats are deliberately left exactly as they are. Each one owes somebody their money back, and a
+    /// refund that the provider refuses has to be able to be retried on its own rather than taking a whole
+    /// fixture's worth of them down with it, so they are settled one ticket at a time off the broker. Freeing
+    /// them here would throw away the only record of what still has to be paid.
+    /// </para>
+    /// <para>
+    /// Only the seats that are loaded can be given back. A caller that reads the fixture without its held
+    /// seats will cancel it and leave those holds sitting in the database, counted against a match nobody can
+    /// buy from and untouched by the sweeper for the rest of their ten minutes.
+    /// </para>
+    /// </remarks>
+    public void Cancel(DateTimeOffset now)
+    {
+        if (Status is MatchStatus.Cancelled)
+        {
+            throw new DomainRuleViolationException(
+                "Match.AlreadyCancelled", "This match has already been cancelled.");
+        }
+
+        if (now >= KickOffUtc)
+        {
+            throw new DomainRuleViolationException(
+                "Match.AlreadyKickedOff",
+                "A match that has already kicked off cannot be cancelled.");
+        }
+
+      
+        foreach (var seatNumber in _seats
+                     .Where(seat => seat.Status is SeatStatus.Reserved)
+                     .Select(seat => seat.SeatNumber.ToString())
+                     .ToArray())
+        {
+            ReleaseSeat(seatNumber, now);
+        }
+
+        Status = MatchStatus.Cancelled;
+
+        Raise(new MatchCancelledDomainEvent(Id, now));
+    }
+
     public void ReleaseSeat(string seatNumber, DateTimeOffset now)
     {
         var seat = RequireSeat(seatNumber);

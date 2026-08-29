@@ -17,3 +17,13 @@ namespace StadiaPass.Application.Matches.Events;
 /// </para>
 /// </remarks>
 public sealed record MatchCatalogueChangedEvent(Guid MatchId);
+
+/// <summary>
+/// A fixture has been called off. Carries only what the far side cannot look up for itself.
+/// </summary>
+/// <remarks>
+/// One message for the fixture rather than one per ticket, on purpose: the cancellation has to commit in a
+/// single small transaction so selling stops at once, and working out which tickets owe money is a query the
+/// consumer can run for itself a moment later.
+/// </remarks>
+public sealed record MatchCancelledEvent(Guid MatchId, string Reason, DateTimeOffset CancelledAtUtc);

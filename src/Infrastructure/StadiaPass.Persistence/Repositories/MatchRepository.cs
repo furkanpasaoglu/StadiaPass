@@ -192,6 +192,36 @@ internal sealed class MatchRepository(StadiaPassDbContext context)
                 cancellationToken);
     }
 
+    /// <inheritdoc />
+    public Task<Match?> GetWithHeldSeatsAsync(Guid matchId, CancellationToken cancellationToken = default) =>
+        // Filtered include, like the sweeper's: cancelling a fixture in a 20k venue carries back the handful
+        // of seats somebody is holding rather than the whole map.
+        Set
+            .Include(match => match.Seats.Where(seat => seat.Status == SeatStatus.Reserved))
+            .FirstOrDefaultAsync(match => match.Id == matchId, cancellationToken);
+
+    /// <inheritdoc />
+    public Func<CancellationToken, Task> PrepareMatchCancellationCounters(Match match, int releasedCount)
+    {
+        var entry = Context.Entry(match);
+        entry.Property(candidate => candidate.ReservedSeatCount).IsModified = false;
+        entry.Property(candidate => candidate.AvailableSeatCount).IsModified = false;
+        entry.Property(candidate => candidate.Status).IsModified = false;
+
+        return cancellationToken => Set
+            .Where(candidate => candidate.Id == match.Id)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(
+                        candidate => candidate.ReservedSeatCount,
+                        candidate => candidate.ReservedSeatCount - releasedCount)
+                    .SetProperty(
+                        candidate => candidate.AvailableSeatCount,
+                        candidate => candidate.AvailableSeatCount + releasedCount)
+                    .SetProperty(candidate => candidate.Status, MatchStatus.Cancelled),
+                cancellationToken);
+    }
+
     public Task<bool> ExistsForVenueAsync(Guid venueId, CancellationToken cancellationToken = default) =>
         Set.AnyAsync(match => match.VenueId == venueId, cancellationToken);
 

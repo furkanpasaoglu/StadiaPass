@@ -119,6 +119,25 @@ public interface IMatchRepository : IRepository<Match>
     /// </summary>
     Func<CancellationToken, Task> PrepareSeatVoidCounters(Match match, int voidedCount);
 
+    /// <summary>
+    /// The fixture with the seats somebody is currently holding, and only those.
+    /// </summary>
+    /// <remarks>
+    /// Cancelling gives held seats back, and the aggregate can only give back what was loaded, so the include
+    /// is the thing that makes the cancellation complete rather than an optimisation.
+    /// </remarks>
+    Task<Match?> GetWithHeldSeatsAsync(Guid matchId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Moves the held seats back into the available column and marks the fixture cancelled, in one statement
+    /// against the match row.
+    /// </summary>
+    /// <remarks>
+    /// A cancellation of its own rather than a reuse of <see cref="PrepareSeatReleaseCounters"/>, which turns
+    /// a sold-out fixture back into an on-sale one and would undo the very thing this is here to write.
+    /// </remarks>
+    Func<CancellationToken, Task> PrepareMatchCancellationCounters(Match match, int releasedCount);
+
     /// <summary>Guards catalogue deletes: a venue or category in use by a match cannot be removed.</summary>
     Task<bool> ExistsForVenueAsync(Guid venueId, CancellationToken cancellationToken = default);
 
