@@ -150,6 +150,7 @@ public static class DependencyInjection
             bus.AddConsumer<RefundOwedConsumer>();
             bus.AddConsumer<MatchCatalogueChangedConsumer>();
             bus.AddConsumer<MatchCancelledConsumer>();
+            bus.AddConsumer<MatchCancellationNoticeConsumer>();
 
             bus.UsingRabbitMq((context, rabbit) =>
             {

@@ -6,6 +6,7 @@ using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Application.Payments.Commands.SettleCancelledTicket;
 using StadiaPass.Application.Payments.Events;
+using StadiaPass.Application.Tickets.Events;
 using StadiaPass.Domain.Abstractions;
 using StadiaPass.Domain.Matches;
 using StadiaPass.Domain.Tickets;
@@ -175,6 +176,42 @@ public sealed class SettleCancelledTicketCommandHandlerTests
         // Assert - swallowing here would leave a ticket nobody refunds. The caller is a message consumer, so
         // throwing hands it back to the broker and the next attempt sees the seat as it now is.
         await settling.Should().ThrowAsync<ConcurrencyConflictException>();
+    }
+
+    [Fact]
+    public async Task Should_TellTheHolderTheirMatchWasCalledOff()
+    {
+        // Arrange
+        var (match, ticket) = GivenASoldSeat();
+        MatchCancellationNotice? notice = null;
+        _outbox.Enqueue(Arg.Do<object>(message =>
+        {
+            if (message is MatchCancellationNotice sent)
+            {
+                notice = sent;
+            }
+        }));
+
+        // Act
+        await _handler.Handle(ACommand(), CancellationToken.None);
+
+        // Assert - until this existed the money went back and nobody was told: a customer got a confirmation
+        // when they bought, and then silence, and would only find out by opening the application. The notice
+        // is staged in the same transaction as the cancellation, so there is no state where somebody has lost
+        // a ticket and nothing is coming to tell them.
+        notice.Should().NotBeNull();
+        notice!.TicketId.Should().Be(ticket.Id);
+        notice.HolderReference.Should().Be(TestData.CurrentUserId);
+        notice.HomeTeam.Should().Be(match.HomeTeam);
+        notice.SeatNumber.Should().Be(TestData.SeatNumber);
+        notice.Amount.Should().Be(100m);
+        notice.Reason.Should().Be(Reason);
+
+        Received.InOrder(() =>
+        {
+            _outbox.Enqueue(Arg.Any<MatchCancellationNotice>());
+            _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>());
+        });
     }
 
     private (Match Match, Ticket Ticket) GivenASoldSeat()

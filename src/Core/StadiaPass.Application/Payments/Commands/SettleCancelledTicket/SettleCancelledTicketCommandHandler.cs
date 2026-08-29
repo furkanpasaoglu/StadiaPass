@@ -4,6 +4,7 @@ using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Application.Payments.Events;
+using StadiaPass.Application.Tickets.Events;
 using StadiaPass.Domain.Abstractions;
 
 namespace StadiaPass.Application.Payments.Commands.SettleCancelledTicket;
@@ -64,6 +65,21 @@ internal sealed partial class SettleCancelledTicketCommandHandler(
             seatNumber,
             request.Reason,
             now));
+
+        // Staged beside the refund and written by the same save, for the same reason: a customer must not be
+        // able to lose a ticket without something being on its way to tell them so. The address is not here
+        // because a ticket does not know one - only who holds it - so the consumer looks it up.
+        outbox.Enqueue(new MatchCancellationNotice(
+            ticket.Id,
+            ticket.HolderReference,
+            match.HomeTeam,
+            match.AwayTeam,
+            match.VenueName,
+            match.KickOffUtc,
+            seatNumber,
+            ticket.Price.Amount,
+            ticket.Price.Currency,
+            request.Reason));
 
         // Counters out of the save's hands, written last, as everywhere else: the match row is held from that
         // statement to the commit rather than across the whole transaction. It finds a row that already says
