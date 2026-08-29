@@ -128,7 +128,7 @@ public sealed class Match : AggregateRoot
                 "Match.HolderRequired", "A holder reference is required to reserve a seat.");
         }
 
-        EnsureSalesAreOpen();
+        EnsureSalesAreOpen(now);
 
         var seat = RequireSeat(seatNumber);
         var wasReserved = seat.Status is SeatStatus.Reserved;
@@ -167,7 +167,7 @@ public sealed class Match : AggregateRoot
     /// </summary>
     public MatchSeat EnsureSeatCanBeSoldTo(string seatNumber, string holderReference, DateTimeOffset now)
     {
-        EnsureSalesAreOpen();
+        EnsureSalesAreOpen(now);
 
         var seat = RequireSeat(seatNumber);
 
@@ -178,7 +178,7 @@ public sealed class Match : AggregateRoot
 
     public MatchSeat ConfirmSeatSale(string seatNumber, string holderReference, DateTimeOffset now)
     {
-        EnsureSalesAreOpen();
+        EnsureSalesAreOpen(now);
 
         var seat = RequireSeat(seatNumber);
 
@@ -277,12 +277,37 @@ public sealed class Match : AggregateRoot
                    "Match.SeatNotFound", $"Seat {parsed} does not exist in this match.");
     }
 
-    private void EnsureSalesAreOpen()
+    /// <summary>
+    /// The two conditions a seat may be taken under: the fixture is selling, and it has not started.
+    /// </summary>
+    /// <remarks>
+    /// The clock half is not decoration. The listing hides a fixture once its kick-off has passed, but the
+    /// seat map is fetched by identifier and filters by nothing, so a link that outlived its match - a
+    /// bookmark, a shared URL, a document still in the search index - reached a page that would happily take
+    /// a hold and then a payment for a match already played.
+    /// <para>
+    /// A time rather than a status, deliberately. Marking fixtures finished would need something to run
+    /// around doing the marking, and the door would stand open for however long that thing was late or
+    /// stopped. The kick-off is already written on the fixture and needs nobody's help to arrive.
+    /// </para>
+    /// <para>
+    /// Only the ways *into* a seat ask this. <see cref="VoidSeatSale"/> and <see cref="ReleaseSeat"/> take a
+    /// seat back and must keep working afterwards: a chargeback arrives long after the sale that caused it,
+    /// and the sweeper that returns abandoned holds runs on a timer rather than on the fixture list.
+    /// </para>
+    /// </remarks>
+    private void EnsureSalesAreOpen(DateTimeOffset now)
     {
         if (Status is not MatchStatus.OnSale)
         {
             throw new DomainRuleViolationException(
                 "Match.SalesClosed", $"Seats cannot be traded while the match is {Status}.");
+        }
+
+        if (now >= KickOffUtc)
+        {
+            throw new DomainRuleViolationException(
+                "Match.SalesClosed", "Seats cannot be traded for a match that has already kicked off.");
         }
     }
 }

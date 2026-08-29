@@ -6,9 +6,14 @@
     var canReserve = User.HasPermission(StadiaPassPermissions.Tickets.Reserve);
     var canPurchase = User.HasPermission(StadiaPassPermissions.Tickets.Purchase);
 
-    // Only an on-sale match will accept a hold. Saying so up front beats letting somebody click a seat and
-    // collect a refusal from the API.
-    var onSale = map.Status == "OnSale";
+    // Only an on-sale match that has not started will accept a hold. Saying so up front beats letting
+    // somebody click a seat and collect a refusal from the API.
+    //
+    // The clock is asked as well as the status, because this page is reached by identifier and the listing's
+    // date filter never runs here: a bookmark or a shared link to last week's fixture lands on a map that is
+    // still marked OnSale.
+    var hasKickedOff = map.KickOffUtc <= DateTimeOffset.UtcNow;
+    var onSale = map.Status == "OnSale" && !hasKickedOff;
 
     // Where Keycloak sends the visitor back to. The seat they clicked rides along so the page can offer it
     // straight away instead of making them hunt for it again.
@@ -32,15 +37,14 @@
 
 @if (!onSale)
 {
-    var reason = map.Status switch
-    {
-        "Scheduled" => "This match is not on sale yet.",
-        "SoldOut" => "Every seat for this match has been sold.",
-        "Postponed" => "This match has been postponed.",
-        "Cancelled" => "This match has been cancelled.",
-        "Played" => "This match has already been played.",
-        _ => $"This match is {map.Status.ToLowerInvariant()}."
-    };
+    var reason = hasKickedOff
+        ? "This match has already kicked off."
+        : map.Status switch
+        {
+            "SoldOut" => "Every seat for this match has been sold.",
+            "Cancelled" => "This match has been cancelled.",
+            _ => $"This match is {map.Status.ToLowerInvariant()}."
+        };
 
     <div class="alert alert-secondary mb-4">
         <strong>@reason</strong> The map below is here to look at; no seat can be held.
