@@ -11,6 +11,7 @@
             : "";
 
     var backOffice = User.HasPermission(StadiaPassPermissions.Matches.Create)
+                     || User.HasPermission(StadiaPassPermissions.Matches.Cancel)
                      || User.HasPermission(StadiaPassPermissions.Categories.View)
                      || User.HasPermission(StadiaPassPermissions.Venues.View)
                      || User.HasPermission(StadiaPassPermissions.Users.Manage)
@@ -54,7 +55,7 @@
                         @if (backOffice)
                         {
                             <li class="nav-item sp-nav-fence">
-                                @if (User.HasPermission(StadiaPassPermissions.Matches.Create))
+                                @if (User.HasPermission(StadiaPassPermissions.Matches.Create) || User.HasPermission(StadiaPassPermissions.Matches.Cancel))
                                 {
                                     <a class="nav-link @Current("Match", "Admin")" asp-area="Admin" asp-controller="Match" asp-action="Index">Matches</a>
                                 }

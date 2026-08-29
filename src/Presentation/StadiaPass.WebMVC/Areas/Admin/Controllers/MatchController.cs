@@ -7,11 +7,13 @@ using StadiaPass.WebMVC.Services;
 namespace StadiaPass.WebMVC.Areas.Admin.Controllers;
 
 /// <summary>
-/// Back-office slice. The whole area is gated on the same permission the API enforces, so the form is never
-/// even rendered for a customer - and the API refuses it anyway if someone crafts the request by hand.
+/// Back-office slice for fixtures. Each action carries the permission the API enforces for it rather than the
+/// area carrying one for all of them: opening a match and calling one off are different jobs, and the second
+/// spends money. The screens hide what the caller cannot do, and the API refuses it anyway if somebody crafts
+/// the request by hand.
 /// </summary>
 [Area("Admin")]
-[Authorize(Policy = StadiaPassPermissions.Matches.Create)]
+[Authorize]
 public sealed class MatchController(IStadiaPassApiClient apiClient, IStadiaPassCatalogueClient catalogue) : Controller
 {
 
@@ -21,8 +23,19 @@ public sealed class MatchController(IStadiaPassApiClient apiClient, IStadiaPassC
     /// applies to, so there is nothing here that could be offered and then refused.
     /// </summary>
     [HttpGet]
-    public async Task<IActionResult> Index(CancellationToken cancellationToken) =>
-        View(await apiClient.GetMatchesAsync(cancellationToken: cancellationToken));
+    public async Task<IActionResult> Index(CancellationToken cancellationToken)
+    {
+        // Either permission earns this screen, which is why it is asked here rather than declared above the
+        // action. Policies stack as an AND, so writing both as attributes would demand both - and a role that
+        // may only call fixtures off would be shut out of the one page the cancel button lives on.
+        if (!User.HasPermission(StadiaPassPermissions.Matches.Create)
+            && !User.HasPermission(StadiaPassPermissions.Matches.Cancel))
+        {
+            return Forbid();
+        }
+
+        return View(await apiClient.GetMatchesAsync(cancellationToken: cancellationToken));
+    }
 
     /// <summary>
     /// The confirmation. A cancellation refunds every ticket sold for the fixture, so this is a page that
@@ -87,6 +100,7 @@ public sealed class MatchController(IStadiaPassApiClient apiClient, IStadiaPassC
     }
 
     [HttpGet]
+    [Authorize(Policy = StadiaPassPermissions.Matches.Create)]
     public async Task<IActionResult> Create(CancellationToken cancellationToken)
     {
         await PopulateFormAsync(cancellationToken);
@@ -96,6 +110,7 @@ public sealed class MatchController(IStadiaPassApiClient apiClient, IStadiaPassC
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [Authorize(Policy = StadiaPassPermissions.Matches.Create)]
     public async Task<IActionResult> Create(CreateMatchInput input, CancellationToken cancellationToken)
     {
         if (ModelState.IsValid)
