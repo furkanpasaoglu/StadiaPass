@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
+using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Matches.Commands.IndexMatch;
 using StadiaPass.Application.Matches.Search;
 using StadiaPass.Domain.Abstractions;
@@ -23,6 +24,8 @@ public sealed class IndexMatchCommandHandlerTests
 
     private readonly IVenueRepository _venueRepository = Substitute.For<IVenueRepository>();
 
+    private readonly IDateTimeProvider _dateTimeProvider = Substitute.For<IDateTimeProvider>();
+
     private readonly IndexMatchCommandHandler _handler;
 
     private readonly Venue _venue = TestData.Stadium();
@@ -40,10 +43,13 @@ public sealed class IndexMatchCommandHandlerTests
             Money.Create(100m),
             TestData.Now);
 
+        _dateTimeProvider.UtcNow.Returns(TestData.Now);
+
         _handler = new IndexMatchCommandHandler(
             _searchIndex,
             _matchRepository,
             _venueRepository,
+            _dateTimeProvider,
             NullLogger<IndexMatchCommandHandler>.Instance);
     }
 
@@ -66,7 +72,7 @@ public sealed class IndexMatchCommandHandlerTests
     }
 
     [Fact]
-    public async Task Should_WriteNothing_When_TheFixtureHasBeenDeletedSinceTheMessageWasSent()
+    public async Task Should_TakeTheFixtureOutOfTheIndex_When_ItNoLongerExists()
     {
         // Arrange - the message outlived the fixture, which is ordinary rather than exceptional.
         _matchRepository.GetByIdAsync(_match.Id, Arg.Any<CancellationToken>()).Returns((Match?)null);
@@ -75,11 +81,48 @@ public sealed class IndexMatchCommandHandlerTests
         var indexing = async () => await _handler.Handle(new IndexMatchCommand(_match.Id), CancellationToken.None);
 
         // Assert - without the guard this dereferences null on a consumer, and a fixture somebody deleted
-        // sends its message round the retry policy and into the error queue for nothing.
+        // sends its message round the retry policy and into the error queue for nothing. Leaving the document
+        // for the next full rebuild is not good enough either: until that runs the fixture is still findable
+        // and its link still opens.
         await indexing.Should().NotThrowAsync();
         await _searchIndex
             .DidNotReceive()
             .IndexAsync(Arg.Any<IReadOnlyCollection<MatchSearchDocument>>(), Arg.Any<CancellationToken>());
+        await _searchIndex.Received(1).DeleteAsync(_match.Id, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_TakeTheFixtureOutOfTheIndex_When_ItHasBeenCalledOff()
+    {
+        // Arrange
+        GivenTheFixtureExists();
+        _match.Cancel(TestData.Now);
+
+        // Act
+        await _handler.Handle(new IndexMatchCommand(_match.Id), CancellationToken.None);
+
+        // Assert - the listing filters cancelled fixtures out, so an index that keeps them makes the search
+        // box the one place in the application that still sells a match nobody is playing.
+        await _searchIndex.Received(1).DeleteAsync(_match.Id, Arg.Any<CancellationToken>());
+        await _searchIndex
+            .DidNotReceive()
+            .IndexAsync(Arg.Any<IReadOnlyCollection<MatchSearchDocument>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_TakeTheFixtureOutOfTheIndex_When_ItsKickOffHasPassed()
+    {
+        // Arrange - a message that has been sitting in a retry queue, or a rebuild that ran late.
+        GivenTheFixtureExists();
+        _dateTimeProvider.UtcNow.Returns(TestData.Now.AddDays(31));
+
+        // Act
+        await _handler.Handle(new IndexMatchCommand(_match.Id), CancellationToken.None);
+
+        // Assert - what belongs in the index is defined once, by the listing query: still ahead of us and not
+        // cancelled. A projection that indexed by a different rule would put fixtures in front of visitors
+        // that the listing has already stopped showing them.
+        await _searchIndex.Received(1).DeleteAsync(_match.Id, Arg.Any<CancellationToken>());
     }
 
     [Fact]

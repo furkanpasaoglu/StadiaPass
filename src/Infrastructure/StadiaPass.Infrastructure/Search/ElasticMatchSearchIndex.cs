@@ -211,6 +211,32 @@ internal sealed class ElasticMatchSearchIndex(ElasticsearchClient client, Search
         }
     }
 
+    public async Task DeleteAsync(Guid matchId, CancellationToken cancellationToken = default)
+    {
+        var request = new DeleteRequest(MatchSearchIndex.Name, matchId.ToString())
+        {
+            // Same reason the writes wait: a cancellation followed by a search that still finds the fixture
+            // reads as the cancellation not having worked.
+            Refresh = Refresh.WaitFor
+        };
+
+        var response = await client.DeleteAsync(request, cancellationToken);
+
+        // Nothing to delete is the goal rather than a failure. A full rebuild drops fixtures it no longer
+        // selects, so by the time this arrives the document may well be gone already - and a redelivered
+        // message will find it gone too.
+        if (response.ApiCallDetails?.HttpStatusCode is 404)
+        {
+            return;
+        }
+
+        if (!response.IsValidResponse)
+        {
+            throw new InvalidOperationException(
+                $"Elasticsearch refused to take match {matchId} out of the index: {response.DebugInformation}");
+        }
+    }
+
     public async Task RecreateAsync(CancellationToken cancellationToken = default)
     {
         var deleted = await client.Indices.DeleteAsync(MatchSearchIndex.Name, cancellationToken);

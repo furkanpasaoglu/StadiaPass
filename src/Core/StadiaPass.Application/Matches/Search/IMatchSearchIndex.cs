@@ -65,6 +65,17 @@ public interface IMatchSearchIndex
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Takes a fixture out of the index.
+    /// </summary>
+    /// <remarks>
+    /// A fixture that has been called off has to leave, and leaving is not something writing a document can
+    /// do: the full rebuild drops what it does not select, but the projection that keeps up between rebuilds
+    /// only ever wrote, so a cancelled match stayed findable and its link kept working. Asking for a document
+    /// that is not there is not a failure - the rebuild may already have dropped it.
+    /// </remarks>
+    Task DeleteAsync(Guid matchId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Throws the index away and builds an empty one from the current definition.
     /// </summary>
     /// <remarks>

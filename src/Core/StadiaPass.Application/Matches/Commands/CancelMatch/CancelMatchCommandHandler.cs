@@ -39,6 +39,11 @@ internal sealed partial class CancelMatchCommandHandler(
         // called off and nobody downstream is ever told - which here means tickets nobody refunds.
         outbox.Enqueue(new MatchCancelledEvent(match.Id, request.Reason, now));
 
+        // The catalogue message is the one the search projection already listens to, and it now removes a
+        // fixture that no longer belongs rather than only writing ones that do. Reusing it beats inventing a
+        // second path to the index: there is one rule about what the index holds, in one place.
+        outbox.Enqueue(new MatchCatalogueChangedEvent(match.Id));
+
         // The match row is the coarsest lock in the system, so it is taken last, immediately before the
         // commit, exactly as every other write path takes it.
         var writeCounters = matchRepository.PrepareMatchCancellationCounters(match, heldSeatCount);

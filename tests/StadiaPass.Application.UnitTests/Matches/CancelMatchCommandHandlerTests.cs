@@ -152,8 +152,15 @@ public sealed class CancelMatchCommandHandlerTests
     public async Task Should_NameTheFixtureAndWhyItWasCalledOff()
     {
         // Arrange
+        // Two messages are staged, so only the one this test is about is kept.
         MatchCancelledEvent? announced = null;
-        _outbox.Enqueue(Arg.Do<object>(message => announced = message as MatchCancelledEvent));
+        _outbox.Enqueue(Arg.Do<object>(message =>
+        {
+            if (message is MatchCancelledEvent cancellation)
+            {
+                announced = cancellation;
+            }
+        }));
 
         // Act
         await _handler.Handle(ACommand(), CancellationToken.None);
@@ -163,6 +170,18 @@ public sealed class CancelMatchCommandHandlerTests
         announced.Should().NotBeNull();
         announced!.MatchId.Should().Be(_match.Id);
         announced.Reason.Should().Be(Reason);
+    }
+
+    [Fact]
+    public async Task Should_TellTheSearchIndexTheCatalogueChanged()
+    {
+        // Act
+        await _handler.Handle(ACommand(), CancellationToken.None);
+
+        // Assert - the projection this wakes is the one that takes a cancelled fixture out of the index. Say
+        // nothing and the search box goes on offering a match nobody is playing, and its link goes on opening
+        // a seat map, until somebody rebuilds the whole index by hand.
+        _outbox.Received(1).Enqueue(Arg.Is<MatchCatalogueChangedEvent>(message => message.MatchId == _match.Id));
     }
 
     [Fact]

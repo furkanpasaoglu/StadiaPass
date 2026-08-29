@@ -20,6 +20,15 @@ internal sealed class TicketRepository(StadiaPassDbContext context)
             ticket => ticket.MatchSeatId == matchSeatId && ticket.Status == TicketStatus.Issued,
             cancellationToken);
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> GetLivePaymentIntentsForMatchAsync(
+        Guid matchId,
+        CancellationToken cancellationToken = default) =>
+        await Set.AsNoTracking()
+            .Where(ticket => ticket.MatchId == matchId && ticket.Status == TicketStatus.Issued)
+            .Select(ticket => ticket.PaymentIntentId)
+            .ToListAsync(cancellationToken);
+
     public Task<Ticket?> GetByPaymentIntentAsync(
         string paymentIntentId,
         CancellationToken cancellationToken = default) =>
