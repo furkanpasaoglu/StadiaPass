@@ -2,7 +2,7 @@
 
 **English** · [Türkçe](README.tr.md)
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 207](https://img.shields.io/badge/tests-207-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 207](https://img.shields.io/badge/tests-207-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
 
 Stadium and arena ticketing, built as a reference-grade Clean Architecture solution: Minimal API backend,
 Razor MVC front end, DDD domain model, CQRS with MediatR, Keycloak-backed dynamic permissions, Elasticsearch
@@ -381,8 +381,6 @@ amount coming back; and in the API logs, one `settled after a cancellation` and 
 **7 · A ticket for a match already played.** Keep a seat-map link, wait for kick-off to pass, reopen it.
 Expect: the map renders, and nothing can be held or bought.
 
-## 📝 Notes
+---
 
-No remote repository; this is a single-developer solution built to be read. The realm file, the mock payment
-provider and the seeded data exist so that `dotnet run` on a fresh clone gives a working ticket shop with
-nothing to configure.
+Licensed under the [MIT License](LICENSE).

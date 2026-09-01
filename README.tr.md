@@ -2,7 +2,7 @@
 
 [English](README.md) · **Türkçe**
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 207](https://img.shields.io/badge/test-207-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 207](https://img.shields.io/badge/test-207-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success) ![lisans MIT](https://img.shields.io/badge/lisans-MIT-blue)
 
 Stadyum ve arena biletleme; referans niteliğinde bir Clean Architecture çözümü olarak yazıldı: Minimal API
 backend, Razor MVC ön yüz, DDD domain modeli, MediatR ile CQRS, Keycloak destekli dinamik izinler, arama
@@ -380,8 +380,6 @@ API loglarında bilet başına bir `settled after a cancellation` ve bir `Refund
 **7 · Oynanmış maça bilet.** Bir koltuk haritası linkini sakla, başlama vuruşunun geçmesini bekle, yeniden
 aç. Beklenen: harita çizilir ama hiçbir şey tutulamaz ve satın alınamaz.
 
-## 📝 Notlar
+---
 
-Uzak depo yok; bu, okunmak için yazılmış tek geliştiricili bir çözüm. Realm dosyası, mock ödeme sağlayıcısı
-ve tohum veriler, taze bir klonda `dotnet run`'ın hiçbir şey yapılandırmadan çalışan bir bilet gişesi vermesi
-için var.
+[MIT Lisansı](LICENSE) ile lisanslanmıştır.
