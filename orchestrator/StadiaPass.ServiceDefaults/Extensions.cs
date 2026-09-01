@@ -66,19 +66,17 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                    // Anything the applications measure themselves. The outbox and inbox depths are the two
-                    // numbers that say whether the whole messaging path is working - one for what this
-                    // system is trying to send, one for what a provider has already been told we have and
-                    // will therefore never send again.
                     .AddMeter("StadiaPass.Outbox")
                     .AddMeter("StadiaPass.Inbox")
-                    // How long the search box takes, how often it could not answer at all, and whether the
-                    // index still holds what the database says it should.
-                    .AddMeter("StadiaPass.Search");
+                    .AddMeter("StadiaPass.Search")
+                    .AddMeter("StadiaPass.Agent")
+                    .AddMeter("Experimental.ModelContextProtocol");
             })
             .WithTracing(tracing =>
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
+                    .AddSource("StadiaPass.Agent")
+                    .AddSource("Experimental.ModelContextProtocol")
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>

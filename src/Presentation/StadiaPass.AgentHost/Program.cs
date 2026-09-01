@@ -29,13 +29,17 @@ try
         .ValidateDataAnnotations()
         .ValidateOnStart();
 
-    // The agent never sees "Ollama" - it sees IChatClient. That seam is the whole point: the day this
-    // moves to a cloud model, the registration below is the only line that changes.
     builder.Services.AddSingleton<IChatClient>(provider =>
     {
         var options = provider.GetRequiredService<IOptions<AgentOptions>>().Value;
 
-        return new OllamaApiClient(new Uri(options.OllamaEndpoint), options.Model);
+        // The cast settles an overload ambiguity: OllamaApiClient is also an IEmbeddingGenerator.
+        return ((IChatClient)new OllamaApiClient(new Uri(options.OllamaEndpoint), options.Model))
+            .AsBuilder()
+            .UseOpenTelemetry(
+                provider.GetRequiredService<ILoggerFactory>(),
+                sourceName: "StadiaPass.Agent")
+            .Build(provider);
     });
 
     // The tools come from our own MCP server - the same three catalogue tools Claude used, consumed by a

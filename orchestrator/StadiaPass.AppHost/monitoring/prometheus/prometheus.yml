@@ -26,6 +26,20 @@ scrape_configs:
         labels:
           service: webmvc
 
+  - job_name: stadiapass-mcpserver
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:5299']
+        labels:
+          service: mcpserver
+
+  - job_name: stadiapass-agenthost
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:5399']
+        labels:
+          service: agenthost
+
   - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']
