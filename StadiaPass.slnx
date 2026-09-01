@@ -13,6 +13,7 @@
     <Project Path="src/Infrastructure/StadiaPass.Persistence/StadiaPass.Persistence.csproj" />
   </Folder>
   <Folder Name="/src/Presentation/">
+    <Project Path="src/Presentation/StadiaPass.AgentHost/StadiaPass.AgentHost.csproj" />
     <Project Path="src/Presentation/StadiaPass.McpServer/StadiaPass.McpServer.csproj" />
     <Project Path="src/Presentation/StadiaPass.WebAPI/StadiaPass.WebAPI.csproj" />
     <Project Path="src/Presentation/StadiaPass.WebMVC/StadiaPass.WebMVC.csproj" />
