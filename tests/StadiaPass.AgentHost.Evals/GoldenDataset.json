@@ -1,0 +1,134 @@
+{
+  "$comment": "Tool-selection golden dataset. Each case: the question an admin might type, and the acceptable (tool, argument-substring) outcomes. An empty 'acceptable' array means the model must call NO tool. Argument values are matched as case-insensitive substrings.",
+  "cases": [
+    {
+      "id": "upcoming-tr-basic",
+      "question": "Yaklaşan maçlar neler?",
+      "acceptable": [ { "tool": "get_upcoming_matches" } ]
+    },
+    {
+      "id": "upcoming-en-basic",
+      "question": "What matches are coming up?",
+      "acceptable": [ { "tool": "get_upcoming_matches" } ]
+    },
+    {
+      "id": "upcoming-tr-weekend",
+      "question": "Bu hafta sonu hangi maçlar var?",
+      "acceptable": [ { "tool": "get_upcoming_matches" } ]
+    },
+    {
+      "id": "upcoming-tr-category",
+      "question": "Sadece basketbol maçlarını listeler misin?",
+      "acceptable": [
+        { "tool": "get_upcoming_matches", "arguments": { "category": "basket" } },
+        { "tool": "search_matches", "arguments": { "query": "basket" } }
+      ]
+    },
+    {
+      "id": "upcoming-en-category",
+      "question": "List only the football fixtures on sale.",
+      "acceptable": [
+        { "tool": "get_upcoming_matches", "arguments": { "category": "foot" } },
+        { "tool": "search_matches", "arguments": { "query": "foot" } }
+      ]
+    },
+    {
+      "id": "search-tr-fener",
+      "question": "Fenerbahçe maçı var mı?",
+      "acceptable": [ { "tool": "search_matches", "arguments": { "query": "fenerbah" } } ]
+    },
+    {
+      "id": "search-en-fener",
+      "question": "Is there a Fenerbahce game on sale?",
+      "acceptable": [ { "tool": "search_matches", "arguments": { "query": "fenerbah" } } ]
+    },
+    {
+      "id": "search-tr-gala",
+      "question": "Galatasaray'ın maçını bulur musun?",
+      "acceptable": [ { "tool": "search_matches", "arguments": { "query": "galatasaray" } } ]
+    },
+    {
+      "id": "search-tr-venue",
+      "question": "Sinan Erdem'de hangi etkinlikler var?",
+      "acceptable": [ { "tool": "search_matches", "arguments": { "query": "sinan" } } ]
+    },
+    {
+      "id": "search-en-city",
+      "question": "Are there any matches in Istanbul?",
+      "acceptable": [ { "tool": "search_matches", "arguments": { "query": "istanbul" } } ]
+    },
+    {
+      "id": "search-tr-typo",
+      "question": "fenrbahçe maçları ne zaman?",
+      "acceptable": [
+        { "tool": "search_matches", "arguments": { "query": "fenrbah" } },
+        { "tool": "search_matches", "arguments": { "query": "fenerbah" } }
+      ]
+    },
+    {
+      "id": "search-tr-eczacibasi",
+      "question": "Eczacıbaşı voleybol maçı ne zaman?",
+      "acceptable": [ { "tool": "search_matches", "arguments": { "query": "eczac" } } ]
+    },
+    {
+      "id": "search-en-vakifbank",
+      "question": "When does VakifBank play next?",
+      "acceptable": [ { "tool": "search_matches", "arguments": { "query": "vakif" } } ]
+    },
+    {
+      "id": "search-tr-trabzon",
+      "question": "Trabzonspor'un satıştaki maçı hangisi?",
+      "acceptable": [ { "tool": "search_matches", "arguments": { "query": "trabzon" } } ]
+    },
+    {
+      "id": "seats-tr-guid",
+      "question": "Şu maçta boş koltuk var mı? Maç id: 01a02f9e-823f-7828-962b-b27a904c2079",
+      "acceptable": [
+        { "tool": "get_seat_availability", "arguments": { "matchId": "01a02f9e-823f-7828-962b-b27a904c2079" } }
+      ]
+    },
+    {
+      "id": "seats-en-guid",
+      "question": "How many seats are left for match 01a02f9e-8240-7361-9d6f-55260786393a?",
+      "acceptable": [
+        { "tool": "get_seat_availability", "arguments": { "matchId": "01a02f9e-8240-7361-9d6f-55260786393a" } }
+      ]
+    },
+    {
+      "id": "seats-tr-cheapest",
+      "question": "01a02f9e-823e-7a5f-9e93-195d257e8bdb maçında en ucuz bilet kaç para?",
+      "acceptable": [
+        { "tool": "get_seat_availability", "arguments": { "matchId": "01a02f9e-823e-7a5f-9e93-195d257e8bdb" } }
+      ]
+    },
+    {
+      "id": "seats-tr-needs-search-first",
+      "question": "Fenerbahçe Galatasaray maçında boş koltuk var mı?",
+      "$comment": "No id was given, so the correct FIRST move is to search - never to invent a GUID.",
+      "acceptable": [
+        { "tool": "search_matches", "arguments": { "query": "fener" } },
+        { "tool": "search_matches", "arguments": { "query": "galatasaray" } }
+      ]
+    },
+    {
+      "id": "notool-greeting",
+      "question": "Merhaba!",
+      "acceptable": []
+    },
+    {
+      "id": "notool-who-are-you",
+      "question": "Sen kimsin, ne iş yaparsın?",
+      "acceptable": []
+    },
+    {
+      "id": "notool-thanks",
+      "question": "Teşekkürler, çok yardımcı oldun.",
+      "acceptable": []
+    },
+    {
+      "id": "notool-out-of-scope",
+      "question": "Bana kısa bir şiir yazar mısın?",
+      "acceptable": []
+    }
+  ]
+}

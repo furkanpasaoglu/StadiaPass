@@ -23,6 +23,7 @@
     <Project Path="src/Shared/StadiaPass.SharedKernel/StadiaPass.SharedKernel.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/StadiaPass.AgentHost.Evals/StadiaPass.AgentHost.Evals.csproj" />
     <Project Path="tests/StadiaPass.Application.UnitTests/StadiaPass.Application.UnitTests.csproj" />
     <Project Path="tests/StadiaPass.Domain.UnitTests/StadiaPass.Domain.UnitTests.csproj" />
   </Folder>

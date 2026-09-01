@@ -48,7 +48,7 @@ try
         return ConnectToMcpAsync(options.McpEndpoint).GetAwaiter().GetResult();
     });
 
-    builder.AddAIAgent("stadia-analyst", (provider, _) =>
+    builder.AddAIAgent(AnalystAgent.Name, (provider, _) =>
     {
         var tools = provider.GetRequiredService<IList<McpClientTool>>();
 
@@ -56,17 +56,10 @@ try
             provider.GetRequiredService<IChatClient>(),
             new ChatClientAgentOptions
             {
-                // Must equal the registration key above - the hosting layer refuses a mismatch.
-                Name = "stadia-analyst",
+                Name = AnalystAgent.Name,
                 ChatOptions = new ChatOptions
                 {
-                    Instructions =
-                        "You are the StadiaPass catalogue analyst for internal staff. Answer questions about "
-                        + "what is on sale - matches, seat availability, prices - using ONLY the tools you are "
-                        + "given; every number in your answer must come from a tool result, never from memory. "
-                        + "If the tools cannot answer, say what is missing instead of guessing. When a search "
-                        + "result carries searchAvailable=false, tell the user the search index was unreachable "
-                        + "and they are looking at the plain listing. Answer in the language the user writes in.",
+                    Instructions = AnalystAgent.Instructions,
                     // An analyst reports; it does not improvise. Determinism first, personality never.
                     Temperature = 0f,
                     Tools = [.. tools.Cast<AITool>()]

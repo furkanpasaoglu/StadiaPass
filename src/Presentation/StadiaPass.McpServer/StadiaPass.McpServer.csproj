@@ -5,6 +5,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The evals build their tool surface from the real CatalogueTools via reflection, so what the
+         model is scored against can never drift from what production serves. -->
+    <InternalsVisibleTo Include="StadiaPass.AgentHost.Evals" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>
 
