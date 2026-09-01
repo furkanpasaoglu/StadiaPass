@@ -87,7 +87,8 @@ StadiaPass.slnx
 │   │   └── StadiaPass.Infrastructure# adaptörler: ödeme, mesajlaşma, arama, mail, kilit
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API + Scalar referansı
-│       └── StadiaPass.WebMVC        # Razor MVC — API'yi yalnızca HTTP üzerinden tüketir
+│       ├── StadiaPass.WebMVC        # Razor MVC — API'yi yalnızca HTTP üzerinden tüketir
+│       └── StadiaPass.McpServer     # Model Context Protocol sunucusu — katalog, AI istemcileri için
 ├── orchestrator
 │   ├── StadiaPass.AppHost           # Aspire: Postgres, Redis, RabbitMQ, Keycloak, Elastic, Vault, Grafana
 │   └── StadiaPass.ServiceDefaults   # Vault config, Serilog, OpenTelemetry, health check'ler
@@ -95,20 +96,23 @@ StadiaPass.slnx
 ```
 
 ```
-WebMVC ──HTTP──► WebAPI ──► Application ──► Domain
-   │                │            ▲
-   │                └──► Persistence / Infrastructure (soyutlamaları uygular)
-   └──────────────► SharedKernel ◄── WebAPI          (yalnızca izin sözleşmeleri)
+WebMVC ────HTTP──► WebAPI ──► Application ──► Domain
+McpServer ─HTTP──►   │             ▲
+                     └──► Persistence / Infrastructure (soyutlamaları uygular)
+WebMVC ───────────► SharedKernel ◄── WebAPI            (yalnızca izin sözleşmeleri)
 ```
 
 `Domain`, `MediatR.Contracts` (işaretleyici arayüzler) dışında hiçbir şeye bağımlı değil. `WebMVC` asla
 `Domain` ya da `Application` referans almaz — tıpkı üçüncü taraf bir istemci gibi saf bir API tüketicisidir.
 API ile paylaştığı tek şey izin sözlüğüdür; o da `SharedKernel`'de yaşar, böylece iki taraf da kendi başına
-bir izin dizgisi uyduramaz.
+bir izin dizgisi uyduramaz. `McpServer` da aynı kurala aynı gerekçeyle tabidir — iş mantığının sahibi tek
+process'tir, geri kalan herkes ona HTTP üzerinden konuşur.
 
 ```mermaid
 flowchart LR
   Browser --> WebMVC
+  AI([AI istemcisi — Claude, Copilot, …]) -->|MCP| McpServer
+  McpServer -->|HTTP| WebAPI
   WebMVC -->|HTTP + bearer| WebAPI
   WebMVC -->|OIDC login| Keycloak
   WebAPI -->|JWT doğrulama| Keycloak
@@ -194,6 +198,39 @@ Senkron yarı bilerek minicik: gişeyi kapatır ve tutulu koltukları geri verir
 sağlayıcı iptali geri alamaz. Her yerleşim kendi ödemesiyle adreslenir ve yalnızca hâlâ canlı olan bir bilet
 bulur; bu yüzden yeniden teslim no-op'tur ve yarım kalmış bir geçiş kaldığı yerden devam eder.
 
+## 🤖 MCP sunucusu — katalog, AI istemcileri için
+
+`StadiaPass.McpServer`, herkese açık kataloğu
+[Model Context Protocol](https://modelcontextprotocol.io) üzerinden yayınlar — AI asistanlarının (Claude,
+Copilot, MCP konuşan her şey) tool keşfedip çağırdığı standart. Bir tanesini bağlayın: "bu hafta sonu
+Fenerbahçe maçı var mı, en ucuz koltuk kaç para?" iki tool çağrısına ve bir cevaba dönüşür — hem de
+tarayıcının kullandığı API'nin aynısına karşı.
+
+| Tool | Cevapladığı | Arkasındaki |
+|---|---|---|
+| `get_upcoming_matches` | satışta ne var, canlı koltuk sayılarıyla | `GET /api/v1/matches` |
+| `search_matches` | takıma, mekâna, şehre ya da spora göre fikstür — ve index'e ulaşılamadığında bunu yüksek sesle söyler, çağıranın düz listeye baktığını gizlemez | `GET /api/v1/matches/search` |
+| `get_seat_availability` | kalan koltuk, en ucuz fiyat, blok başına sayılar ve fiyat aralıkları | `GET /api/v1/matches/{id}/seats` |
+
+Bu projeyi üç karar taşıyor:
+
+- **İçinde model yok.** Zekâ, bağlanan ve tool açıklamalarını okuyan istemciye aittir; sunucu, maliyet
+  profili herhangi bir API yüzeyiyle aynı olan bir tool katmanıdır. Onu model-bağımsız kılan da budur —
+  bugün çağıran istemci bir taahhüt değildir.
+- **API'nin istemcisidir, tıpkı portal gibi.** Veritabanı yok, broker yok, sır yok — Application katmanını
+  doğrudan host etmek, yalnızca tek process'te çalışması gereken mesaj consumer'larını ve arama index
+  worker'larını da beraberinde sürüklerdi.
+- **Özet döner, döküm değil — ve bilerek salt-okuma.** Tool çıktısı çağıranın context penceresine düşer ve
+  çağıranın token'ını harcar; bu yüzden koltuk haritası tool'u on binlerce koltuğu blok başına sayılara ve
+  fiyat aralıklarına katlar. Yalnızca üç anonim endpoint açıktır: yazmalar, gerçek bir kullanıcının
+  kimliğini, bir onay adımını ve bir idempotency anahtarını taşıyabilecekleri güne kadar bekler — kart
+  numarasının bir dil modelinden geçmekte hiçbir işi yoktur, o yüzden bir satın alma tool'u asla olmayacak.
+
+AppHost çalışırken deneyin: `npx @modelcontextprotocol/inspector` → Streamable HTTP →
+`http://localhost:5299/mcp`; ya da bir asistana `claude mcp add --transport http stadiapass
+http://localhost:5299/mcp` ile verin ve doğal dille sorun — Türkçe de çalışır, çünkü cümleyi model,
+terimi ise `search_matches`'in arkasındaki Türkçe analyzer anlar.
+
 ## 📐 Mimari kararlar
 
 Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **ölçülen** bir hatanın üstüne var.
@@ -234,6 +271,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | Runtime | .NET / C# | 10 / 14 | çözüm genelinde `uyarılar hata` ve nullable açık |
 | Orkestrasyon | .NET Aspire | 13.5.2 | her bağımlılığı başlatır, bağlantı dizgilerini bağlar, dashboard |
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` keşfi, Scalar referans arayüzü |
+| AI yüzeyi | ModelContextProtocol.AspNetCore | 2.2.0 | streamable HTTP üzerinden MCP sunucusu, üç salt-okuma katalog tool'u |
 | Arayüz | ASP.NET Core MVC + Razor | 10.0.11 | sunucuda render, elle yazılmış tek stylesheet |
 | Use case'ler | MediatR + FluentValidation | 12.5.0 / 12.1.1 | komutlar, sorgular, pipeline behavior'ları |
 | Kalıcılık | EF Core + Npgsql → PostgreSQL 17 | 10.0.11 | aggregate'ler, owned type'lar, `xmin` token'ı, outbox ve inbox tabloları |
@@ -317,13 +355,14 @@ dotnet run --project orchestrator/StadiaPass.AppHost
 ```
 
 Aspire; PostgreSQL (pgAdmin ile), Redis (RedisInsight ile), RabbitMQ (yönetim eklentisiyle), Elasticsearch,
-Keycloak, Vault, Prometheus, Grafana, API ve MVC uygulamasını başlatır. İlk açılışta şema kurulup tohumlanır
-ve Keycloak realm'i içe aktarılır.
+Keycloak, Vault, Prometheus, Grafana, API, MVC uygulaması ve MCP sunucusunu başlatır. İlk açılışta şema
+kurulup tohumlanır ve Keycloak realm'i içe aktarılır.
 
 | Kaynak | Yerel adres |
 |---|---|
 | MVC arayüzü | http://localhost:5230 |
 | API + Scalar referansı | http://localhost:5042 · `/scalar/v1` |
+| MCP endpoint'i | http://localhost:5299/mcp |
 | Keycloak | https://localhost:8080 |
 | Vault arayüzü | http://localhost:8200 |
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |

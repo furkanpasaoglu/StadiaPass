@@ -87,7 +87,8 @@ StadiaPass.slnx
 │   │   └── StadiaPass.Infrastructure# adapters: payments, messaging, search, mail, locking
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API + Scalar reference
-│       └── StadiaPass.WebMVC        # Razor MVC — consumes the API over HTTP only
+│       ├── StadiaPass.WebMVC        # Razor MVC — consumes the API over HTTP only
+│       └── StadiaPass.McpServer     # Model Context Protocol server — the catalogue, for AI clients
 ├── orchestrator
 │   ├── StadiaPass.AppHost           # Aspire: Postgres, Redis, RabbitMQ, Keycloak, Elastic, Vault, Grafana
 │   └── StadiaPass.ServiceDefaults   # Vault config, Serilog, OpenTelemetry, health checks
@@ -95,20 +96,23 @@ StadiaPass.slnx
 ```
 
 ```
-WebMVC ──HTTP──► WebAPI ──► Application ──► Domain
-   │                │            ▲
-   │                └──► Persistence / Infrastructure (implement the abstractions)
-   └──────────────► SharedKernel ◄── WebAPI          (permission contracts only)
+WebMVC ────HTTP──► WebAPI ──► Application ──► Domain
+McpServer ─HTTP──►   │             ▲
+                     └──► Persistence / Infrastructure (implement the abstractions)
+WebMVC ───────────► SharedKernel ◄── WebAPI            (permission contracts only)
 ```
 
 `Domain` depends on nothing but `MediatR.Contracts` (marker interfaces). `WebMVC` never references `Domain`
 or `Application` — it is a pure API consumer, exactly like a third-party client. The only thing it shares with
 the API is the permission vocabulary, which lives in `SharedKernel` so neither side can invent a permission
-string of its own.
+string of its own. `McpServer` is held to the same rule for the same reason — one process owns the business
+logic, everything else talks to it over HTTP.
 
 ```mermaid
 flowchart LR
   Browser --> WebMVC
+  AI([AI client — Claude, Copilot, …]) -->|MCP| McpServer
+  McpServer -->|HTTP| WebAPI
   WebMVC -->|HTTP + bearer| WebAPI
   WebMVC -->|OIDC login| Keycloak
   WebAPI -->|JWT validation| Keycloak
@@ -194,6 +198,40 @@ back hundreds of tickets belongs on the broker, where each ticket retries on its
 bad afternoon cannot roll back the cancellation. Every settlement is addressed by its payment and only ever
 finds a ticket that is still live, so redelivery is a no-op and a half-finished pass simply resumes.
 
+## 🤖 MCP server — the catalogue, for AI clients
+
+`StadiaPass.McpServer` publishes the public catalogue over the
+[Model Context Protocol](https://modelcontextprotocol.io), the standard through which AI assistants —
+Claude, Copilot, anything that speaks MCP — discover tools and call them. Connect one and "is there a
+Fenerbahçe match this weekend, and what does the cheapest seat cost?" becomes two tool calls and an answer,
+against the same API a browser uses.
+
+| Tool | Answers | Behind it |
+|---|---|---|
+| `get_upcoming_matches` | what is on sale, with live seat counts | `GET /api/v1/matches` |
+| `search_matches` | fixtures by team, venue, city or sport — and says out loud when the index was unreachable and the caller is looking at the plain listing | `GET /api/v1/matches/search` |
+| `get_seat_availability` | seats left, the cheapest price, per-block counts and price ranges | `GET /api/v1/matches/{id}/seats` |
+
+Three decisions carry this project:
+
+- **There is no model in it.** The intelligence belongs to whichever client connects and reads the tool
+  descriptions; the server is a tool layer with the same cost profile as any other API surface. That is what
+  keeps it model-agnostic — the client that calls it today is not a commitment.
+- **It is a client of the API, exactly like the portal.** No database, no broker, no secrets — hosting the
+  application layer directly would have dragged in the messaging consumers and the search index workers,
+  which must run in one process only.
+- **Summaries, not dumps — and read-only, on purpose.** Tool output lands in the caller's context window and
+  spends the caller's tokens, so the seat-map tool folds tens of thousands of seats into per-block counts
+  and price ranges. Only the three anonymous endpoints are exposed: writes wait until they can carry a real
+  user's identity, a confirmation step and an idempotency key — and a card number has no business passing
+  through a language model, so a purchase tool will never exist.
+
+Try it while the AppHost is running: `npx @modelcontextprotocol/inspector` → Streamable HTTP →
+`http://localhost:5299/mcp`, or hand it to an assistant with
+`claude mcp add --transport http stadiapass http://localhost:5299/mcp` and ask in plain language — Turkish
+works, because the question is understood by the model and the term by the Turkish analyzer behind
+`search_matches`.
+
 ## 📐 Architectural decisions
 
 Every row is a decision that cost something, and most of them exist because of a defect that was measured
@@ -235,6 +273,7 @@ rather than imagined.
 | Runtime | .NET / C# | 10 / 14 | `warnings-as-errors`, nullable enabled solution-wide |
 | Orchestration | .NET Aspire | 13.5.2 | starts every dependency, wires connection strings, dashboard |
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` discovery, Scalar reference UI |
+| AI surface | ModelContextProtocol.AspNetCore | 2.2.0 | MCP server over streamable HTTP, three read-only catalogue tools |
 | UI | ASP.NET Core MVC + Razor | 10.0.11 | server-rendered, one hand-written stylesheet |
 | Use cases | MediatR + FluentValidation | 12.5.0 / 12.1.1 | commands, queries, pipeline behaviours |
 | Persistence | EF Core + Npgsql → PostgreSQL 17 | 10.0.11 | aggregates, owned types, `xmin` token, outbox and inbox tables |
@@ -319,13 +358,14 @@ dotnet run --project orchestrator/StadiaPass.AppHost
 ```
 
 Aspire starts PostgreSQL (with pgAdmin), Redis (with RedisInsight), RabbitMQ (with the management plugin),
-Elasticsearch, Keycloak, Vault, Prometheus, Grafana, the API and the MVC app. On first start the schema is
-created and seeded, and the Keycloak realm is imported.
+Elasticsearch, Keycloak, Vault, Prometheus, Grafana, the API, the MVC app and the MCP server. On first start
+the schema is created and seeded, and the Keycloak realm is imported.
 
 | Resource | Local URL |
 |---|---|
 | MVC UI | http://localhost:5230 |
 | API + Scalar reference | http://localhost:5042 · `/scalar/v1` |
+| MCP endpoint | http://localhost:5299/mcp |
 | Keycloak | https://localhost:8080 |
 | Vault UI | http://localhost:8200 |
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |

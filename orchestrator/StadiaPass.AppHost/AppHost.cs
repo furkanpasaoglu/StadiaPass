@@ -67,6 +67,20 @@ var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
         url.DisplayText = "API Reference (Scalar)";
     });
 
+// The MCP server is a client of the API like the portal below - it gets a reference for service
+// discovery and nothing else: no database, no broker, no Vault, because it holds no secrets and owns no
+// state. External endpoint so an AI client outside the Aspire network (Claude, an IDE) can reach /mcp.
+builder.AddProject<Projects.StadiaPass_McpServer>("mcpserver")
+    .WithReference(webApi)
+    .WaitFor(webApi)
+    .WithHttpHealthCheck("/health")
+    .WithExternalHttpEndpoints()
+    .WithUrlForEndpoint("http", url =>
+    {
+        url.Url = "/mcp";
+        url.DisplayText = "MCP Endpoint";
+    });
+
 builder.AddProject<Projects.StadiaPass_WebMVC>("webmvc")
     .WithReference(webApi)
     .WithReference(cache)

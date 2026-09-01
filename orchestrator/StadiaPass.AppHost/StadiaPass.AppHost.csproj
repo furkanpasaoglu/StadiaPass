@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Presentation\StadiaPass.McpServer\StadiaPass.McpServer.csproj" />
     <ProjectReference Include="..\..\src\Presentation\StadiaPass.WebAPI\StadiaPass.WebAPI.csproj" />
     <ProjectReference Include="..\..\src\Presentation\StadiaPass.WebMVC\StadiaPass.WebMVC.csproj" />
   </ItemGroup>
