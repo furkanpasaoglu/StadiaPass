@@ -6,7 +6,8 @@
 
 Stadyum ve arena biletleme; referans niteliğinde bir Clean Architecture çözümü olarak yazıldı: Minimal API
 backend, Razor MVC ön yüz, DDD domain modeli, MediatR ile CQRS, Keycloak destekli dinamik izinler, arama
-kutusunun arkasında Elasticsearch ve .NET Aspire orkestrasyonu.
+kutusunun arkasında Elasticsearch, .NET Aspire orkestrasyonu — ve bunların üstünde bir MCP tool katmanı ile
+kurum içi bir analist ajan.
 
 ## 🎯 Bu ne
 
@@ -26,6 +27,7 @@ sınırı koyabilen ya da düpedüz yavaş olabilen bir sağlayıcıya karşı y
 | **Alt akış satın almayı düşüremez** | Mail, arama indeksi ve duyurular, satışla aynı `SaveChanges`'in yazdığı transactional outbox üzerinden çıkar. |
 | **Fikstürü iptal etmek** | Satış tek küçük transaction'da durur; satılmış her bilet sonra broker üzerinde, her biri kendi retry'ıyla tek tek yerleştirilir. |
 | **Zarifçe bozulan arama** | Elasticsearch, onsuz da gayet iyi bilet satan bir sistemin üstünde bir konfor. Cluster yoksa arama kutusu listeyi verir ve bunu söyler. |
+| **İkinci bir doğruluk kaynağı yaratmadan AI** | Katalog bir kez MCP tool'u olarak yayınlanır. Claude da, yerel model üzerinde çalışan kurum içi ajan da aynı üç tool'u, aynı API üzerinden tüketir — ve ajanın tool seçimine güvenilmez, ölçülür. |
 
 ## 📸 Ekran görüntüleri
 
@@ -88,17 +90,19 @@ StadiaPass.slnx
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API + Scalar referansı
 │       ├── StadiaPass.WebMVC        # Razor MVC — API'yi yalnızca HTTP üzerinden tüketir
-│       └── StadiaPass.McpServer     # Model Context Protocol sunucusu — katalog, AI istemcileri için
+│       ├── StadiaPass.McpServer     # Model Context Protocol sunucusu — katalog, AI istemcileri için
+│       └── StadiaPass.AgentHost     # analist ajan — aynı tool'ları tutan yerel bir model
 ├── orchestrator
 │   ├── StadiaPass.AppHost           # Aspire: Postgres, Redis, RabbitMQ, Keycloak, Elastic, Vault, Grafana
 │   └── StadiaPass.ServiceDefaults   # Vault config, Serilog, OpenTelemetry, health check'ler
-└── tests                            # Domain.UnitTests · Application.UnitTests
+└── tests                            # Domain.UnitTests · Application.UnitTests · AgentHost.Evals
 ```
 
 ```
 WebMVC ────HTTP──► WebAPI ──► Application ──► Domain
 McpServer ─HTTP──►   │             ▲
                      └──► Persistence / Infrastructure (soyutlamaları uygular)
+AgentHost ──MCP──► McpServer ─HTTP──► WebAPI           (ajan, bir istemcinin istemcisidir)
 WebMVC ───────────► SharedKernel ◄── WebAPI            (yalnızca izin sözleşmeleri)
 ```
 
@@ -106,12 +110,16 @@ WebMVC ───────────► SharedKernel ◄── WebAPI       
 `Domain` ya da `Application` referans almaz — tıpkı üçüncü taraf bir istemci gibi saf bir API tüketicisidir.
 API ile paylaştığı tek şey izin sözlüğüdür; o da `SharedKernel`'de yaşar, böylece iki taraf da kendi başına
 bir izin dizgisi uyduramaz. `McpServer` da aynı kurala aynı gerekçeyle tabidir — iş mantığının sahibi tek
-process'tir, geri kalan herkes ona HTTP üzerinden konuşur.
+process'tir, geri kalan herkes ona HTTP üzerinden konuşur. `AgentHost` bir adım daha dışarıda durur: kural
+değil model tutar ve sisteme yalnızca her AI istemcisinin kullandığı MCP tool'ları üzerinden uzanır.
 
 ```mermaid
 flowchart LR
   Browser --> WebMVC
   AI([AI istemcisi — Claude, Copilot, …]) -->|MCP| McpServer
+  Personel([Personel]) -->|DevUI| AgentHost
+  AgentHost -->|MCP| McpServer
+  AgentHost -->|sohbet + tool çağrıları| Ollama([Ollama — yerel model])
   McpServer -->|HTTP| WebAPI
   WebMVC -->|HTTP + bearer| WebAPI
   WebMVC -->|OIDC login| Keycloak
@@ -198,7 +206,7 @@ Senkron yarı bilerek minicik: gişeyi kapatır ve tutulu koltukları geri verir
 sağlayıcı iptali geri alamaz. Her yerleşim kendi ödemesiyle adreslenir ve yalnızca hâlâ canlı olan bir bilet
 bulur; bu yüzden yeniden teslim no-op'tur ve yarım kalmış bir geçiş kaldığı yerden devam eder.
 
-## 🤖 MCP sunucusu — katalog, AI istemcileri için
+## 🤖 MCP sunucusu ve analist ajan — katalog, AI istemcileri için
 
 `StadiaPass.McpServer`, herkese açık kataloğu
 [Model Context Protocol](https://modelcontextprotocol.io) üzerinden yayınlar — AI asistanlarının (Claude,
@@ -231,6 +239,25 @@ AppHost çalışırken deneyin: `npx @modelcontextprotocol/inspector` → Stream
 http://localhost:5299/mcp` ile verin ve doğal dille sorun — Türkçe de çalışır, çünkü cümleyi model,
 terimi ise `search_matches`'in arkasındaki Türkçe analyzer anlar.
 
+**Aynı tool'lar, ikinci bir tüketici.** `StadiaPass.AgentHost`, personel için kurum içi bir analist:
+**yerel** bir modelin (Ollama `qwen2.5:14b`, sıcaklık 0) önünde duran bir
+[Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) host'u; aynı üç tool'u ikinci bir
+MCP istemcisi olarak tüketir. O var olsun diye altındaki hiçbir şey değişmedi. Kural değil model tutar: adı
+ve tipli parametreleri olan tool'lar arasından seçer, sorgu yazmaz; talimatları da `AnalystAgent` içinde
+yaşar — hem host hem eval'ler oradan okur, yani puanlanan dizgi çalıştırdığı dizgidir. `IChatClient`
+dikişinin üstündeki her şey sağlayıcı-bağımsız; bulut modeli demek Vault'ta bir anahtar ve tek bir kayıt
+satırı demek. Sohbet arayüzü: `/devui`, yalnızca geliştirmede.
+
+**Ajan beğenilmez, ölçülür.** Model aynı soruya her seferinde farklı cevap verir; bu yüzden kendi takımı
+var: Türkçe ve İngilizce **22 puanlanan vaka**, modelin kabul edilebilir argümanlarla kabul edilebilir bir
+tool'a uzandığını — ya da sohbet muhabbetinde hiçbir tool çağırmadığını — doğrular. Tool adları ve şemaları
+gerçek `CatalogueTools`'tan reflection'la gelir; böylece eval, ölçtüğü yüzeyden kayamaz ve hiçbir şey
+çalıştırılmaz. Opsiyoneldir, çünkü yirmi model çağrısının 200 ms'lik bir test döngüsünde işi yok:
+
+```powershell
+$env:STADIAPASS_RUN_EVALS = "1"; dotnet test
+```
+
 ## 📐 Mimari kararlar
 
 Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **ölçülen** bir hatanın üstüne var.
@@ -252,6 +279,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | **İptalin kendi izni var** | Para harcayan tek eylem | Maç açabilenin otomatik olarak bir stadyum dolusu hasılatı iade edebilmesi |
 | **Rolleri Keycloak, izinleri kod tutar** | Rol adları realm'de, izin dizgileri `SharedKernel`'de yaşar | İki tarafın aynı hakkın farklı yazımlarını uydurması |
 | **Sırlar için Vault, fallback yok** | Sır taşıyan option'lar `[Required]` + `ValidateOnStart` | Birisi yapılandırmayı unuttuktan sonra sessizce çalışmaya devam eden bir varsayılan |
+| **Ajana tool verilir, connection string asla** | Tipli bir yüzeyden seçim gözden geçirilebilir; üretilen SQL geçirilemez | Modelin kimsenin açmayı düşünmediği bir kolona uzanması ve bir iş kuralının prompt'ta yaşaması |
 
 ### Bilerek yapılmayanlar
 
@@ -272,6 +300,8 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | Orkestrasyon | .NET Aspire | 13.5.2 | her bağımlılığı başlatır, bağlantı dizgilerini bağlar, dashboard |
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` keşfi, Scalar referans arayüzü |
 | AI yüzeyi | ModelContextProtocol.AspNetCore | 2.2.0 | streamable HTTP üzerinden MCP sunucusu, üç salt-okuma katalog tool'u |
+| Ajan | Microsoft Agent Framework | 1.20.0 | analist host'u, OpenAI uyumlu endpoint'leri ve DevUI |
+| Model erişimi | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | sağlayıcı-bağımsız `IChatClient`, yerel `qwen2.5:14b`, GenAI telemetrisi |
 | Arayüz | ASP.NET Core MVC + Razor | 10.0.11 | sunucuda render, elle yazılmış tek stylesheet |
 | Use case'ler | MediatR + FluentValidation | 12.5.0 / 12.1.1 | komutlar, sorgular, pipeline behavior'ları |
 | Kalıcılık | EF Core + Npgsql → PostgreSQL 17 | 10.0.11 | aggregate'ler, owned type'lar, `xmin` token'ı, outbox ve inbox tabloları |
@@ -284,7 +314,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | Sırlar | HashiCorp Vault | 1.21 | açılışta konfigürasyon olarak enjekte edilir |
 | Telemetri | OpenTelemetry + Serilog | 1.15 / 10.0 | trace'ler, metrikler, yapılandırılmış loglar |
 | Panolar | Prometheus + Grafana | 3.6 / 12.2 | scrape edilen metrikler, provision edilmiş paneller ve alarm kuralları |
-| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 207 test |
+| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 207 test, artı 22 opsiyonel ajan eval'i |
 
 **Koddaki desenler:** Clean Architecture · DDD aggregate'leri · domain event'ler · CQRS · pipeline
 behavior'ları · repository + unit of work · portlar ve adaptörler · transactional outbox · idempotent inbox ·
@@ -325,6 +355,7 @@ Jenerik runtime seti yerine *bu sistem için* yazılmış sayılar:
 | `stadiapass_outbox_pending` / `inbox_pending` | düşmüş bir broker, bozuk bir consumer ve durmuş bir sweeper dışarıdan aynı görünür: tırmanan ve geri inmeyen bir sayı |
 | arama süresi histogramı (`outcome` etiketiyle) | gecikme ve fallback sayısı tek enstrümanda — kova sınırları açıkça verilmiş, çünkü .NET'in varsayılanları milisaniye ölçeğinde ve 20 ms'lik p95'i "5 saniye" okur |
 | indekslenmiş vs indekslenebilir maçlar | ses çıkarmayan tek arama arızası: *ayakta ama boş* bir indeks her sorguya hiçlikle cevap verir |
+| `gen_ai.client.token.usage` · `gen_ai.client.operation.duration` | bir sorunun kaça ve ne kadar sürede mal olduğu, model kırılımında — OpenTelemetry'nin GenAI convention'ları altında, ajan host'undan diğer her servis gibi scrape edilir. Prompt ve cevaplar bilerek kaydedilmez: bir soru müşterinin adını taşıyabilir. |
 
 ## ✅ Testler
 
@@ -355,18 +386,23 @@ dotnet run --project orchestrator/StadiaPass.AppHost
 ```
 
 Aspire; PostgreSQL (pgAdmin ile), Redis (RedisInsight ile), RabbitMQ (yönetim eklentisiyle), Elasticsearch,
-Keycloak, Vault, Prometheus, Grafana, API, MVC uygulaması ve MCP sunucusunu başlatır. İlk açılışta şema
-kurulup tohumlanır ve Keycloak realm'i içe aktarılır.
+Keycloak, Vault, Prometheus, Grafana, API, MVC uygulaması, MCP sunucusu ve ajan host'unu başlatır. İlk
+açılışta şema kurulup tohumlanır ve Keycloak realm'i içe aktarılır.
 
 | Kaynak | Yerel adres |
 |---|---|
 | MVC arayüzü | http://localhost:5230 |
 | API + Scalar referansı | http://localhost:5042 · `/scalar/v1` |
 | MCP endpoint'i | http://localhost:5299/mcp |
+| Ajan DevUI | http://localhost:5399/devui |
 | Keycloak | https://localhost:8080 |
 | Vault arayüzü | http://localhost:8200 |
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |
 | RabbitMQ, Elasticsearch | portlar Aspire dashboard'unda kendi kaynaklarının üstünde |
+
+**Ollama'ya yalnızca ajan ihtiyaç duyar** — `ollama pull qwen2.5:14b`, `http://localhost:11434` üzerinde;
+Aspire konteyneri değil sizin kendi kurulumunuz, çünkü model bir koşudan uzun yaşaması gereken
+gigabyte'lardır. O olmadan da her şey ayağa kalkar; cevap veremeyen tek şey ajan olur.
 
 **Ödeme hiçbir yapılandırma istemez.** Sağlayıcı, Stripe'ın kendi test numaralarını izleyen bir mock'a
 varsayılan olarak ayarlıdır: `4242 4242 4242 4242` başarılı olur, `4000 0000 0000 9995` anahtar ve ağ
@@ -418,6 +454,10 @@ API loglarında bilet başına bir `settled after a cancellation` ve bir `Refund
 
 **7 · Oynanmış maça bilet.** Bir koltuk haritası linkini sakla, başlama vuruşunun geçmesini bekle, yeniden
 aç. Beklenen: harita çizilir ama hiçbir şey tutulamaz ve satın alınamaz.
+
+**8 · Analiste sor.** Ollama çalışırken http://localhost:5399/devui adresini aç ve *"Fenerbahçe maçında en
+ucuz koltuk kaç para?"* diye sor. Beklenen: iki tool çağrısı — `search_matches`, ardından az önce bulduğu
+id ile `get_seat_availability` — ve diğer sekmedeki koltuk haritasıyla uyuşan bir fiyat.
 
 ---
 

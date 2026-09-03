@@ -6,7 +6,8 @@
 
 Stadium and arena ticketing, built as a reference-grade Clean Architecture solution: Minimal API backend,
 Razor MVC front end, DDD domain model, CQRS with MediatR, Keycloak-backed dynamic permissions, Elasticsearch
-behind the search box, and .NET Aspire orchestration.
+behind the search box, .NET Aspire orchestration — and an MCP tool layer with an in-house analyst agent on
+top of it.
 
 ## 🎯 What it is
 
@@ -26,6 +27,7 @@ refunds have to be issued against a provider that can refuse, rate-limit, or sim
 | **Nothing downstream can fail checkout** | Mail, search indexing and announcements leave through a transactional outbox, written by the same `SaveChanges` as the sale. |
 | **Cancelling a fixture** | Selling stops in one small transaction; every sold ticket is then settled one at a time off the broker, each with its own retry. |
 | **Search that degrades** | Elasticsearch is a convenience over a system that sells tickets perfectly well without it. If the cluster is gone, the search box hands back the listing and says so. |
+| **AI without a second source of truth** | The catalogue is published once as MCP tools. Claude and an in-house agent on a local model consume the same three, over the same API — and the agent's tool selection is scored, not trusted. |
 
 ## 📸 Screenshots
 
@@ -88,17 +90,19 @@ StadiaPass.slnx
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API + Scalar reference
 │       ├── StadiaPass.WebMVC        # Razor MVC — consumes the API over HTTP only
-│       └── StadiaPass.McpServer     # Model Context Protocol server — the catalogue, for AI clients
+│       ├── StadiaPass.McpServer     # Model Context Protocol server — the catalogue, for AI clients
+│       └── StadiaPass.AgentHost     # the analyst agent — a local model holding those same tools
 ├── orchestrator
 │   ├── StadiaPass.AppHost           # Aspire: Postgres, Redis, RabbitMQ, Keycloak, Elastic, Vault, Grafana
 │   └── StadiaPass.ServiceDefaults   # Vault config, Serilog, OpenTelemetry, health checks
-└── tests                            # Domain.UnitTests · Application.UnitTests
+└── tests                            # Domain.UnitTests · Application.UnitTests · AgentHost.Evals
 ```
 
 ```
 WebMVC ────HTTP──► WebAPI ──► Application ──► Domain
 McpServer ─HTTP──►   │             ▲
                      └──► Persistence / Infrastructure (implement the abstractions)
+AgentHost ──MCP──► McpServer ─HTTP──► WebAPI           (an agent is a client of a client)
 WebMVC ───────────► SharedKernel ◄── WebAPI            (permission contracts only)
 ```
 
@@ -106,12 +110,16 @@ WebMVC ───────────► SharedKernel ◄── WebAPI       
 or `Application` — it is a pure API consumer, exactly like a third-party client. The only thing it shares with
 the API is the permission vocabulary, which lives in `SharedKernel` so neither side can invent a permission
 string of its own. `McpServer` is held to the same rule for the same reason — one process owns the business
-logic, everything else talks to it over HTTP.
+logic, everything else talks to it over HTTP. `AgentHost` sits one step further out again: it holds a model,
+not a rule, and reaches the system only through the MCP tools every other AI client uses.
 
 ```mermaid
 flowchart LR
   Browser --> WebMVC
   AI([AI client — Claude, Copilot, …]) -->|MCP| McpServer
+  Staff([Staff]) -->|DevUI| AgentHost
+  AgentHost -->|MCP| McpServer
+  AgentHost -->|chat + tool calls| Ollama([Ollama — local model])
   McpServer -->|HTTP| WebAPI
   WebMVC -->|HTTP + bearer| WebAPI
   WebMVC -->|OIDC login| Keycloak
@@ -198,7 +206,7 @@ back hundreds of tickets belongs on the broker, where each ticket retries on its
 bad afternoon cannot roll back the cancellation. Every settlement is addressed by its payment and only ever
 finds a ticket that is still live, so redelivery is a no-op and a half-finished pass simply resumes.
 
-## 🤖 MCP server — the catalogue, for AI clients
+## 🤖 MCP server and the analyst agent — the catalogue, for AI clients
 
 `StadiaPass.McpServer` publishes the public catalogue over the
 [Model Context Protocol](https://modelcontextprotocol.io), the standard through which AI assistants —
@@ -232,6 +240,25 @@ Try it while the AppHost is running: `npx @modelcontextprotocol/inspector` → S
 works, because the question is understood by the model and the term by the Turkish analyzer behind
 `search_matches`.
 
+**The same tools, a second consumer.** `StadiaPass.AgentHost` is an in-house analyst for staff: a
+[Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) host over a **local** model
+(Ollama `qwen2.5:14b`, temperature 0) that consumes those same three tools as a second MCP client. Nothing
+below it changed to make it exist. It holds a model, not a rule: it selects from named tools with typed
+parameters and never writes a query, and its instructions live in `AnalystAgent` — read by both the host and
+the evals, so the string being scored is the string it runs on. Everything above the `IChatClient` seam is
+provider-agnostic, so a cloud model is a key in Vault and one registration line. Chat UI: DevUI at
+`/devui`, development only.
+
+**The agent is measured, not admired.** A model answers the same question differently every time, so it gets
+a suite of its own: **22 scored cases**, Turkish and English, asserting that it reached for an acceptable tool
+with acceptable arguments — or, for small talk, called nothing at all. Tool names and schemas come by
+reflection from the real `CatalogueTools`, so an eval cannot drift from the surface it scores, and nothing is
+ever executed. Opt-in, because twenty model calls have no business in a 200 ms test loop:
+
+```powershell
+$env:STADIAPASS_RUN_EVALS = "1"; dotnet test
+```
+
 ## 📐 Architectural decisions
 
 Every row is a decision that cost something, and most of them exist because of a defect that was measured
@@ -254,6 +281,7 @@ rather than imagined.
 | **Cancelling has its own permission** | It is the only action that spends money | Whoever may open a match automatically being able to refund a stadium |
 | **Keycloak holds the roles; code holds the permissions** | Role names live in the realm, permission strings in `SharedKernel` | Two sides inventing different spellings of the same right |
 | **Vault for secrets, no fallbacks** | Secret-bearing options are `[Required]` + `ValidateOnStart` | A default that keeps quietly working after someone forgets to configure it |
+| **The agent gets tools, never a connection string** | Selection from a typed surface is reviewable; generated SQL is not | A model reaching a column nobody meant to expose, and a business rule living in a prompt |
 
 ### Deliberately not done
 
@@ -274,6 +302,8 @@ rather than imagined.
 | Orchestration | .NET Aspire | 13.5.2 | starts every dependency, wires connection strings, dashboard |
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` discovery, Scalar reference UI |
 | AI surface | ModelContextProtocol.AspNetCore | 2.2.0 | MCP server over streamable HTTP, three read-only catalogue tools |
+| Agent | Microsoft Agent Framework | 1.20.0 | the analyst host, its OpenAI-compatible endpoints and DevUI |
+| Model access | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | provider-agnostic `IChatClient`, local `qwen2.5:14b`, GenAI telemetry |
 | UI | ASP.NET Core MVC + Razor | 10.0.11 | server-rendered, one hand-written stylesheet |
 | Use cases | MediatR + FluentValidation | 12.5.0 / 12.1.1 | commands, queries, pipeline behaviours |
 | Persistence | EF Core + Npgsql → PostgreSQL 17 | 10.0.11 | aggregates, owned types, `xmin` token, outbox and inbox tables |
@@ -286,7 +316,7 @@ rather than imagined.
 | Secrets | HashiCorp Vault | 1.21 | injected as configuration at startup |
 | Telemetry | OpenTelemetry + Serilog | 1.15 / 10.0 | traces, metrics, structured logs |
 | Dashboards | Prometheus + Grafana | 3.6 / 12.2 | scraped metrics, provisioned panels and alert rules |
-| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 207 tests |
+| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 207 tests, plus 22 opt-in agent evals |
 
 **Patterns in the code:** Clean Architecture · DDD aggregates · domain events · CQRS · pipeline behaviours ·
 repository + unit of work · ports and adapters · transactional outbox · idempotent inbox · compensating
@@ -328,6 +358,7 @@ The numbers written *for this system*, rather than the generic runtime set:
 | `stadiapass_outbox_pending` / `inbox_pending` | a broker that is down, a consumer that is broken and a sweeper that stopped all look identical: a count that climbs and does not come back |
 | search duration histogram (by `outcome`) | latency and fallback count in one instrument — bucket boundaries spelled out, because .NET's defaults are in milliseconds and read a 20 ms p95 as "5 seconds" |
 | indexed vs indexable matches | the one search failure that makes no noise: an index that is *there and empty* answers every query with nothing |
+| `gen_ai.client.token.usage` · `gen_ai.client.operation.duration` | what a question cost and how long it took, by model — under the OpenTelemetry GenAI conventions, scraped from the agent host like any other service. Prompts and responses are deliberately not recorded: a question can carry a customer's name. |
 
 ## ✅ Tests
 
@@ -358,18 +389,23 @@ dotnet run --project orchestrator/StadiaPass.AppHost
 ```
 
 Aspire starts PostgreSQL (with pgAdmin), Redis (with RedisInsight), RabbitMQ (with the management plugin),
-Elasticsearch, Keycloak, Vault, Prometheus, Grafana, the API, the MVC app and the MCP server. On first start
-the schema is created and seeded, and the Keycloak realm is imported.
+Elasticsearch, Keycloak, Vault, Prometheus, Grafana, the API, the MVC app, the MCP server and the agent host.
+On first start the schema is created and seeded, and the Keycloak realm is imported.
 
 | Resource | Local URL |
 |---|---|
 | MVC UI | http://localhost:5230 |
 | API + Scalar reference | http://localhost:5042 · `/scalar/v1` |
 | MCP endpoint | http://localhost:5299/mcp |
+| Agent DevUI | http://localhost:5399/devui |
 | Keycloak | https://localhost:8080 |
 | Vault UI | http://localhost:8200 |
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |
 | RabbitMQ, Elasticsearch | ports shown on their resources in the Aspire dashboard |
+
+**Only the agent needs Ollama** — `ollama pull qwen2.5:14b` on `http://localhost:11434`, your own install
+rather than an Aspire container, because a model is gigabytes that should outlive a run. Without it
+everything still starts; the agent is the only thing that cannot answer.
 
 **Payments need no configuration.** The provider defaults to a mock that follows Stripe's own test numbers, so
 `4242 4242 4242 4242` succeeds and `4000 0000 0000 9995` is declined without a key or a network. Set
@@ -420,6 +456,10 @@ amount coming back; and in the API logs, one `settled after a cancellation` and 
 
 **7 · A ticket for a match already played.** Keep a seat-map link, wait for kick-off to pass, reopen it.
 Expect: the map renders, and nothing can be held or bought.
+
+**8 · Ask the analyst.** With Ollama running, open http://localhost:5399/devui and ask *"Fenerbahçe maçında en
+ucuz koltuk kaç para?"*. Expect: two tool calls — `search_matches`, then `get_seat_availability` with the id
+it just found — and a price that matches the seat map in the other tab.
 
 ---
 
