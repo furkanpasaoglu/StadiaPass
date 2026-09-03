@@ -432,6 +432,95 @@
           }
         ]
       }
+    },
+    {
+      "type": "stat",
+      "title": "Tokens per question",
+      "description": "What one answer costs the agent. Free on a local model and the invoice on a hosted one, so this is the number to read before swapping the model out - a tool description that grows quietly moves it too.",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "stadiapass-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(gen_ai_client_token_usage_sum{service=~\"$service\"}[5m])) / clamp_min(sum(rate(gen_ai_client_operation_duration_seconds_count{service=~\"$service\",error_type=\"\"}[5m])), 0.0000001)",
+          "legendFormat": "tokens"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "no questions",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokens in and out",
+      "description": "Input is the prompt plus the tool schemas plus every tool result handed back; output is only the answer. Input climbing on its own is the context window filling with tool output - the reason the seat map is summarised rather than dumped.",
+      "gridPos": { "h": 6, "w": 9, "x": 6, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "stadiapass-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (gen_ai_token_type) (rate(gen_ai_client_token_usage_sum{service=~\"$service\"}[5m]))",
+          "legendFormat": "{{gen_ai_token_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "fillOpacity": 10, "showPoints": "never" } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Model call duration, questions and failures",
+      "description": "The model call only, not the tools it triggers: a p95 climbing here while the API's own p95 stays flat says the answer is slow because of the model - a decision about hardware or hosting rather than about code. The failure line is the model being unreachable, which looks to the user exactly like an agent that has nothing to say.",
+      "gridPos": { "h": 6, "w": 9, "x": 15, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "stadiapass-prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(gen_ai_client_operation_duration_seconds_bucket{service=~\"$service\",error_type=\"\"}[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(gen_ai_client_operation_duration_seconds_count{service=~\"$service\",error_type=\"\"}[5m]))",
+          "legendFormat": "questions/s"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(gen_ai_client_operation_duration_seconds_count{service=~\"$service\",error_type!=\"\"}[5m]))",
+          "legendFormat": "failed/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "fillOpacity": 10, "showPoints": "never" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "p95" },
+            "properties": [{ "id": "unit", "value": "s" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "questions/s" },
+            "properties": [{ "id": "custom.axisPlacement", "value": "right" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "failed/s" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          }
+        ]
+      }
     }
   ]
 }
