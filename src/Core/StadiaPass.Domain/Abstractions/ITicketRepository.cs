@@ -24,4 +24,17 @@ public interface ITicketRepository : IRepository<Ticket>
         CancellationToken cancellationToken = default);
 
     Task<Ticket?> GetByPaymentIntentAsync(string paymentIntentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// What a fixture's tickets add up to, grouped by state and currency, counted by the database.
+    /// </summary>
+    /// <remarks>
+    /// Grouped rather than netted off here, on purpose. Whether a cancelled ticket still counts as revenue is
+    /// a business rule; a repository that answered with a single number would be where that rule quietly
+    /// lived - invisible from the outside and impossible to test on its own. This hands back both halves and
+    /// leaves the decision to the handler, where it is written down and covered by a test.
+    /// </remarks>
+    Task<IReadOnlyList<TicketRevenueLine>> GetRevenueLinesForMatchAsync(
+        Guid matchId,
+        CancellationToken cancellationToken = default);
 }

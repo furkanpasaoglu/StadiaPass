@@ -2,7 +2,7 @@
 
 [English](README.md) · **Türkçe**
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 207](https://img.shields.io/badge/test-207-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success) ![lisans MIT](https://img.shields.io/badge/lisans-MIT-blue)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 213](https://img.shields.io/badge/test-213-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success) ![lisans MIT](https://img.shields.io/badge/lisans-MIT-blue)
 
 Stadyum ve arena biletleme; referans niteliğinde bir Clean Architecture çözümü olarak yazıldı: Minimal API
 backend, Razor MVC ön yüz, DDD domain modeli, MediatR ile CQRS, Keycloak destekli dinamik izinler, arama
@@ -27,7 +27,7 @@ sınırı koyabilen ya da düpedüz yavaş olabilen bir sağlayıcıya karşı y
 | **Alt akış satın almayı düşüremez** | Mail, arama indeksi ve duyurular, satışla aynı `SaveChanges`'in yazdığı transactional outbox üzerinden çıkar. |
 | **Fikstürü iptal etmek** | Satış tek küçük transaction'da durur; satılmış her bilet sonra broker üzerinde, her biri kendi retry'ıyla tek tek yerleştirilir. |
 | **Zarifçe bozulan arama** | Elasticsearch, onsuz da gayet iyi bilet satan bir sistemin üstünde bir konfor. Cluster yoksa arama kutusu listeyi verir ve bunu söyler. |
-| **İkinci bir doğruluk kaynağı yaratmadan AI** | Katalog bir kez MCP tool'u olarak yayınlanır. Claude da, yerel model üzerinde çalışan kurum içi ajan da aynı üç tool'u, aynı API üzerinden tüketir — ve ajanın tool seçimine güvenilmez, ölçülür. |
+| **İkinci bir doğruluk kaynağı yaratmadan AI** | Katalog bir kez MCP tool'u olarak yayınlanır. Claude da, yerel model üzerinde çalışan kurum içi ajan da aynı tool'ları, aynı API üzerinden tüketir — ve ajanın tool seçimine güvenilmez, ölçülür. |
 
 ## 📸 Ekran görüntüleri
 
@@ -120,7 +120,8 @@ flowchart LR
   Personel([Personel]) -->|DevUI| AgentHost
   AgentHost -->|MCP| McpServer
   AgentHost -->|sohbet + tool çağrıları| Ollama([Ollama — yerel model])
-  McpServer -->|HTTP| WebAPI
+  McpServer -->|HTTP + bearer| WebAPI
+  McpServer -->|service account| Keycloak
   WebMVC -->|HTTP + bearer| WebAPI
   WebMVC -->|OIDC login| Keycloak
   WebAPI -->|JWT doğrulama| Keycloak
@@ -133,6 +134,7 @@ flowchart LR
   WebAPI --> SMTP([SMTP])
   WebAPI -.sırlar.-> Vault[(Vault)]
   WebMVC -.sırlar.-> Vault
+  McpServer -.sır.-> Vault
   Prometheus -->|/metrics scrape| WebAPI
   Grafana --> Prometheus
 ```
@@ -219,20 +221,31 @@ tarayıcının kullandığı API'nin aynısına karşı.
 | `get_upcoming_matches` | satışta ne var, canlı koltuk sayılarıyla | `GET /api/v1/matches` |
 | `search_matches` | takıma, mekâna, şehre ya da spora göre fikstür — ve index'e ulaşılamadığında bunu yüksek sesle söyler, çağıranın düz listeye baktığını gizlemez | `GET /api/v1/matches/search` |
 | `get_seat_availability` | kalan koltuk, en ucuz fiyat, blok başına sayılar ve fiyat aralıkları | `GET /api/v1/matches/{id}/seats` |
+| `get_match_revenue` | satılan ve iade edilen bilet, net ciro, doluluk — **yalnızca personel**, aşağıya bak | `GET /api/v1/matches/{id}/revenue` |
 
-Bu projeyi üç karar taşıyor:
+Bu projeyi dört karar taşıyor:
 
 - **İçinde model yok.** Zekâ, bağlanan ve tool açıklamalarını okuyan istemciye aittir; sunucu, maliyet
   profili herhangi bir API yüzeyiyle aynı olan bir tool katmanıdır. Onu model-bağımsız kılan da budur —
   bugün çağıran istemci bir taahhüt değildir.
-- **API'nin istemcisidir, tıpkı portal gibi.** Veritabanı yok, broker yok, sır yok — Application katmanını
-  doğrudan host etmek, yalnızca tek process'te çalışması gereken mesaj consumer'larını ve arama index
-  worker'larını da beraberinde sürüklerdi.
-- **Özet döner, döküm değil — ve bilerek salt-okuma.** Tool çıktısı çağıranın context penceresine düşer ve
-  çağıranın token'ını harcar; bu yüzden koltuk haritası tool'u on binlerce koltuğu blok başına sayılara ve
-  fiyat aralıklarına katlar. Yalnızca üç anonim endpoint açıktır: yazmalar, gerçek bir kullanıcının
-  kimliğini, bir onay adımını ve bir idempotency anahtarını taşıyabilecekleri güne kadar bekler — kart
-  numarasının bir dil modelinden geçmekte hiçbir işi yoktur, o yüzden bir satın alma tool'u asla olmayacak.
+- **API'nin istemcisidir, tıpkı portal gibi.** Veritabanı yok, broker yok — Application katmanını doğrudan
+  host etmek, yalnızca tek process'te çalışması gereken mesaj consumer'larını ve arama index worker'larını
+  da beraberinde sürüklerdi.
+- **Özet döner, döküm değil.** Tool çıktısı çağıranın context penceresine düşer ve çağıranın token'ını
+  harcar; bu yüzden koltuk haritası tool'u on binlerce koltuğu blok başına sayılara ve fiyat aralıklarına
+  katlar.
+- **Her tool bir okuma.** Yazmalar; gerçek bir kullanıcının kimliğini, bir onay adımını ve bir idempotency
+  anahtarını taşıyabilecekleri güne kadar bekler — kart numarasının bir dil modelinden geçmekte hiçbir işi
+  yoktur, o yüzden bir satın alma tool'u asla olmayacak.
+
+**Kimlik gerektiren tool, ciro tool'u oldu.** Gezinmek herkese açıktır; bir fikstürün ne kadar sattığı
+değildir. API bunu kendi izniyle korur, sunucu da bunu karşılamak için bir Keycloak service account'u tutar
+(`stadiapass-mcp`, client credentials, tek izin, sırrı Vault'tan). Buradan kopyalamaya değer iki şey çıkıyor:
+tool **yalnızca o sır yapılandırıldığında kaydedilir** — duyurulup sonra API tarafından reddedilen bir tool,
+asistana asla sorulmasına izin verilmeyecek bir soruyu tekrar tekrar sormayı öğretir — ve *iade edilmiş
+bilet ciro değildir* kuralı, tool açıklamasında değil, API'nin arkasındaki query handler'da, bir testin
+kırabileceği kodun içinde yaşar. MCP endpoint'inin kendisi geliştirmede kimlik doğrulamasızdır; yani bu
+kurulumda güvenceyi ağ değil API verir. Çağıran bazlı MCP yetkilendirmesi, yazma tool'larıyla birlikte gelecek.
 
 AppHost çalışırken deneyin: `npx @modelcontextprotocol/inspector` → Streamable HTTP →
 `http://localhost:5299/mcp`; ya da bir asistana `claude mcp add --transport http stadiapass
@@ -241,7 +254,7 @@ terimi ise `search_matches`'in arkasındaki Türkçe analyzer anlar.
 
 **Aynı tool'lar, ikinci bir tüketici.** `StadiaPass.AgentHost`, personel için kurum içi bir analist:
 **yerel** bir modelin (Ollama `qwen2.5:14b`, sıcaklık 0) önünde duran bir
-[Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) host'u; aynı üç tool'u ikinci bir
+[Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) host'u; aynı tool'ları ikinci bir
 MCP istemcisi olarak tüketir. O var olsun diye altındaki hiçbir şey değişmedi. Kural değil model tutar: adı
 ve tipli parametreleri olan tool'lar arasından seçer, sorgu yazmaz; talimatları da `AnalystAgent` içinde
 yaşar — hem host hem eval'ler oradan okur, yani puanlanan dizgi çalıştırdığı dizgidir. `IChatClient`
@@ -249,10 +262,12 @@ dikişinin üstündeki her şey sağlayıcı-bağımsız; bulut modeli demek Vau
 satırı demek. Sohbet arayüzü: `/devui`, yalnızca geliştirmede.
 
 **Ajan beğenilmez, ölçülür.** Model aynı soruya her seferinde farklı cevap verir; bu yüzden kendi takımı
-var: Türkçe ve İngilizce **22 puanlanan vaka**, modelin kabul edilebilir argümanlarla kabul edilebilir bir
+var: Türkçe ve İngilizce **28 puanlanan vaka**, modelin kabul edilebilir argümanlarla kabul edilebilir bir
 tool'a uzandığını — ya da sohbet muhabbetinde hiçbir tool çağırmadığını — doğrular. Tool adları ve şemaları
-gerçek `CatalogueTools`'tan reflection'la gelir; böylece eval, ölçtüğü yüzeyden kayamaz ve hiçbir şey
-çalıştırılmaz. Opsiyoneldir, çünkü yirmi model çağrısının 200 ms'lik bir test döngüsünde işi yok:
+gerçek tool sınıflarından reflection'la gelir; böylece eval, ölçtüğü yüzeyden kayamaz ve hiçbir şey
+çalıştırılmaz. Vakalar, yanlış seçimin cazip olduğu çiftler hâlinde yazıldı — doluluk cirodur, kalan koltuk
+müsaitliktir — çünkü dördüncü tool cevabı değil seçimi zorlaştırır. Opsiyoneldir, çünkü otuz model
+çağrısının 200 ms'lik bir test döngüsünde işi yok:
 
 ```powershell
 $env:STADIAPASS_RUN_EVALS = "1"; dotnet test
@@ -314,7 +329,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | Sırlar | HashiCorp Vault | 1.21 | açılışta konfigürasyon olarak enjekte edilir |
 | Telemetri | OpenTelemetry + Serilog | 1.15 / 10.0 | trace'ler, metrikler, yapılandırılmış loglar |
 | Panolar | Prometheus + Grafana | 3.6 / 12.2 | scrape edilen metrikler, provision edilmiş paneller ve alarm kuralları |
-| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 207 test, artı 22 opsiyonel ajan eval'i |
+| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 213 test, artı 28 opsiyonel ajan eval’i |
 
 **Koddaki desenler:** Clean Architecture · DDD aggregate'leri · domain event'ler · CQRS · pipeline
 behavior'ları · repository + unit of work · portlar ve adaptörler · transactional outbox · idempotent inbox ·
@@ -333,6 +348,9 @@ hiçbir yerinde rol adı geçmez.
   genişletemez. Portaldaki rol editörü kataloğu reflection'la çizer; yeni bir izin sabiti hiçbir UI değişikliği
   olmadan checkbox olarak belirir.
 - `Matches.Cancel` bilerek kendi iznidir ve yalnızca `Administrator` taşır: para harcayan tek eylem odur.
+- MCP sunucusu kendi Keycloak service account'u (`stadiapass-mcp`) olarak kimlik doğrular ve tam olarak tek
+  bir izin taşır: `Analytics.ViewRevenue`. İş rolü değil, admin token'ı değil — sorabildiği tek "herkese açık
+  olmayan" sorunun gerektirdiği en küçük kimlik.
 - Kart asla saklanmaz ve asla loglanmaz — bir destructuring policy, adı sır gibi görünen her üyeyi olay
   yazılmadan önce maskeler. Yalnızca `sk_test_` Stripe anahtarları kabul edilir; aksi açılışta reddedilir.
 - Webhook ucu zorunlu olarak anonimdir ve tamamen HMAC imzasıyla savunulur; doğrulanamayan her şey
@@ -359,7 +377,7 @@ Jenerik runtime seti yerine *bu sistem için* yazılmış sayılar:
 
 ## ✅ Testler
 
-**207 test** — 57 domain, 150 application — veritabanı, broker ya da ağ olmadan yaklaşık 200 ms'de koşuyor.
+**213 test** — 57 domain, 156 application — veritabanı, broker ya da ağ olmadan yaklaşık 200 ms'de koşuyor.
 
 Nasıl yazıldıklarına dair iki şey sayının kendisinden daha değerli:
 

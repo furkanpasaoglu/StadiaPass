@@ -111,6 +111,52 @@
       ]
     },
     {
+      "id": "revenue-tr-guid",
+      "question": "01a02f9e-823f-7828-962b-b27a904c2079 maçı ne kadar sattı?",
+      "acceptable": [
+        { "tool": "get_match_revenue", "arguments": { "matchId": "01a02f9e-823f-7828-962b-b27a904c2079" } }
+      ]
+    },
+    {
+      "id": "revenue-en-guid",
+      "question": "What has match 01a02f9e-8240-7361-9d6f-55260786393a taken so far?",
+      "acceptable": [
+        { "tool": "get_match_revenue", "arguments": { "matchId": "01a02f9e-8240-7361-9d6f-55260786393a" } }
+      ]
+    },
+    {
+      "id": "revenue-tr-occupancy",
+      "question": "01a02f9e-823e-7a5f-9e93-195d257e8bdb maçının doluluk oranı nedir?",
+      "$comment": "Occupancy comes back from the revenue tool. The seat map answers what is LEFT to sell, a different question and the tempting wrong pick here.",
+      "acceptable": [
+        { "tool": "get_match_revenue", "arguments": { "matchId": "01a02f9e-823e-7a5f-9e93-195d257e8bdb" } }
+      ]
+    },
+    {
+      "id": "revenue-tr-refunds",
+      "question": "01a02f9e-823f-7828-962b-b27a904c2079 maçında kaç bilet iade edildi?",
+      "$comment": "Refunds are part of the same answer, so asking about them must not send the model to a seat map that knows nothing about tickets.",
+      "acceptable": [
+        { "tool": "get_match_revenue", "arguments": { "matchId": "01a02f9e-823f-7828-962b-b27a904c2079" } }
+      ]
+    },
+    {
+      "id": "revenue-tr-needs-search-first",
+      "question": "Fenerbahçe maçından ne kadar ciro elde ettik?",
+      "$comment": "No id was given, so the correct FIRST move is to search - inventing a GUID is bad everywhere and worst on a money question.",
+      "acceptable": [
+        { "tool": "search_matches", "arguments": { "query": "fener" } }
+      ]
+    },
+    {
+      "id": "seats-en-not-revenue",
+      "question": "How many seats are still on sale for match 01a02f9e-8240-7361-9d6f-55260786393a?",
+      "$comment": "The mirror of the revenue cases: what is left to sell is availability, not takings. A model that has learned to reach for the newest tool whenever a question sounds numeric fails here.",
+      "acceptable": [
+        { "tool": "get_seat_availability", "arguments": { "matchId": "01a02f9e-8240-7361-9d6f-55260786393a" } }
+      ]
+    },
+    {
       "id": "notool-greeting",
       "question": "Merhaba!",
       "acceptable": []

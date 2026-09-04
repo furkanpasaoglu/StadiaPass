@@ -22,20 +22,22 @@ internal static class ToolSurface
 
     private static List<AITool> Build()
     {
-        var target = new CatalogueTools(new RefusingCatalogueClient());
+        var client = new RefusingCatalogueClient();
 
-        return
-        [
-            .. typeof(CatalogueTools)
-                .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                .Select(method => (Method: method, Attribute: method.GetCustomAttribute<McpServerToolAttribute>()))
-                .Where(pair => pair.Attribute is not null)
-                .Select(pair => (AITool)AIFunctionFactory.Create(
-                    pair.Method,
-                    target,
-                    new AIFunctionFactoryOptions { Name = pair.Attribute!.Name }))
-        ];
+        // Both tool classes, because the agent is offered both. The split between them is about who may
+        // call a tool, not about which surface the model is choosing from - and choosing is what is scored.
+        return [.. ToolsOf(new CatalogueTools(client)), .. ToolsOf(new AnalyticsTools(client))];
     }
+
+    private static IEnumerable<AITool> ToolsOf(object target) =>
+        target.GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Select(method => (Method: method, Attribute: method.GetCustomAttribute<McpServerToolAttribute>()))
+            .Where(pair => pair.Attribute is not null)
+            .Select(pair => (AITool)AIFunctionFactory.Create(
+                pair.Method,
+                target,
+                new AIFunctionFactoryOptions { Name = pair.Attribute!.Name }));
 
     private sealed class RefusingCatalogueClient : ICatalogueApiClient
     {
@@ -46,6 +48,9 @@ internal static class ToolSurface
             string term, CancellationToken cancellationToken = default) => throw Refusal();
 
         public Task<SeatMap?> GetSeatMapAsync(
+            Guid matchId, CancellationToken cancellationToken = default) => throw Refusal();
+
+        public Task<MatchRevenue?> GetMatchRevenueAsync(
             Guid matchId, CancellationToken cancellationToken = default) => throw Refusal();
 
         private static NotSupportedException Refusal() =>

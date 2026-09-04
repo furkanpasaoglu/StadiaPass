@@ -37,6 +37,14 @@
         "description": "Call a match off and refund every ticket sold for it"
       },
       {
+        "name": "StadiaPass.Analytics",
+        "description": "Analytics module"
+      },
+      {
+        "name": "StadiaPass.Analytics.ViewRevenue",
+        "description": "Read what a fixture has taken: tickets sold, refunds, net revenue and occupancy"
+      },
+      {
         "name": "StadiaPass.Tickets",
         "description": "Ticket module"
       },
@@ -103,6 +111,7 @@
             "StadiaPass.Matches.View",
             "StadiaPass.Matches.Create",
             "StadiaPass.Matches.Cancel",
+            "StadiaPass.Analytics.ViewRevenue",
             "StadiaPass.Tickets.View",
             "StadiaPass.Tickets.Reserve",
             "StadiaPass.Tickets.Purchase",
@@ -326,6 +335,32 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "stadiapass-mcp",
+      "name": "StadiaPass MCP server",
+      "description": "Service account the MCP server uses for the analytics tool. No login flow: nobody signs in as this client, it asks for its own token and holds one permission.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "stadiapass-mcp-dev-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "stadiapass-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "stadiapass-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -417,6 +452,14 @@
           "query-clients"
         ]
       }
+    },
+    {
+      "username": "service-account-stadiapass-mcp",
+      "enabled": true,
+      "serviceAccountClientId": "stadiapass-mcp",
+      "realmRoles": [
+        "StadiaPass.Analytics.ViewRevenue"
+      ]
     },
     {
       "username": "organizator",

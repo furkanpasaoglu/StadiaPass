@@ -41,4 +41,21 @@ internal sealed class CatalogueApiClient(HttpClient httpClient) : ICatalogueApiC
 
         return await response.Content.ReadFromJsonAsync<SeatMap>(cancellationToken);
     }
+
+    public async Task<MatchRevenue?> GetMatchRevenueAsync(
+        Guid matchId,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await httpClient.GetAsync(
+            new Uri($"/api/v1/matches/{matchId}/revenue", UriKind.Relative), cancellationToken);
+
+        if (response.StatusCode is HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<MatchRevenue>(cancellationToken);
+    }
 }

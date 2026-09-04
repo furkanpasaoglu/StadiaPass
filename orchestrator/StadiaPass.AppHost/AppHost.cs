@@ -67,12 +67,16 @@ var webApi = builder.AddProject<Projects.StadiaPass_WebAPI>("webapi")
         url.DisplayText = "API Reference (Scalar)";
     });
 
-// The MCP server is a client of the API like the portal below - it gets a reference for service
-// discovery and nothing else: no database, no broker, no Vault, because it holds no secrets and owns no
-// state. External endpoint so an AI client outside the Aspire network (Claude, an IDE) can reach /mcp.
 var mcpServer = builder.AddProject<Projects.StadiaPass_McpServer>("mcpserver")
     .WithReference(webApi)
     .WaitFor(webApi)
+    .WithReference(keycloak)
+    .WaitFor(keycloak)
+    .WithReference(vaultEndpoint)
+    .WaitFor(vault)
+    .WithEnvironment("Vault__Address", vaultEndpoint)
+    .WithEnvironment("Vault__Token", vaultRootToken)
+    .WithEnvironment("Vault__Path", vaultSecretPath)
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints()
     .WithUrlForEndpoint("http", url =>
@@ -81,9 +85,6 @@ var mcpServer = builder.AddProject<Projects.StadiaPass_McpServer>("mcpserver")
         url.DisplayText = "MCP Endpoint";
     });
 
-// The analyst agent. Its brain is the developer's local Ollama (deliberately not an Aspire resource -
-// the models are gigabytes and outlive any one run); its hands are the MCP server's tools, consumed as a
-// second MCP client exactly the way Claude consumes them. DevUI at /devui is its development-only chat.
 var mcpEndpoint = mcpServer.GetEndpoint("http");
 
 builder.AddProject<Projects.StadiaPass_AgentHost>("agenthost")
@@ -109,9 +110,6 @@ builder.AddProject<Projects.StadiaPass_WebMVC>("webmvc")
     .WithEnvironment("Vault__Address", vaultEndpoint)
     .WithEnvironment("Vault__Token", vaultRootToken)
     .WithEnvironment("Vault__Path", vaultSecretPath)
-    // No Keycloak__PublicAuthority here, unlike the API. The OIDC handler in the portal is registered
-    // against the resource name and redirects the browser to whatever service discovery resolves; the
-    // setting was passed for years and read by nothing.
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
@@ -153,6 +151,7 @@ builder.Eventing.Subscribe<ResourceReadyEvent>(vault.Resource, async (@event, ca
             await search.Resource.ConnectionStringExpression.GetValueAsync(cancellationToken),
         ["Keycloak:AdminClientSecret"] = "stadiapass-admin-dev-secret",
         ["Keycloak:ClientSecret"] = "stadiapass-mvc-dev-secret",
+        ["Keycloak:McpClientSecret"] = "stadiapass-mcp-dev-secret",
         ["PaymentProvider:Type"] = builder.Configuration["PaymentProvider:Type"],
         ["PaymentProvider:SecretKey"] = builder.Configuration["PaymentProvider:SecretKey"],
         ["PaymentProvider:WebhookSecret"] = builder.Configuration["PaymentProvider:WebhookSecret"],

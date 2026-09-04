@@ -5,6 +5,7 @@ using StadiaPass.Application.Matches;
 using StadiaPass.Application.Matches.Commands.CancelMatch;
 using StadiaPass.Application.Matches.Commands.CreateMatch;
 using StadiaPass.Application.Matches.Commands.ReindexMatches;
+using StadiaPass.Application.Matches.Queries.GetMatchRevenue;
 using StadiaPass.Application.Matches.Queries.GetMatchSeatMap;
 using StadiaPass.Application.Matches.Queries.GetUpcomingMatches;
 using StadiaPass.Application.Matches.Queries.SearchMatches;
@@ -75,6 +76,12 @@ internal sealed class MatchEndpoints : IEndpoint
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireAuthorization(StadiaPassPermissions.Tickets.Reserve);
+
+        group.MapGet("/{matchId:guid}/revenue", GetRevenueAsync)
+            .WithName("GetMatchRevenue")
+            .WithSummary("Returns what a match has taken: tickets sold, refunds, net revenue and occupancy.")
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization(StadiaPassPermissions.Analytics.ViewRevenue);
     }
 
     private static async Task<Ok<IReadOnlyList<MatchDto>>> GetUpcomingAsync(
@@ -82,6 +89,12 @@ internal sealed class MatchEndpoints : IEndpoint
         ISender sender,
         CancellationToken cancellationToken) =>
         TypedResults.Ok(await sender.Send(new GetUpcomingMatchesQuery(category), cancellationToken));
+
+    private static async Task<Ok<MatchRevenueDto>> GetRevenueAsync(
+        Guid matchId,
+        ISender sender,
+        CancellationToken cancellationToken) =>
+        TypedResults.Ok(await sender.Send(new GetMatchRevenueQuery(matchId), cancellationToken));
 
     private static async Task<Ok<MatchSearchResultDto>> SearchAsync(
         [FromQuery] string? q,

@@ -35,4 +35,24 @@ internal sealed class TicketRepository(StadiaPassDbContext context)
         Set.FirstOrDefaultAsync(
             ticket => ticket.PaymentIntentId == paymentIntentId && ticket.Status == TicketStatus.Issued,
             cancellationToken);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// One grouped aggregate: the answer is a handful of rows and the tickets themselves never leave the
+    /// database. Grouping by currency as well as status costs nothing today - a fixture is priced in one
+    /// currency - and means that the day a second one appears the totals arrive separated rather than
+    /// silently added together.
+    /// </remarks>
+    public async Task<IReadOnlyList<TicketRevenueLine>> GetRevenueLinesForMatchAsync(
+        Guid matchId,
+        CancellationToken cancellationToken = default) =>
+        await Set.AsNoTracking()
+            .Where(ticket => ticket.MatchId == matchId)
+            .GroupBy(ticket => new { ticket.Status, ticket.Price.Currency })
+            .Select(group => new TicketRevenueLine(
+                group.Key.Status,
+                group.Key.Currency,
+                group.Count(),
+                group.Sum(ticket => ticket.Price.Amount)))
+            .ToListAsync(cancellationToken);
 }

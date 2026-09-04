@@ -2,7 +2,7 @@
 
 **English** · [Türkçe](README.tr.md)
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 207](https://img.shields.io/badge/tests-207-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 213](https://img.shields.io/badge/tests-213-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
 
 Stadium and arena ticketing, built as a reference-grade Clean Architecture solution: Minimal API backend,
 Razor MVC front end, DDD domain model, CQRS with MediatR, Keycloak-backed dynamic permissions, Elasticsearch
@@ -27,7 +27,7 @@ refunds have to be issued against a provider that can refuse, rate-limit, or sim
 | **Nothing downstream can fail checkout** | Mail, search indexing and announcements leave through a transactional outbox, written by the same `SaveChanges` as the sale. |
 | **Cancelling a fixture** | Selling stops in one small transaction; every sold ticket is then settled one at a time off the broker, each with its own retry. |
 | **Search that degrades** | Elasticsearch is a convenience over a system that sells tickets perfectly well without it. If the cluster is gone, the search box hands back the listing and says so. |
-| **AI without a second source of truth** | The catalogue is published once as MCP tools. Claude and an in-house agent on a local model consume the same three, over the same API — and the agent's tool selection is scored, not trusted. |
+| **AI without a second source of truth** | The catalogue is published once as MCP tools. Claude and an in-house agent on a local model consume the same tools, over the same API — and the agent's tool selection is scored, not trusted. |
 
 ## 📸 Screenshots
 
@@ -120,7 +120,8 @@ flowchart LR
   Staff([Staff]) -->|DevUI| AgentHost
   AgentHost -->|MCP| McpServer
   AgentHost -->|chat + tool calls| Ollama([Ollama — local model])
-  McpServer -->|HTTP| WebAPI
+  McpServer -->|HTTP + bearer| WebAPI
+  McpServer -->|service account| Keycloak
   WebMVC -->|HTTP + bearer| WebAPI
   WebMVC -->|OIDC login| Keycloak
   WebAPI -->|JWT validation| Keycloak
@@ -133,6 +134,7 @@ flowchart LR
   WebAPI --> SMTP([SMTP])
   WebAPI -.secrets.-> Vault[(Vault)]
   WebMVC -.secrets.-> Vault
+  McpServer -.secret.-> Vault
   Prometheus -->|scrape /metrics| WebAPI
   Grafana --> Prometheus
 ```
@@ -219,20 +221,31 @@ against the same API a browser uses.
 | `get_upcoming_matches` | what is on sale, with live seat counts | `GET /api/v1/matches` |
 | `search_matches` | fixtures by team, venue, city or sport — and says out loud when the index was unreachable and the caller is looking at the plain listing | `GET /api/v1/matches/search` |
 | `get_seat_availability` | seats left, the cheapest price, per-block counts and price ranges | `GET /api/v1/matches/{id}/seats` |
+| `get_match_revenue` | tickets sold and refunded, net revenue, occupancy — **staff only**, see below | `GET /api/v1/matches/{id}/revenue` |
 
-Three decisions carry this project:
+Four decisions carry this project:
 
 - **There is no model in it.** The intelligence belongs to whichever client connects and reads the tool
   descriptions; the server is a tool layer with the same cost profile as any other API surface. That is what
   keeps it model-agnostic — the client that calls it today is not a commitment.
-- **It is a client of the API, exactly like the portal.** No database, no broker, no secrets — hosting the
-  application layer directly would have dragged in the messaging consumers and the search index workers,
-  which must run in one process only.
-- **Summaries, not dumps — and read-only, on purpose.** Tool output lands in the caller's context window and
-  spends the caller's tokens, so the seat-map tool folds tens of thousands of seats into per-block counts
-  and price ranges. Only the three anonymous endpoints are exposed: writes wait until they can carry a real
-  user's identity, a confirmation step and an idempotency key — and a card number has no business passing
-  through a language model, so a purchase tool will never exist.
+- **It is a client of the API, exactly like the portal.** No database, no broker — hosting the application
+  layer directly would have dragged in the messaging consumers and the search index workers, which must run
+  in one process only.
+- **Summaries, not dumps.** Tool output lands in the caller's context window and spends the caller's tokens,
+  so the seat-map tool folds tens of thousands of seats into per-block counts and price ranges.
+- **Every tool is a read.** Writes wait until they can carry a real user's identity, a confirmation step and
+  an idempotency key — and a card number has no business passing through a language model, so a purchase
+  tool will never exist.
+
+**The revenue tool is the one that needed an identity.** Browsing is public; what a fixture has taken is
+not, so the API guards it with a permission of its own and the server holds a Keycloak service account
+(`stadiapass-mcp`, client credentials, one permission, secret from Vault) to satisfy it. Two things follow
+that are worth copying: the tool is **registered only when that secret is configured** — a tool advertised
+and then refused teaches an assistant to keep retrying a question it can never be allowed to ask — and the
+rule that *a refunded ticket is not revenue* lives in the query handler behind the API, in code a test can
+break, never in the tool description. The MCP endpoint itself is unauthenticated in development, so on this
+setup the identity is the API's guarantee, not the network's; per-caller MCP authorization arrives with the
+write tools.
 
 Try it while the AppHost is running: `npx @modelcontextprotocol/inspector` → Streamable HTTP →
 `http://localhost:5299/mcp`, or hand it to an assistant with
@@ -242,7 +255,7 @@ works, because the question is understood by the model and the term by the Turki
 
 **The same tools, a second consumer.** `StadiaPass.AgentHost` is an in-house analyst for staff: a
 [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) host over a **local** model
-(Ollama `qwen2.5:14b`, temperature 0) that consumes those same three tools as a second MCP client. Nothing
+(Ollama `qwen2.5:14b`, temperature 0) that consumes those same tools as a second MCP client. Nothing
 below it changed to make it exist. It holds a model, not a rule: it selects from named tools with typed
 parameters and never writes a query, and its instructions live in `AnalystAgent` — read by both the host and
 the evals, so the string being scored is the string it runs on. Everything above the `IChatClient` seam is
@@ -250,10 +263,12 @@ provider-agnostic, so a cloud model is a key in Vault and one registration line.
 `/devui`, development only.
 
 **The agent is measured, not admired.** A model answers the same question differently every time, so it gets
-a suite of its own: **22 scored cases**, Turkish and English, asserting that it reached for an acceptable tool
+a suite of its own: **28 scored cases**, Turkish and English, asserting that it reached for an acceptable tool
 with acceptable arguments — or, for small talk, called nothing at all. Tool names and schemas come by
-reflection from the real `CatalogueTools`, so an eval cannot drift from the surface it scores, and nothing is
-ever executed. Opt-in, because twenty model calls have no business in a 200 ms test loop:
+reflection from the real tool classes, so an eval cannot drift from the surface it scores, and nothing is
+ever executed. Cases come in pairs where the wrong pick is tempting — occupancy is revenue, seats left is
+availability — because a fourth tool makes the choice harder, not the answer better. Opt-in, because thirty
+model calls have no business in a 200 ms test loop:
 
 ```powershell
 $env:STADIAPASS_RUN_EVALS = "1"; dotnet test
@@ -316,7 +331,7 @@ rather than imagined.
 | Secrets | HashiCorp Vault | 1.21 | injected as configuration at startup |
 | Telemetry | OpenTelemetry + Serilog | 1.15 / 10.0 | traces, metrics, structured logs |
 | Dashboards | Prometheus + Grafana | 3.6 / 12.2 | scraped metrics, provisioned panels and alert rules |
-| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 207 tests, plus 22 opt-in agent evals |
+| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 213 tests, plus 28 opt-in agent evals |
 
 **Patterns in the code:** Clean Architecture · DDD aggregates · domain events · CQRS · pipeline behaviours ·
 repository + unit of work · ports and adapters · transactional outbox · idempotent inbox · compensating
@@ -336,6 +351,9 @@ name appears anywhere in the code.
   permission constant appears as a checkbox with no UI change.
 - `Matches.Cancel` is deliberately its own permission and only `Administrator` holds it: it is the one action
   that spends money.
+- The MCP server authenticates as its own Keycloak service account (`stadiapass-mcp`) holding exactly one
+  permission — `Analytics.ViewRevenue`. Not a business role, not an admin token: the smallest identity that
+  answers the one non-public question it is allowed to ask.
 - The card is never stored and never logged — a destructuring policy masks every member whose name looks like
   a secret before any event is written. Only `sk_test_` Stripe keys are accepted, refused at startup otherwise.
 - The webhook endpoint is anonymous by necessity and defended entirely by its HMAC signature; anything that
@@ -362,7 +380,7 @@ The numbers written *for this system*, rather than the generic runtime set:
 
 ## ✅ Tests
 
-**207 tests** — 57 domain, 150 application — running in about 200 ms with no database, broker or network.
+**213 tests** — 57 domain, 156 application — running in about 200 ms with no database, broker or network.
 
 Two things about how they are written are worth more than the number:
 

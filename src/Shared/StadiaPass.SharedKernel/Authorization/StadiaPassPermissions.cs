@@ -92,6 +92,17 @@ public static class StadiaPassPermissions
         public const string Cancel = Default + ".Cancel";
     }
 
+    /// <summary>
+    /// What the fixtures have taken. Its own permission rather than one of the ticket ones: reading the
+    /// stub in front of you and reading a whole fixture's takings are different questions, and the box
+    /// office needs the first to do its job while having no business with the second.
+    /// </summary>
+    public static class Analytics
+    {
+        public const string Default = GroupName + ".Analytics";
+        public const string ViewRevenue = Default + ".ViewRevenue";
+    }
+
     /// <summary>Identity portal: business roles and the permissions bound to them.</summary>
     public static class Roles
     {

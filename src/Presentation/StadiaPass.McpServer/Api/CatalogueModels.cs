@@ -41,3 +41,22 @@ public sealed record SeatBlock(string Block, int AvailableSeatCount, IReadOnlyLi
 public sealed record SeatRow(int Row, IReadOnlyList<Seat> Seats);
 
 public sealed record Seat(string SeatNumber, int Number, decimal Price, string Currency, string Status);
+
+/// <summary>
+/// What one fixture has taken. Sold and refunded arrive separately, because they answer different
+/// questions and a single net figure would let either of them be guessed at.
+/// </summary>
+public sealed record MatchRevenue(
+    Guid MatchId,
+    string HomeTeam,
+    string AwayTeam,
+    DateTimeOffset KickOffUtc,
+    string Status,
+    string Currency,
+    int TicketsSold,
+    decimal NetRevenue,
+    int TicketsRefunded,
+    decimal RefundedAmount,
+    int Capacity,
+    int SeatsSold,
+    decimal OccupancyPercent);
