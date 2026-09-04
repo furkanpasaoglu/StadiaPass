@@ -255,7 +255,7 @@ works, because the question is understood by the model and the term by the Turki
 
 **The same tools, a second consumer.** `StadiaPass.AgentHost` is an in-house analyst for staff: a
 [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) host over a **local** model
-(Ollama `qwen2.5:14b`, temperature 0) that consumes those same tools as a second MCP client. Nothing
+(Ollama `qwen3:30b-a3b`, temperature 0) that consumes those same tools as a second MCP client. Nothing
 below it changed to make it exist. It holds a model, not a rule: it selects from named tools with typed
 parameters and never writes a query, and its instructions live in `AnalystAgent` — read by both the host and
 the evals, so the string being scored is the string it runs on. Everything above the `IChatClient` seam is
@@ -318,7 +318,7 @@ rather than imagined.
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` discovery, Scalar reference UI |
 | AI surface | ModelContextProtocol.AspNetCore | 2.2.0 | MCP server over streamable HTTP, three read-only catalogue tools |
 | Agent | Microsoft Agent Framework | 1.20.0 | the analyst host, its OpenAI-compatible endpoints and DevUI |
-| Model access | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | provider-agnostic `IChatClient`, local `qwen2.5:14b`, GenAI telemetry |
+| Model access | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | provider-agnostic `IChatClient`, local `qwen3:30b-a3b`, GenAI telemetry |
 | UI | ASP.NET Core MVC + Razor | 10.0.11 | server-rendered, one hand-written stylesheet |
 | Use cases | MediatR + FluentValidation | 12.5.0 / 12.1.1 | commands, queries, pipeline behaviours |
 | Persistence | EF Core + Npgsql → PostgreSQL 17 | 10.0.11 | aggregates, owned types, `xmin` token, outbox and inbox tables |
@@ -421,7 +421,7 @@ On first start the schema is created and seeded, and the Keycloak realm is impor
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |
 | RabbitMQ, Elasticsearch | ports shown on their resources in the Aspire dashboard |
 
-**Only the agent needs Ollama** — `ollama pull qwen2.5:14b` on `http://localhost:11434`, your own install
+**Only the agent needs Ollama** — `ollama pull qwen3:30b-a3b` on `http://localhost:11434`, your own install
 rather than an Aspire container, because a model is gigabytes that should outlive a run. Without it
 everything still starts; the agent is the only thing that cannot answer.
 

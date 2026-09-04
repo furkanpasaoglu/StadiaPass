@@ -22,5 +22,5 @@ public sealed class AgentOptions
     /// so swapping this for a cloud model is configuration, not code.
     /// </summary>
     [Required]
-    public string Model { get; init; } = "qwen2.5:14b";
+    public string Model { get; init; } = "qwen3:30b-a3b";
 }

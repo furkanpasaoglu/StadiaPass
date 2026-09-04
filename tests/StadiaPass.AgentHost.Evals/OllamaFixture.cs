@@ -21,7 +21,7 @@ public sealed class OllamaFixture : IDisposable
         }
 
         var endpoint = Environment.GetEnvironmentVariable("STADIAPASS_EVAL_OLLAMA") ?? "http://localhost:11434";
-        Model = Environment.GetEnvironmentVariable("STADIAPASS_EVAL_MODEL") ?? "qwen2.5:14b";
+        Model = Environment.GetEnvironmentVariable("STADIAPASS_EVAL_MODEL") ?? "qwen3:30b-a3b";
 
         using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
 

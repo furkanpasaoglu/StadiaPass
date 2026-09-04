@@ -253,7 +253,7 @@ http://localhost:5299/mcp` ile verin ve doğal dille sorun — Türkçe de çal�
 terimi ise `search_matches`'in arkasındaki Türkçe analyzer anlar.
 
 **Aynı tool'lar, ikinci bir tüketici.** `StadiaPass.AgentHost`, personel için kurum içi bir analist:
-**yerel** bir modelin (Ollama `qwen2.5:14b`, sıcaklık 0) önünde duran bir
+**yerel** bir modelin (Ollama `qwen3:30b-a3b`, sıcaklık 0) önünde duran bir
 [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) host'u; aynı tool'ları ikinci bir
 MCP istemcisi olarak tüketir. O var olsun diye altındaki hiçbir şey değişmedi. Kural değil model tutar: adı
 ve tipli parametreleri olan tool'lar arasından seçer, sorgu yazmaz; talimatları da `AnalystAgent` içinde
@@ -316,7 +316,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` keşfi, Scalar referans arayüzü |
 | AI yüzeyi | ModelContextProtocol.AspNetCore | 2.2.0 | streamable HTTP üzerinden MCP sunucusu, üç salt-okuma katalog tool'u |
 | Ajan | Microsoft Agent Framework | 1.20.0 | analist host'u, OpenAI uyumlu endpoint'leri ve DevUI |
-| Model erişimi | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | sağlayıcı-bağımsız `IChatClient`, yerel `qwen2.5:14b`, GenAI telemetrisi |
+| Model erişimi | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | sağlayıcı-bağımsız `IChatClient`, yerel `qwen3:30b-a3b`, GenAI telemetrisi |
 | Arayüz | ASP.NET Core MVC + Razor | 10.0.11 | sunucuda render, elle yazılmış tek stylesheet |
 | Use case'ler | MediatR + FluentValidation | 12.5.0 / 12.1.1 | komutlar, sorgular, pipeline behavior'ları |
 | Kalıcılık | EF Core + Npgsql → PostgreSQL 17 | 10.0.11 | aggregate'ler, owned type'lar, `xmin` token'ı, outbox ve inbox tabloları |
@@ -418,7 +418,7 @@ açılışta şema kurulup tohumlanır ve Keycloak realm'i içe aktarılır.
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |
 | RabbitMQ, Elasticsearch | portlar Aspire dashboard'unda kendi kaynaklarının üstünde |
 
-**Ollama'ya yalnızca ajan ihtiyaç duyar** — `ollama pull qwen2.5:14b`, `http://localhost:11434` üzerinde;
+**Ollama'ya yalnızca ajan ihtiyaç duyar** — `ollama pull qwen3:30b-a3b`, `http://localhost:11434` üzerinde;
 Aspire konteyneri değil sizin kendi kurulumunuz, çünkü model bir koşudan uzun yaşaması gereken
 gigabyte'lardır. O olmadan da her şey ayağa kalkar; cevap veremeyen tek şey ajan olur.
 
