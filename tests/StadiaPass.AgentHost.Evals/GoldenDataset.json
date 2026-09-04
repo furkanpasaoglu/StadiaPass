@@ -157,6 +157,113 @@
       ]
     },
     {
+      "id": "staleness-tr-revenue-asked-again",
+      "$comment": "The bug this suite could not see: the answer to the first question is still in the history, so 'and now?' can be served from it without touching a tool - technically obeying 'every number comes from a tool result', while quoting a figure taken before the last ticket was sold. A tool call is the only acceptable move.",
+      "history": [
+        { "user": "01a02f9e-8240-7361-9d6f-55260786393a maçının cirosu ne kadar?" },
+        {
+          "toolCall": {
+            "tool": "get_match_revenue",
+            "arguments": { "matchId": "01a02f9e-8240-7361-9d6f-55260786393a" },
+            "returned": {
+              "asOfUtc": "2026-09-04T14:02:11+00:00",
+              "result": {
+                "matchId": "01a02f9e-8240-7361-9d6f-55260786393a",
+                "homeTeam": "Fenerbahçe",
+                "awayTeam": "Trabzonspor",
+                "kickOffUtc": "2026-09-19T18:00:00+00:00",
+                "status": "OnSale",
+                "currency": "TRY",
+                "ticketsSold": 4,
+                "netRevenue": 1400.00,
+                "ticketsRefunded": 0,
+                "refundedAmount": 0.00,
+                "capacity": 500,
+                "seatsSold": 4,
+                "occupancyPercent": 0.8
+              }
+            }
+          }
+        },
+        { "assistant": "Bu maç 4 bilet sattı ve 1.400,00 TL net ciro elde etti." }
+      ],
+      "question": "Peki şu an ne kadar oldu?",
+      "acceptable": [
+        { "tool": "get_match_revenue", "arguments": { "matchId": "01a02f9e-8240-7361-9d6f-55260786393a" } }
+      ]
+    },
+    {
+      "id": "staleness-en-availability-asked-again",
+      "$comment": "The same trap on the fastest moving figure in the system: seats sell while the conversation is open, so a seat count from an earlier turn is the one number that is almost certainly already wrong.",
+      "history": [
+        { "user": "How many seats are left for match 01a02f9e-8240-7361-9d6f-55260786393a?" },
+        {
+          "toolCall": {
+            "tool": "get_seat_availability",
+            "arguments": { "matchId": "01a02f9e-8240-7361-9d6f-55260786393a" },
+            "returned": {
+              "asOfUtc": "2026-09-04T14:02:11+00:00",
+              "result": {
+                "matchId": "01a02f9e-8240-7361-9d6f-55260786393a",
+                "homeTeam": "Fenerbahçe",
+                "awayTeam": "Trabzonspor",
+                "venueName": "Ülker Stadyumu",
+                "kickOffUtc": "2026-09-19T18:00:00+00:00",
+                "status": "OnSale",
+                "capacity": 500,
+                "availableSeatCount": 496,
+                "cheapestAvailablePrice": 250.00,
+                "currency": "TRY",
+                "blocks": [
+                  { "block": "A", "availableSeatCount": 246, "minAvailablePrice": 250.00, "maxAvailablePrice": 450.00 },
+                  { "block": "B", "availableSeatCount": 250, "minAvailablePrice": 300.00, "maxAvailablePrice": 500.00 }
+                ]
+              }
+            }
+          }
+        },
+        { "assistant": "There are 496 seats left, cheapest at 250,00 TRY in block A." }
+      ],
+      "question": "And how many are left now?",
+      "acceptable": [
+        { "tool": "get_seat_availability", "arguments": { "matchId": "01a02f9e-8240-7361-9d6f-55260786393a" } }
+      ]
+    },
+    {
+      "id": "staleness-tr-followup-about-the-rule",
+      "$comment": "The guard on the fix: 'call it again' must not become 'call it always'. This follow-up asks what the figure MEANS, not what it is now - the history already answers it, and a fresh call would be noise. A prompt that overshoots fails here while the two cases above pass.",
+      "history": [
+        { "user": "01a02f9e-8240-7361-9d6f-55260786393a maçının cirosu ne kadar?" },
+        {
+          "toolCall": {
+            "tool": "get_match_revenue",
+            "arguments": { "matchId": "01a02f9e-8240-7361-9d6f-55260786393a" },
+            "returned": {
+              "asOfUtc": "2026-09-04T14:02:11+00:00",
+              "result": {
+                "matchId": "01a02f9e-8240-7361-9d6f-55260786393a",
+                "homeTeam": "Fenerbahçe",
+                "awayTeam": "Trabzonspor",
+                "kickOffUtc": "2026-09-19T18:00:00+00:00",
+                "status": "OnSale",
+                "currency": "TRY",
+                "ticketsSold": 4,
+                "netRevenue": 1400.00,
+                "ticketsRefunded": 1,
+                "refundedAmount": 350.00,
+                "capacity": 500,
+                "seatsSold": 4,
+                "occupancyPercent": 0.8
+              }
+            }
+          }
+        },
+        { "assistant": "Bu maç 4 bilet sattı ve 1.400,00 TL net ciro elde etti; 1 bilet iade edildi (350,00 TL)." }
+      ],
+      "question": "Bu net ciro rakamı iadeleri düşülmüş hâli mi?",
+      "acceptable": []
+    },
+    {
       "id": "notool-greeting",
       "question": "Merhaba!",
       "acceptable": []

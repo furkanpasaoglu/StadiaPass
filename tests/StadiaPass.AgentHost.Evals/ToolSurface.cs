@@ -26,7 +26,11 @@ internal static class ToolSurface
 
         // Both tool classes, because the agent is offered both. The split between them is about who may
         // call a tool, not about which surface the model is choosing from - and choosing is what is scored.
-        return [.. ToolsOf(new CatalogueTools(client)), .. ToolsOf(new AnalyticsTools(client))];
+        return
+        [
+            .. ToolsOf(new CatalogueTools(client, TimeProvider.System)),
+            .. ToolsOf(new AnalyticsTools(client, TimeProvider.System))
+        ];
     }
 
     private static IEnumerable<AITool> ToolsOf(object target) =>

@@ -24,18 +24,26 @@ namespace StadiaPass.McpServer.Tools;
 /// </para>
 /// </remarks>
 [McpServerToolType]
-internal sealed class AnalyticsTools(ICatalogueApiClient catalogue)
+internal sealed class AnalyticsTools(ICatalogueApiClient catalogue, TimeProvider clock)
 {
     [McpServerTool(Name = "get_match_revenue", ReadOnly = true)]
     [Description(
         "Reports what one match has taken: tickets sold and their net revenue, tickets refunded and the "
-        + "amount given back, plus capacity, seats sold and occupancy. Net revenue already excludes "
+        + "amount given back, plus capacity, seats sold and occupancy - under 'result', with the moment "
+        + "the figures were read under 'asOfUtc'. Takings rise with every sale, so a figure from earlier "
+        + "in a conversation is out of date. Net revenue already excludes "
         + "refunded tickets - do not subtract them again. Use a match id from get_upcoming_matches or "
         + "search_matches. Staff-facing figures, not for quoting to customers.")]
-    public async Task<MatchRevenue> GetMatchRevenueAsync(
+    public async Task<Reading<MatchRevenue>> GetMatchRevenueAsync(
         [Description("The match id (GUID) whose takings are being asked about.")]
         Guid matchId,
-        CancellationToken cancellationToken = default) =>
-        await catalogue.GetMatchRevenueAsync(matchId, cancellationToken)
-        ?? throw new McpException($"No match with id {matchId} exists.");
+        CancellationToken cancellationToken = default)
+    {
+        var revenue = await catalogue.GetMatchRevenueAsync(matchId, cancellationToken)
+            ?? throw new McpException($"No match with id {matchId} exists.");
+
+        // Stamped after the call returns: the reading is the moment the figures came back, not the moment
+        // the model asked for them.
+        return new Reading<MatchRevenue>(clock.GetUtcNow(), revenue);
+    }
 }
