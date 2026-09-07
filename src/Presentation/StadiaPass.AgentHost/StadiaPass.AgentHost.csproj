@@ -7,6 +7,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The guardrail is scored on its own, without a model in the way: what it removes and, just
+         as importantly, what it leaves alone. -->
+    <InternalsVisibleTo Include="StadiaPass.AgentHost.UnitTests" />
+
+    <!-- And scored again with a model in the way: the evals put the real guardrail in front of the
+         real model, so what they measure is the pipeline production runs and not a plainer one. -->
+    <InternalsVisibleTo Include="StadiaPass.AgentHost.Evals" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\orchestrator\StadiaPass.ServiceDefaults\StadiaPass.ServiceDefaults.csproj" />
   </ItemGroup>
 

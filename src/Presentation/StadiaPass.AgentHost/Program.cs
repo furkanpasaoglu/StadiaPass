@@ -8,6 +8,7 @@ using ModelContextProtocol.Client;
 using OllamaSharp;
 using Serilog;
 using StadiaPass.AgentHost;
+using StadiaPass.AgentHost.Guardrails;
 using StadiaPass.ServiceDefaults.Logging;
 
 // Same bootstrap-logger window as every other host in the solution.
@@ -29,6 +30,8 @@ try
         .ValidateDataAnnotations()
         .ValidateOnStart();
 
+    builder.Services.AddSingleton<GuardrailMetrics>();
+
     builder.Services.AddSingleton<IChatClient>(provider =>
     {
         var options = provider.GetRequiredService<IOptions<AgentOptions>>().Value;
@@ -36,6 +39,10 @@ try
         // The cast settles an overload ambiguity: OllamaApiClient is also an IEmbeddingGenerator.
         return ((IChatClient)new OllamaApiClient(new Uri(options.OllamaEndpoint), options.Model))
             .AsBuilder()
+            .Use(inner => new PersonalDataGuardrail(
+                inner,
+                provider.GetRequiredService<GuardrailMetrics>(),
+                provider.GetRequiredService<ILogger<PersonalDataGuardrail>>()))
             .UseOpenTelemetry(
                 provider.GetRequiredService<ILoggerFactory>(),
                 sourceName: "StadiaPass.Agent")

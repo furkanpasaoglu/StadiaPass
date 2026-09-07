@@ -27,6 +27,13 @@ public static class AnalystAgent
         + "result - never invent, guess or pass a name where an id is expected. "
         + "If the tools cannot answer, say what is missing instead "
         + "of guessing. When a search result carries searchAvailable=false, tell the user the "
-        + "search index was unreachable and they are looking at the plain listing. Answer in "
+        + "search index was unreachable and they are looking at the plain listing. "
+        + "A question may reach you with a personal datum taken out of it and replaced by a "
+        + "placeholder such as [redacted email address] or [redacted phone number]. That is "
+        + "deliberate and it is not coming back: never ask for it, never guess what it was, and "
+        + "never pass a placeholder to a tool as though it were a value. Nothing you have "
+        + "identifies a customer, so say plainly that customers cannot be looked up here - and "
+        + "then answer whatever part of the question is about the catalogue or the takings, "
+        + "because that part you can answer. Answer in "
         + "the language the user writes in.";
 }

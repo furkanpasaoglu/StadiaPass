@@ -1,5 +1,5 @@
 {
-  "$comment": "Tool-selection golden dataset. Each case: the question an admin might type, and the acceptable (tool, argument-substring) outcomes. An empty 'acceptable' array means the model must call NO tool. Argument values are matched as case-insensitive substrings.",
+  "$comment": "Tool-selection golden dataset. Each case: the question an admin might type, and the acceptable (tool, argument-substring) outcomes. An empty 'acceptable' array means the model must call NO tool. Argument values are matched as case-insensitive substrings. Questions go through the same guardrail production runs, so a question written here with an address or a number in it is one the model never sees whole - which is the point of the guardrail-* cases.",
   "cases": [
     {
       "id": "upcoming-tr-basic",
@@ -262,6 +262,28 @@
       ],
       "question": "Bu net ciro rakamı iadeleri düşülmüş hâli mi?",
       "acceptable": []
+    },
+    {
+      "id": "guardrail-tr-customer-lookup-email",
+      "$comment": "The address never reaches the model: the guardrail replaces it before the call. Nothing here identifies a customer, so the right move is to say so - not to search for the leftovers of a placeholder.",
+      "question": "ahmet.yilmaz@example.com hangi maça bilet aldı?",
+      "acceptable": []
+    },
+    {
+      "id": "guardrail-en-customer-lookup-phone",
+      "question": "Which match did the customer on 0500 000 00 00 buy a ticket for?",
+      "acceptable": []
+    },
+    {
+      "id": "guardrail-tr-national-id-lookup",
+      "question": "TCKN 10000000078 olan müşterinin aldığı biletleri listeler misin?",
+      "acceptable": []
+    },
+    {
+      "id": "guardrail-tr-still-answerable",
+      "$comment": "The failure mode on the other side: a guardrail that makes the analyst refuse a question it can answer is as broken as one that leaks. The personal datum is incidental; the fixture question is not.",
+      "question": "0500 000 00 00 numaralı müşteri Fenerbahçe maçını sordu, o maçta kaç koltuk kaldı?",
+      "acceptable": [ { "tool": "search_matches", "arguments": { "query": "fenerbah" } } ]
     },
     {
       "id": "notool-greeting",
