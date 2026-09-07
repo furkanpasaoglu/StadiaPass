@@ -2,7 +2,7 @@
 
 **English** · [Türkçe](README.tr.md)
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 213](https://img.shields.io/badge/tests-213-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 247](https://img.shields.io/badge/tests-247-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
 
 Stadium and arena ticketing, built as a reference-grade Clean Architecture solution: Minimal API backend,
 Razor MVC front end, DDD domain model, CQRS with MediatR, Keycloak-backed dynamic permissions, Elasticsearch
@@ -263,16 +263,27 @@ provider-agnostic, so a cloud model is a key in Vault and one registration line.
 `/devui`, development only.
 
 **The agent is measured, not admired.** A model answers the same question differently every time, so it gets
-a suite of its own: **28 scored cases**, Turkish and English, asserting that it reached for an acceptable tool
+a suite of its own: **36 scored cases**, Turkish and English, asserting that it reached for an acceptable tool
 with acceptable arguments — or, for small talk, called nothing at all. Tool names and schemas come by
 reflection from the real tool classes, so an eval cannot drift from the surface it scores, and nothing is
 ever executed. Cases come in pairs where the wrong pick is tempting — occupancy is revenue, seats left is
-availability — because a fourth tool makes the choice harder, not the answer better. Opt-in, because thirty
+availability — because a fourth tool makes the choice harder, not the answer better. Opt-in, because thirty-six
 model calls have no business in a 200 ms test loop:
 
 ```powershell
 $env:STADIAPASS_RUN_EVALS = "1"; dotnet test
 ```
+
+**Nothing personal reaches the model.** No tool returns a customer, so the only way a customer's details
+would arrive is a member of staff typing them into the question — and from there they are in the prompt, the
+history and the traces. A redactor sits outermost in the chat pipeline, above the telemetry, replacing
+addresses, mobile numbers, cards, bank accounts and national identifiers with a placeholder in both
+directions; the instructions say what to do with the hole, which is to say plainly that customers cannot be
+looked up here and then answer the part of the question that was about the catalogue. Each detector
+validates rather than guesses — Luhn for a card, mod-97 for an account, its own checksum for an identifier —
+because a filter that turns a price into a placeholder is a filter somebody switches off. The evals run
+through it, so what they score is the pipeline that runs, and a counter beside the token metrics says how
+often it fires.
 
 ## 📐 Architectural decisions
 
@@ -331,7 +342,7 @@ rather than imagined.
 | Secrets | HashiCorp Vault | 1.21 | injected as configuration at startup |
 | Telemetry | OpenTelemetry + Serilog | 1.15 / 10.0 | traces, metrics, structured logs |
 | Dashboards | Prometheus + Grafana | 3.6 / 12.2 | scraped metrics, provisioned panels and alert rules |
-| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 213 tests, plus 28 opt-in agent evals |
+| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 247 tests, plus 36 opt-in agent evals |
 
 **Patterns in the code:** Clean Architecture · DDD aggregates · domain events · CQRS · pipeline behaviours ·
 repository + unit of work · ports and adapters · transactional outbox · idempotent inbox · compensating
@@ -380,7 +391,8 @@ The numbers written *for this system*, rather than the generic runtime set:
 
 ## ✅ Tests
 
-**213 tests** — 57 domain, 156 application — running in about 200 ms with no database, broker or network.
+**247 tests** — 57 domain, 156 application, 34 guardrail — running in about 200 ms with no database,
+broker or network.
 
 Two things about how they are written are worth more than the number:
 

@@ -2,7 +2,7 @@
 
 [English](README.md) · **Türkçe**
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 213](https://img.shields.io/badge/test-213-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success) ![lisans MIT](https://img.shields.io/badge/lisans-MIT-blue)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 247](https://img.shields.io/badge/test-247-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success) ![lisans MIT](https://img.shields.io/badge/lisans-MIT-blue)
 
 Stadyum ve arena biletleme; referans niteliğinde bir Clean Architecture çözümü olarak yazıldı: Minimal API
 backend, Razor MVC ön yüz, DDD domain modeli, MediatR ile CQRS, Keycloak destekli dinamik izinler, arama
@@ -262,16 +262,25 @@ dikişinin üstündeki her şey sağlayıcı-bağımsız; bulut modeli demek Vau
 satırı demek. Sohbet arayüzü: `/devui`, yalnızca geliştirmede.
 
 **Ajan beğenilmez, ölçülür.** Model aynı soruya her seferinde farklı cevap verir; bu yüzden kendi takımı
-var: Türkçe ve İngilizce **28 puanlanan vaka**, modelin kabul edilebilir argümanlarla kabul edilebilir bir
+var: Türkçe ve İngilizce **36 puanlanan vaka**, modelin kabul edilebilir argümanlarla kabul edilebilir bir
 tool'a uzandığını — ya da sohbet muhabbetinde hiçbir tool çağırmadığını — doğrular. Tool adları ve şemaları
 gerçek tool sınıflarından reflection'la gelir; böylece eval, ölçtüğü yüzeyden kayamaz ve hiçbir şey
 çalıştırılmaz. Vakalar, yanlış seçimin cazip olduğu çiftler hâlinde yazıldı — doluluk cirodur, kalan koltuk
-müsaitliktir — çünkü dördüncü tool cevabı değil seçimi zorlaştırır. Opsiyoneldir, çünkü otuz model
+müsaitliktir — çünkü dördüncü tool cevabı değil seçimi zorlaştırır. Opsiyoneldir, çünkü otuz altı model
 çağrısının 200 ms'lik bir test döngüsünde işi yok:
 
 ```powershell
 $env:STADIAPASS_RUN_EVALS = "1"; dotnet test
 ```
+
+**Modele kişisel veri ulaşmaz.** Hiçbir tool müşteri döndürmüyor; bir müşterinin bilgisi modele ancak
+personel soruya yazarsa ulaşır — oradan da prompt'a, geçmişe ve trace'lere. Sohbet hattının en dışında,
+telemetrinin üstünde bir redaktör duruyor: adres, cep telefonu, kart, banka hesabı ve kimlik numarası iki
+yönde de yer tutucuyla değiştiriliyor; geriye kalan boşlukla ne yapılacağını talimat söylüyor — burada
+müşteri araması yapılamayacağını açıkça söyle, sonra sorunun katalogla ilgili kısmını cevapla. Her dedektör
+tahmin etmez, doğrular — kart için Luhn, hesap için mod-97, kimlik için kendi checksum'ı — çünkü fiyatı yer
+tutucuya çeviren bir filtreyi eninde sonunda biri kapatır. Eval'ler de bu hattın içinden geçiyor, yani
+ölçülen şey çalışan hat; token metriklerinin yanındaki bir sayaç kaç kez devreye girdiğini söylüyor.
 
 ## 📐 Mimari kararlar
 
@@ -329,7 +338,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | Sırlar | HashiCorp Vault | 1.21 | açılışta konfigürasyon olarak enjekte edilir |
 | Telemetri | OpenTelemetry + Serilog | 1.15 / 10.0 | trace'ler, metrikler, yapılandırılmış loglar |
 | Panolar | Prometheus + Grafana | 3.6 / 12.2 | scrape edilen metrikler, provision edilmiş paneller ve alarm kuralları |
-| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 213 test, artı 28 opsiyonel ajan eval’i |
+| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 247 test, artı 36 opsiyonel ajan eval’i |
 
 **Koddaki desenler:** Clean Architecture · DDD aggregate'leri · domain event'ler · CQRS · pipeline
 behavior'ları · repository + unit of work · portlar ve adaptörler · transactional outbox · idempotent inbox ·
@@ -377,7 +386,8 @@ Jenerik runtime seti yerine *bu sistem için* yazılmış sayılar:
 
 ## ✅ Testler
 
-**213 test** — 57 domain, 156 application — veritabanı, broker ya da ağ olmadan yaklaşık 200 ms'de koşuyor.
+**247 test** — 57 domain, 156 application, 34 guardrail — veritabanı, broker ya da ağ olmadan yaklaşık
+200 ms'de koşuyor.
 
 Nasıl yazıldıklarına dair iki şey sayının kendisinden daha değerli:
 
