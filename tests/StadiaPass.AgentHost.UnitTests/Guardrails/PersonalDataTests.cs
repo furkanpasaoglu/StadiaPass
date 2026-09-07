@@ -91,6 +91,40 @@ public sealed class PersonalDataTests
         redaction.Removed.Should().BeEmpty();
     }
 
+    /// <summary>
+    /// The published example account for Turkey, which validates and belongs to nobody. Written both ways
+    /// people write one: in fours off a screen, and unbroken off a form.
+    /// </summary>
+    [Theory]
+    [InlineData("TR33 0006 1005 1978 6457 8413 26")]
+    [InlineData("TR330006100519786457841326")]
+    public void Should_RemoveABankAccount_When_TheIbanChecksumHolds(string iban)
+    {
+        // Arrange - a refund conversation is exactly where staff paste one of these.
+        var text = $"Iade {iban} hesabina yapilacak.";
+
+        // Act
+        var redaction = PersonalData.Redact(text);
+
+        // Assert - and only as an account: the four-digit groups must not also be read as a card.
+        redaction.Text.Should().Be("Iade [redacted bank account] hesabina yapilacak.");
+        redaction.Removed.Should().Equal(PersonalDataKind.BankAccount);
+    }
+
+    [Fact]
+    public void Should_LeaveAnAccountShapedStringAlone_When_TheIbanChecksumFails()
+    {
+        // Arrange - one digit off the example, which is what tells mod-97 from a shape.
+        const string text = "Referans TR33 0006 1005 1978 6457 8413 27 kaydi.";
+
+        // Act
+        var redaction = PersonalData.Redact(text);
+
+        // Assert
+        redaction.Text.Should().Be(text);
+        redaction.Removed.Should().BeEmpty();
+    }
+
     [Fact]
     public void Should_RemoveANationalIdentifier_When_TheChecksumHolds()
     {

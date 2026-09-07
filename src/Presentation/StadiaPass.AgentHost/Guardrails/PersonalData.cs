@@ -8,6 +8,7 @@ internal enum PersonalDataKind
     EmailAddress,
     PhoneNumber,
     PaymentCard,
+    BankAccount,
     NationalId
 }
 
@@ -34,9 +35,9 @@ internal readonly record struct Redaction(string Text, IReadOnlyList<PersonalDat
 /// control that holds whether or not anyone remembers it.
 /// </para>
 /// <para>
-/// Every detector validates where the datum allows it: a card number has to pass Luhn, a national
-/// identifier has to pass its own checksum. This is deliberate and it is the harder half of the job. An
-/// over-eager filter is not a safer filter - the first time it turns a price or a capacity into a
+/// Every detector validates where the datum allows it: a card number has to pass Luhn, an account number
+/// mod-97, a national identifier its own checksum. This is deliberate and it is the harder half of the
+/// job. An over-eager filter is not a safer filter - the first time it turns a price or a capacity into a
 /// placeholder, the analyst starts reporting nonsense and somebody switches the guardrail off. The tests
 /// that assert nothing changed are worth more than the ones that assert something did.
 /// </para>
@@ -51,6 +52,7 @@ internal static partial class PersonalData
     private const string EmailPlaceholder = "[redacted email address]";
     private const string PhonePlaceholder = "[redacted phone number]";
     private const string CardPlaceholder = "[redacted card number]";
+    private const string BankAccountPlaceholder = "[redacted bank account]";
     private const string NationalIdPlaceholder = "[redacted national id]";
 
     public static Redaction Redact(string? text)
@@ -68,7 +70,17 @@ internal static partial class PersonalData
         // ten after its prefix - so each pass can only see runs the earlier passes did not claim, and the
         // eleven digits of "00000000000" are offered to the identifier's checksum before they are offered
         // to the phone pattern, which is the only order in which both can be right.
+        //
+        // The account goes ahead of the card for the same reason and more urgently: an account written in
+        // fours contains four-digit groups a card pattern reads as a card, and one run in ten of those
+        // passes Luhn by luck. Claimed here first, it can never be mislabelled there.
         var redacted = EmailAddress().Replace(text, _ => Mark(removed, PersonalDataKind.EmailAddress, EmailPlaceholder));
+
+        redacted = BankAccount().Replace(
+            redacted,
+            match => PassesIbanChecksum(match.ValueSpan)
+                ? Mark(removed, PersonalDataKind.BankAccount, BankAccountPlaceholder)
+                : match.Value);
 
         redacted = PaymentCard().Replace(
             redacted,
@@ -116,6 +128,16 @@ internal static partial class PersonalData
         + "|[0-9]{13,19})(?![0-9-])",
         RegexOptions.CultureInvariant)]
     private static partial Regex PaymentCard();
+
+    /// <summary>
+    /// An international bank account number: two letters for the country, two check digits, then the
+    /// account, written either in fours or unbroken. Length varies by country - Turkey uses twenty-six
+    /// characters, others fewer or more - so the shape is kept loose here and mod-97 decides.
+    /// </summary>
+    [GeneratedRegex(
+        "(?<![0-9A-Za-z])[A-Z]{2}[0-9]{2}[ ]?(?:[0-9A-Z]{4}[ ]?){2,7}[0-9A-Z]{0,3}(?![0-9A-Za-z])",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex BankAccount();
 
     [GeneratedRegex("(?<![0-9])[0-9]{11}(?![0-9])", RegexOptions.CultureInvariant)]
     private static partial Regex NationalId();
@@ -175,6 +197,63 @@ internal static partial class PersonalData
         }
 
         return sum % 10 == 0;
+    }
+
+    /// <summary>
+    /// The account number's own check, the one every bank runs before it moves money: the country code and
+    /// check digits move to the end, each letter becomes two digits, and what is left over from ninety-seven
+    /// has to be one. Two characters of the account exist for no other purpose than to make that true, so an
+    /// account-shaped string that fails this was never an account.
+    /// </summary>
+    private static bool PassesIbanChecksum(ReadOnlySpan<char> value)
+    {
+        Span<char> account = stackalloc char[34];
+        var length = 0;
+
+        foreach (var character in value)
+        {
+            if (character is ' ')
+            {
+                continue;
+            }
+
+            if (length == account.Length)
+            {
+                return false;
+            }
+
+            account[length++] = character;
+        }
+
+        if (length is < 15 or > 34)
+        {
+            return false;
+        }
+
+        var remainder = 0;
+
+        // Reading from the fifth character and wrapping round to the first four is the move-to-the-end step
+        // done in place, and taking the remainder as it goes is what keeps a thirty-four character account
+        // from needing a number no integer here could hold.
+        for (var step = 0; step < length; step++)
+        {
+            var character = account[(step + 4) % length];
+
+            if (character is >= '0' and <= '9')
+            {
+                remainder = ((remainder * 10) + (character - '0')) % 97;
+            }
+            else if (character is >= 'A' and <= 'Z')
+            {
+                remainder = ((remainder * 100) + (character - 'A' + 10)) % 97;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        return remainder is 1;
     }
 
     /// <summary>

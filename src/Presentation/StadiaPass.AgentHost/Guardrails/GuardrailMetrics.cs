@@ -56,6 +56,7 @@ internal sealed class GuardrailMetrics : IDisposable
         PersonalDataKind.EmailAddress => "email_address",
         PersonalDataKind.PhoneNumber => "phone_number",
         PersonalDataKind.PaymentCard => "payment_card",
+        PersonalDataKind.BankAccount => "bank_account",
         PersonalDataKind.NationalId => "national_id",
         _ => "unknown"
     };
