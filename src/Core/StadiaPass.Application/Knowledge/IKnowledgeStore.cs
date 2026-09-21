@@ -50,6 +50,17 @@ public interface IKnowledgeStore
         IReadOnlyList<EmbeddedKnowledgeChunk> chunks,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Takes out every document whose name is not in <paramref name="documents"/>, and says which went.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart of <see cref="ReplaceDocumentAsync"/>: replacing keeps a document that changed up
+    /// to date, this keeps a document that was withdrawn from being answered from.
+    /// </remarks>
+    Task<IReadOnlyList<string>> RemoveDocumentsNotInAsync(
+        IReadOnlyCollection<string> documents,
+        CancellationToken cancellationToken = default);
+
     /// <summary>The <paramref name="limit"/> chunks nearest to <paramref name="query"/>, nearest first.</summary>
     Task<IReadOnlyList<KnowledgeHit>> NearestAsync(
         float[] query,

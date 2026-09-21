@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StadiaPass.Application.Knowledge.Commands.IndexKnowledgeDocument;
+using StadiaPass.Application.Knowledge.Commands.RemoveWithdrawnKnowledgeDocuments;
 
 namespace StadiaPass.Infrastructure.Knowledge;
 
@@ -93,14 +94,19 @@ internal sealed partial class KnowledgeLibraryLoader(
             }
         }
 
-        LibraryReady(logger, loaded, unchanged);
+        // After the documents that are here, the ones that are not: a policy whose file was deleted has
+        // to leave the store too, or the assistant keeps quoting a rule that has been withdrawn.
+        var current = files.Select(file => Path.GetFileNameWithoutExtension(file)).ToArray();
+        var withdrawn = await sender.Send(new RemoveWithdrawnKnowledgeDocumentsCommand(current), cancellationToken);
+
+        LibraryReady(logger, loaded, unchanged, withdrawn.Removed.Count);
     }
 
     [LoggerMessage(
         EventId = 9100,
         Level = LogLevel.Information,
-        Message = "Knowledge library ready: {Loaded} document(s) embedded, {Unchanged} already up to date")]
-    private static partial void LibraryReady(ILogger logger, int loaded, int unchanged);
+        Message = "Knowledge library ready: {Loaded} document(s) embedded, {Unchanged} already up to date, {Withdrawn} withdrawn")]
+    private static partial void LibraryReady(ILogger logger, int loaded, int unchanged, int withdrawn);
 
     [LoggerMessage(
         EventId = 9101,

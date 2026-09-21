@@ -70,6 +70,33 @@ internal sealed class KnowledgeStore(StadiaPassDbContext context) : IKnowledgeSt
             });
     }
 
+    public async Task<IReadOnlyList<string>> RemoveDocumentsNotInAsync(
+        IReadOnlyCollection<string> documents,
+        CancellationToken cancellationToken = default)
+    {
+        var kept = documents.ToArray();
+
+        // Asked for by name first, so the caller can be told what went; a bare delete would only say how
+        // many rows it removed, and "three rows" is not something anybody can check against the folder.
+        var withdrawn = await context.KnowledgeChunks
+            .AsNoTracking()
+            .Where(chunk => !kept.Contains(chunk.Document))
+            .Select(chunk => chunk.Document)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        if (withdrawn.Count == 0)
+        {
+            return withdrawn;
+        }
+
+        await context.KnowledgeChunks
+            .Where(chunk => withdrawn.Contains(chunk.Document))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return withdrawn;
+    }
+
     public async Task<IReadOnlyList<KnowledgeHit>> NearestAsync(
         float[] query,
         int limit,
