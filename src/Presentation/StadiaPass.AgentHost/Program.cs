@@ -50,7 +50,7 @@ try
             .Build(provider);
     });
 
-    // The tools come from our own MCP server - the same three catalogue tools Claude used, consumed by a
+    // The tools come from our own MCP server - the same tools any other MCP client is offered, consumed by a
     // second client. One tool layer, many consumers: nothing below this host had to change to make an
     // internal agent exist, and nothing here duplicates a business rule.
     builder.Services.AddSingleton(provider =>
@@ -74,7 +74,7 @@ try
                     Instructions = AnalystAgent.Instructions,
                     // An analyst reports; it does not improvise. Determinism first, personality never.
                     Temperature = 0f,
-                    Tools = [.. tools.Cast<AITool>()]
+                    Tools = [.. AnalystAgent.ToolsFrom(tools)]
                 }
             });
     });

@@ -1,3 +1,6 @@
+using Microsoft.Extensions.AI;
+using StadiaPass.AgentHost.Policy;
+
 namespace StadiaPass.AgentHost;
 
 /// <summary>
@@ -36,4 +39,17 @@ public static class AnalystAgent
         + "then answer whatever part of the question is about the catalogue or the takings, "
         + "because that part you can answer. Answer in "
         + "the language the user writes in.";
+
+    /// <summary>
+    /// The tools the analyst is given: everything the MCP server offers, except policy search.
+    /// </summary>
+    /// <remarks>
+    /// The host hands the analyst the server's whole tool list, which is what lets a new catalogue tool
+    /// reach the agent without a change here. Policy search is the one tool on that list that is not the
+    /// analyst's: the policy assistant calls it from code, on every question, and a model that could also
+    /// choose it would answer policy questions without the instructions and the citations that make those
+    /// answers safe. Leaving it out also keeps production on the tool surface the evals measure.
+    /// </remarks>
+    public static IReadOnlyList<AITool> ToolsFrom(IEnumerable<AITool> offered) =>
+        offered.Where(tool => tool.Name != McpPolicyRetriever.ToolName).ToList();
 }
