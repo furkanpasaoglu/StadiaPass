@@ -2,12 +2,13 @@
 
 **English** · [Türkçe](README.tr.md)
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 247](https://img.shields.io/badge/tests-247-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 292](https://img.shields.io/badge/tests-292-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
 
 Stadium and arena ticketing, built as a reference-grade Clean Architecture solution: Minimal API backend,
 Razor MVC front end, DDD domain model, CQRS with MediatR, Keycloak-backed dynamic permissions, Elasticsearch
-behind the search box, .NET Aspire orchestration — and an MCP tool layer with an in-house analyst agent on
-top of it.
+behind the search box, .NET Aspire orchestration — and an MCP tool layer with two in-house consumers on top
+of it: an analyst agent that chooses its tools, and a policy assistant that answers staff from the rule book
+with citations (retrieval-augmented generation over pgvector).
 
 ## 🎯 What it is
 
@@ -28,6 +29,7 @@ refunds have to be issued against a provider that can refuse, rate-limit, or sim
 | **Cancelling a fixture** | Selling stops in one small transaction; every sold ticket is then settled one at a time off the broker, each with its own retry. |
 | **Search that degrades** | Elasticsearch is a convenience over a system that sells tickets perfectly well without it. If the cluster is gone, the search box hands back the listing and says so. |
 | **AI without a second source of truth** | The catalogue is published once as MCP tools. Claude and an in-house agent on a local model consume the same tools, over the same API — and the agent's tool selection is scored, not trusted. |
+| **Answers that can be checked** | Staff ask the rule book in plain language. The assistant reads the three nearest sections, answers only from them, cites each by number — and says "the documents do not cover this" rather than guess. Retrieval, grounding and refusal are each scored. |
 
 ## 📸 Screenshots
 
@@ -85,17 +87,18 @@ StadiaPass.slnx
 │   │   ├── StadiaPass.Domain        # aggregates, value objects, domain events
 │   │   └── StadiaPass.Application   # CQRS use cases, validation, ports
 │   ├── Infrastructure
-│   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, outbox/inbox, repositories
-│   │   └── StadiaPass.Infrastructure# adapters: payments, messaging, search, mail, locking
+│   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, outbox/inbox, repositories, pgvector chunks
+│   │   └── StadiaPass.Infrastructure# adapters: payments, messaging, search, mail, locking, embeddings
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API + Scalar reference
 │       ├── StadiaPass.WebMVC        # Razor MVC — consumes the API over HTTP only
 │       ├── StadiaPass.McpServer     # Model Context Protocol server — the catalogue, for AI clients
-│       └── StadiaPass.AgentHost     # the analyst agent — a local model holding those same tools
+│       └── StadiaPass.AgentHost     # the analyst agent and the policy assistant — a local model over those tools
 ├── orchestrator
 │   ├── StadiaPass.AppHost           # Aspire: Postgres, Redis, RabbitMQ, Keycloak, Elastic, Vault, Grafana
 │   └── StadiaPass.ServiceDefaults   # Vault config, Serilog, OpenTelemetry, health checks
-└── tests                            # Domain.UnitTests · Application.UnitTests · AgentHost.Evals
+├── docs/knowledge                   # the policy documents the assistant answers from (Turkish)
+└── tests                            # Domain · Application · AgentHost unit tests · AgentHost.Evals · Knowledge.Evals
 ```
 
 ```
@@ -117,15 +120,16 @@ not a rule, and reaches the system only through the MCP tools every other AI cli
 flowchart LR
   Browser --> WebMVC
   AI([AI client — Claude, Copilot, …]) -->|MCP| McpServer
-  Staff([Staff]) -->|DevUI| AgentHost
+  Staff([Staff]) -->|DevUI · /policy/ask| AgentHost
   AgentHost -->|MCP| McpServer
-  AgentHost -->|chat + tool calls| Ollama([Ollama — local model])
+  AgentHost -->|chat + tool calls| Ollama([Ollama — local models])
+  WebAPI -->|embeddings| Ollama
   McpServer -->|HTTP + bearer| WebAPI
   McpServer -->|service account| Keycloak
   WebMVC -->|HTTP + bearer| WebAPI
   WebMVC -->|OIDC login| Keycloak
   WebAPI -->|JWT validation| Keycloak
-  WebAPI --> Postgres[(PostgreSQL)]
+  WebAPI --> Postgres[(PostgreSQL + pgvector)]
   WebAPI --> Redis[(Redis)]
   WebAPI --> Elastic[(Elasticsearch)]
   WebAPI --> Stripe([Payment provider])
@@ -222,6 +226,7 @@ against the same API a browser uses.
 | `search_matches` | fixtures by team, venue, city or sport — and says out loud when the index was unreachable and the caller is looking at the plain listing | `GET /api/v1/matches/search` |
 | `get_seat_availability` | seats left, the cheapest price, per-block counts and price ranges | `GET /api/v1/matches/{id}/seats` |
 | `get_match_revenue` | tickets sold and refunded, net revenue, occupancy — **staff only**, see below | `GET /api/v1/matches/{id}/revenue` |
+| `search_policies` | the sections of the policy documents nearest to a question — **staff only**, and called by the policy assistant's code rather than chosen by a model, see [below](#-policy-assistant--answers-from-the-rule-book-with-citations) | `GET /api/v1/knowledge/search` |
 
 Four decisions carry this project:
 
@@ -239,7 +244,8 @@ Four decisions carry this project:
 
 **The revenue tool is the one that needed an identity.** Browsing is public; what a fixture has taken is
 not, so the API guards it with a permission of its own and the server holds a Keycloak service account
-(`stadiapass-mcp`, client credentials, one permission, secret from Vault) to satisfy it. Two things follow
+(`stadiapass-mcp`, client credentials, secret from Vault, and exactly the two permissions its staff-only
+tools need — revenue, and reading the policy documents) to satisfy it. Two things follow
 that are worth copying: the tool is **registered only when that secret is configured** — a tool advertised
 and then refused teaches an assistant to keep retrying a question it can never be allowed to ask — and the
 rule that *a refunded ticket is not revenue* lives in the query handler behind the API, in code a test can
@@ -285,6 +291,106 @@ because a filter that turns a price into a placeholder is a filter somebody swit
 through it, so what they score is the pipeline that runs, and a counter beside the token metrics says how
 often it fires.
 
+## 📚 Policy assistant — answers from the rule book, with citations
+
+Behind the counter the questions are not about data, they are about rules: *the match was called off, when
+does the customer get the money back? May I cancel a fixture? How long does a held seat wait?* The answers
+live in four policy documents under [`docs/knowledge`](docs/knowledge) — refunds, reservation and sale terms,
+the box office guide, stadium entry rules. The policy assistant reads them so a new colleague does not have
+to, and shows where each sentence of its answer came from. This is retrieval-augmented generation, kept small
+enough to explain end to end.
+
+```
+index   document ──► one chunk per "## " section ──► bge-m3 embedding ──► PostgreSQL (pgvector)
+ask     question ──► mask personal data ──► embed ──► 3 nearest chunks ──► model reads them ──► answer + [n] citations
+```
+
+```powershell
+$body = @{ question = "Maç iptal olursa param ne zaman iade edilir?" } | ConvertTo-Json
+Invoke-RestMethod http://localhost:5399/policy/ask -Method Post -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes($body))
+```
+
+```json
+{
+  "question": "Maç iptal olursa param ne zaman iade edilir?",
+  "answer": "Maç iptal edildiğinde bilet bedeli, ödemede kullanılan karta otomatik olarak iade edilir [1]. …",
+  "sources": [
+    { "number": 1, "document": "iade-politikasi", "heading": "Maç iptal edildiğinde", "score": 0.77 },
+    { "number": 2, "document": "iade-politikasi", "heading": "Müşterinin kendi isteğiyle vazgeçmesi", "score": 0.69 },
+    { "number": 3, "document": "gise-islem-rehberi", "heading": "Maç iptali", "score": 0.68 }
+  ]
+}
+```
+
+`sources` is there for the reader and for whoever is debugging: a wrong answer whose section is **missing**
+from the list is a retrieval problem, fixed in the documents; a wrong answer whose section is **in** the list
+is the model not reading, fixed in the instructions. Every defect below was sorted by that one look.
+
+The decisions that carry it:
+
+- **One chunk per section, not per five hundred characters.** The documents are written one rule per `##`
+  heading, so the heading is already the boundary retrieval has to respect. A character count would cut a
+  rule from its exception, and a chunk that ends mid-rule is a chunk the model completes from imagination.
+  Each chunk starts with a `Title > Heading` line, embedded along with it: "no refund" sits as close to
+  "refund" as the paragraph saying the opposite, and that line is what tells them apart.
+- **The vectors live in the database that was already there.** `pgvector` in the same PostgreSQL, one
+  `ORDER BY embedding <=> @question LIMIT 3`, no index — a few dozen rows is a scan, and an HNSW index is for
+  when it is not. A document is re-embedded only when its **text or the embedding model** changes; the second
+  matters because vectors from two models cannot be compared, so an unchanged text still has to be redone.
+- **Retrieval is code, not a tool the model may skip.** The assistant is deliberately *not* an agent: the
+  steps are always the same — mask, retrieve, read, answer — and a step that is always the same is cheaper
+  and more predictable as code than as a decision made per question. It is not registered in DevUI, whose
+  chat box would reach the model without the retrieval it exists for; and `search_policies` is left out of
+  the analyst's tools, so the analyst stays on the four tools its evals measure.
+- **The agent host still has no database.** Retrieval goes through the MCP server's `search_policies` tool,
+  which holds the service account that may read the policies. One tool layer, a third consumer.
+- **No similarity threshold.** There is always a nearest chunk, so the score cannot say "not covered". In a
+  measured run *"what happens if the match is postponed?"* — which the documents do not cover — scored 0.64
+  against the cancellation rule, while *"how long is a seat held?"* — which they do — scored 0.66. Any cut-off
+  between those two is wrong for one of them. The score orders the chunks; whether they answer the question
+  is the model's call, under instructions to say `Bu konuda belgelerde bilgi yok.` rather than stretch a rule
+  about cancelled matches over postponed ones.
+- **Masked before retrieval, not only before the model.** The guardrail wraps the chat client, but retrieval
+  runs first — the question as typed was travelling to the MCP server, the API, its logs and the embedding
+  model. Found while testing, closed by redacting at the top of the flow.
+
+**It is measured on three things that fail independently.** Eighteen opt-in cases — eight in the documents'
+own words, three paraphrased, two asked in English against the Turkish text, five the documents do not cover —
+each checked for **retrieval** (the right section is among the three), **grounding** (the answer cites that
+section's number) and **refusal** (an uncovered question gets the agreed sentence and nothing made up).
+
+```powershell
+$env:STADIAPASS_RUN_POLICY_EVALS = "1"; dotnet test tests/StadiaPass.Knowledge.Evals
+```
+
+The first run scored 15 of 17, and both failures were worth having. One case was simply wrong — it expected
+a refusal for a price question the documents do answer, by saying how a price is set. The other was real:
+the payment section said a lost seat is never charged, the exception lived two sections away, and the model
+answered from the first alone — exactly the mistake a new colleague would make. The fix was a cross-reference
+**in the document**, plus one instruction to cover every passage that bears on the question. Then the suite
+itself was put on trial: with the seat-hold section removed, the three cases predicted to fail did, the other
+fifteen held, and restoring the section brought back 18 of 18.
+
+**Documents can be uploaded without a deploy.** `PUT /api/v1/knowledge/documents/{name}` with
+`{ "markdown": "…" }` chunks, embeds and stores a document, and the assistant answers from it on the next
+question; `DELETE` withdraws it. Both sit behind `Knowledge.Manage`, which only the administrator holds —
+whoever uploads a document decides what every colleague is told the rules are. Each document records its
+**origin**, because two owners must not cross: a *library* document belongs to its file — the loader replaces
+it when the file changes and removes it when the file goes, so a withdrawn policy stops being quoted — while
+an *uploaded* one never had a file and survives a restart. Uploading under a library document's name, or
+deleting a library document through the API, is refused with a `409`: either would be accepted now and
+silently undone at the next start.
+
+**On language.** Everything a developer reads is in English: code, comments, commits, this page. What a
+Turkish box office would write or type is in Turkish: the policy documents and most eval questions. `bge-m3`
+is multilingual, which is why a question in English finds the right Turkish section. One limit is known and
+left alone: on the local model an English question is sometimes answered in Turkish, because the passages
+outweigh the one line of question. Forcing the language by instruction was tried and measured — the model
+began refusing Turkish questions in English, and the refusal is the one behaviour that must not wobble — so
+it was reverted. The refusal is a single fixed sentence in any language, and the content of the answers is
+correct either way.
+
 ## 📐 Architectural decisions
 
 Every row is a decision that cost something, and most of them exist because of a defect that was measured
@@ -308,6 +414,10 @@ rather than imagined.
 | **Keycloak holds the roles; code holds the permissions** | Role names live in the realm, permission strings in `SharedKernel` | Two sides inventing different spellings of the same right |
 | **Vault for secrets, no fallbacks** | Secret-bearing options are `[Required]` + `ValidateOnStart` | A default that keeps quietly working after someone forgets to configure it |
 | **The agent gets tools, never a connection string** | Selection from a typed surface is reviewable; generated SQL is not | A model reaching a column nobody meant to expose, and a business rule living in a prompt |
+| **Retrieval in code, not left to the model** | The policy assistant's steps never vary, so they are a method, not a decision | A model that skips retrieval and answers a policy question from memory |
+| **No similarity threshold on retrieval** | Measured: an uncovered question scored 0.64, a covered one 0.66 | A cut-off that either lets a made-up answer through or refuses a real one |
+| **The refusal is one fixed sentence** | An eval can assert it, and a model asked to choose between two began choosing wrongly | "I am not sure, but…" followed by a guess |
+| **A document records where it came from** | The start-up clean-up removes library documents whose file is gone | An uploaded document vanishing on restart — or a withdrawn policy still being quoted |
 
 ### Deliberately not done
 
@@ -319,6 +429,9 @@ rather than imagined.
 | **Kubernetes manifests** | `/health` and `/alive` already answer the two questions an orchestrator asks; a manifest written against no cluster is wrong in ways nothing can tell you. |
 | **Tests on eight thin handlers** | They forward one call to a repository; a test would assert that a mock was called and lock the implementation without being able to catch a defect. |
 | **A time zone model** | Written and read with the server's local time — symmetric, but in a `TZ=UTC` container a Turkish visitor sees times three hours out. Known, accepted. |
+| **A separate vector database** | Four documents and a few dozen chunks. `pgvector` in the PostgreSQL that is already running means no new service to start, secure and back up — and the store sits behind a port, so the day the corpus outgrows it only the adapter changes. |
+| **Reranking** | The right section is already among the three retrieved in 18 of 18 cases, so a reranker would be a second model call per question fixing an ordering problem the evals say is not there. It is the first thing to add when the corpus grows and the top three stop being enough. |
+| **Forcing the answer's language** | Tried and measured: it destabilised the refusal, which matters more. See [On language](#-policy-assistant--answers-from-the-rule-book-with-citations). |
 
 ## 🛠️ Technology stack
 
@@ -327,12 +440,13 @@ rather than imagined.
 | Runtime | .NET / C# | 10 / 14 | `warnings-as-errors`, nullable enabled solution-wide |
 | Orchestration | .NET Aspire | 13.5.2 | starts every dependency, wires connection strings, dashboard |
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` discovery, Scalar reference UI |
-| AI surface | ModelContextProtocol.AspNetCore | 2.2.0 | MCP server over streamable HTTP, three read-only catalogue tools |
+| AI surface | ModelContextProtocol.AspNetCore | 2.2.0 | MCP server over streamable HTTP, five read-only tools |
 | Agent | Microsoft Agent Framework | 1.20.0 | the analyst host, its OpenAI-compatible endpoints and DevUI |
 | Model access | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | provider-agnostic `IChatClient`, local `qwen3:30b-a3b`, GenAI telemetry |
+| Retrieval | pgvector + Pgvector.EntityFrameworkCore · `bge-m3` | 0.3.0 | 1024-dimension multilingual embeddings, cosine nearest-neighbour in PostgreSQL |
 | UI | ASP.NET Core MVC + Razor | 10.0.11 | server-rendered, one hand-written stylesheet |
 | Use cases | MediatR + FluentValidation | 12.5.0 / 12.1.1 | commands, queries, pipeline behaviours |
-| Persistence | EF Core + Npgsql → PostgreSQL 17 | 10.0.11 | aggregates, owned types, `xmin` token, outbox and inbox tables |
+| Persistence | EF Core + Npgsql → PostgreSQL 18 (`pgvector/pgvector` image) | 10.0.11 | aggregates, owned types, `xmin` token, outbox and inbox tables |
 | Cache / locking | Redis | latest | 15-second listing cache, `SET NX PX` seat lease |
 | Messaging | MassTransit + RabbitMQ | 8.5.10 | consumers, retry policy (5 attempts, 1 s → 30 s), error queues |
 | Search | Elasticsearch | 9.x | Turkish analyzer, search-then-fetch |
@@ -342,7 +456,7 @@ rather than imagined.
 | Secrets | HashiCorp Vault | 1.21 | injected as configuration at startup |
 | Telemetry | OpenTelemetry + Serilog | 1.15 / 10.0 | traces, metrics, structured logs |
 | Dashboards | Prometheus + Grafana | 3.6 / 12.2 | scraped metrics, provisioned panels and alert rules |
-| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 247 tests, plus 36 opt-in agent evals |
+| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 292 tests, plus 36 opt-in agent evals and 18 opt-in policy evals |
 
 **Patterns in the code:** Clean Architecture · DDD aggregates · domain events · CQRS · pipeline behaviours ·
 repository + unit of work · ports and adapters · transactional outbox · idempotent inbox · compensating
@@ -391,8 +505,9 @@ The numbers written *for this system*, rather than the generic runtime set:
 
 ## ✅ Tests
 
-**247 tests** — 57 domain, 156 application, 34 guardrail — running in about 200 ms with no database,
-broker or network.
+**292 tests** — 57 domain, 190 application, 45 agent host (the guardrail, the policy assistant, the analyst's
+tool list) — running in about 250 ms with no database, broker, model or network. The two eval suites are
+separate and opt-in, because they call a model: 36 cases for the analyst, 18 for the policy assistant.
 
 Two things about how they are written are worth more than the number:
 
@@ -428,14 +543,17 @@ On first start the schema is created and seeded, and the Keycloak realm is impor
 | API + Scalar reference | http://localhost:5042 · `/scalar/v1` |
 | MCP endpoint | http://localhost:5299/mcp |
 | Agent DevUI | http://localhost:5399/devui |
+| Policy assistant | `POST` http://localhost:5399/policy/ask |
 | Keycloak | https://localhost:8080 |
 | Vault UI | http://localhost:8200 |
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |
 | RabbitMQ, Elasticsearch | ports shown on their resources in the Aspire dashboard |
 
-**Only the agent needs Ollama** — `ollama pull qwen3:30b-a3b` on `http://localhost:11434`, your own install
-rather than an Aspire container, because a model is gigabytes that should outlive a run. Without it
-everything still starts; the agent is the only thing that cannot answer.
+**Only the AI features need Ollama** — `ollama pull qwen3:30b-a3b` for the analyst and the policy assistant,
+`ollama pull bge-m3` for the embeddings, on `http://localhost:11434`. Your own install rather than an Aspire
+container, because a model is gigabytes that should outlive a run. Without it everything still starts and
+tickets still sell: the agent cannot answer, and the policy library is not loaded — the loader retries for a
+minute, logs that it gave up, and costs the API nothing else.
 
 **Payments need no configuration.** The provider defaults to a mock that follows Stripe's own test numbers, so
 `4242 4242 4242 4242` succeeds and `4000 0000 0000 9995` is declined without a key or a network. Set
@@ -450,7 +568,7 @@ hiccup never gets the API restarted.
 
 | User | Password | Role | Can |
 |---|---|---|---|
-| `mudur` | `mudur` | Administrator | everything, including cancelling a match |
+| `mudur` | `mudur` | Administrator | everything, including cancelling a match and uploading policy documents |
 | `organizator` | `organizator` | MatchManager | venues, categories, opening matches |
 | `gise` | `gise` | BoxOffice | hold and buy tickets, read anybody's |
 | `musteri` | `musteri` | Customer | browse, hold, buy, read own tickets |
@@ -490,6 +608,19 @@ Expect: the map renders, and nothing can be held or bought.
 **8 · Ask the analyst.** With Ollama running, open http://localhost:5399/devui and ask *"Fenerbahçe maçında en
 ucuz koltuk kaç para?"*. Expect: two tool calls — `search_matches`, then `get_seat_availability` with the id
 it just found — and a price that matches the seat map in the other tab.
+
+**9 · Ask the rule book.** `POST` to http://localhost:5399/policy/ask with
+`{ "question": "Maç iptal olursa param ne zaman iade edilir?" }`. Expect: a short answer ending in `[1]`, and
+`sources` naming the refund policy's *Maç iptal edildiğinde* section first. Now ask *"Maç ertelenirse ne
+olur?"* — postponed, not cancelled. Expect: the cancellation rule retrieved with a high score, and the answer
+`Bu konuda belgelerde bilgi yok.` anyway. Then put an e-mail address in a question. Expect: it comes back as
+`[redacted email address]` in the `question` field, and the answer is unaffected.
+
+**10 · Upload a policy, then withdraw it.** As `mudur`, `PUT /api/v1/knowledge/documents/grup-satis-kurallari`
+with a small Markdown document that has a `## ` heading, and ask the assistant about it straight away. Expect:
+the new document first in `sources`, with no restart. Restart the AppHost and ask again. Expect: it is still
+there. `DELETE` it and ask once more. Expect: `Bu konuda belgelerde bilgi yok.` Try the same `PUT` as `gise`
+(`403`), and under the name `iade-politikasi` (`409` — that one belongs to its file).
 
 ---
 

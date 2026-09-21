@@ -2,12 +2,14 @@
 
 [English](README.md) · **Türkçe**
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 247](https://img.shields.io/badge/test-247-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success) ![lisans MIT](https://img.shields.io/badge/lisans-MIT-blue)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 292](https://img.shields.io/badge/test-292-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success) ![lisans MIT](https://img.shields.io/badge/lisans-MIT-blue)
 
 Stadyum ve arena biletleme; referans niteliğinde bir Clean Architecture çözümü olarak yazıldı: Minimal API
 backend, Razor MVC ön yüz, DDD domain modeli, MediatR ile CQRS, Keycloak destekli dinamik izinler, arama
 kutusunun arkasında Elasticsearch, .NET Aspire orkestrasyonu — ve bunların üstünde bir MCP tool katmanı ile
-kurum içi bir analist ajan.
+onu tüketen iki kurum içi parça: tool'larını kendi seçen bir analist ajan ve personelin sorusunu kural
+kitapçığından, alıntı göstererek cevaplayan bir politika asistanı (pgvector üzerinde retrieval-augmented
+generation, yani RAG).
 
 ## 🎯 Bu ne
 
@@ -28,6 +30,7 @@ sınırı koyabilen ya da düpedüz yavaş olabilen bir sağlayıcıya karşı y
 | **Fikstürü iptal etmek** | Satış tek küçük transaction'da durur; satılmış her bilet sonra broker üzerinde, her biri kendi retry'ıyla tek tek yerleştirilir. |
 | **Zarifçe bozulan arama** | Elasticsearch, onsuz da gayet iyi bilet satan bir sistemin üstünde bir konfor. Cluster yoksa arama kutusu listeyi verir ve bunu söyler. |
 | **İkinci bir doğruluk kaynağı yaratmadan AI** | Katalog bir kez MCP tool'u olarak yayınlanır. Claude da, yerel model üzerinde çalışan kurum içi ajan da aynı tool'ları, aynı API üzerinden tüketir — ve ajanın tool seçimine güvenilmez, ölçülür. |
+| **Doğrulanabilen cevaplar** | Personel kural kitapçığına düz dille sorar. Asistan en yakın üç bölümü okur, yalnızca onlardan cevaplar, her birini numarasıyla alıntılar — ve tahmin etmek yerine "bu konuda belgelerde bilgi yok" der. Getirme, dayanak ve ret ayrı ayrı ölçülür. |
 
 ## 📸 Ekran görüntüleri
 
@@ -85,17 +88,18 @@ StadiaPass.slnx
 │   │   ├── StadiaPass.Domain        # aggregate'ler, value object'ler, domain event'ler
 │   │   └── StadiaPass.Application   # CQRS use case'leri, doğrulama, portlar
 │   ├── Infrastructure
-│   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, outbox/inbox, repository'ler
-│   │   └── StadiaPass.Infrastructure# adaptörler: ödeme, mesajlaşma, arama, mail, kilit
+│   │   ├── StadiaPass.Persistence   # EF Core 10 + PostgreSQL, outbox/inbox, repository'ler, pgvector parçaları
+│   │   └── StadiaPass.Infrastructure# adaptörler: ödeme, mesajlaşma, arama, mail, kilit, embedding
 │   └── Presentation
 │       ├── StadiaPass.WebAPI        # Minimal API + Scalar referansı
 │       ├── StadiaPass.WebMVC        # Razor MVC — API'yi yalnızca HTTP üzerinden tüketir
 │       ├── StadiaPass.McpServer     # Model Context Protocol sunucusu — katalog, AI istemcileri için
-│       └── StadiaPass.AgentHost     # analist ajan — aynı tool'ları tutan yerel bir model
+│       └── StadiaPass.AgentHost     # analist ajan ve politika asistanı — o tool'ların üstünde yerel bir model
 ├── orchestrator
 │   ├── StadiaPass.AppHost           # Aspire: Postgres, Redis, RabbitMQ, Keycloak, Elastic, Vault, Grafana
 │   └── StadiaPass.ServiceDefaults   # Vault config, Serilog, OpenTelemetry, health check'ler
-└── tests                            # Domain.UnitTests · Application.UnitTests · AgentHost.Evals
+├── docs/knowledge                   # asistanın cevapladığı kural belgeleri (Türkçe)
+└── tests                            # Domain · Application · AgentHost birim testleri · AgentHost.Evals · Knowledge.Evals
 ```
 
 ```
@@ -117,15 +121,16 @@ değil model tutar ve sisteme yalnızca her AI istemcisinin kullandığı MCP to
 flowchart LR
   Browser --> WebMVC
   AI([AI istemcisi — Claude, Copilot, …]) -->|MCP| McpServer
-  Personel([Personel]) -->|DevUI| AgentHost
+  Personel([Personel]) -->|DevUI · /policy/ask| AgentHost
   AgentHost -->|MCP| McpServer
-  AgentHost -->|sohbet + tool çağrıları| Ollama([Ollama — yerel model])
+  AgentHost -->|sohbet + tool çağrıları| Ollama([Ollama — yerel modeller])
+  WebAPI -->|embedding| Ollama
   McpServer -->|HTTP + bearer| WebAPI
   McpServer -->|service account| Keycloak
   WebMVC -->|HTTP + bearer| WebAPI
   WebMVC -->|OIDC login| Keycloak
   WebAPI -->|JWT doğrulama| Keycloak
-  WebAPI --> Postgres[(PostgreSQL)]
+  WebAPI --> Postgres[(PostgreSQL + pgvector)]
   WebAPI --> Redis[(Redis)]
   WebAPI --> Elastic[(Elasticsearch)]
   WebAPI --> Stripe([Ödeme sağlayıcı])
@@ -222,6 +227,7 @@ tarayıcının kullandığı API'nin aynısına karşı.
 | `search_matches` | takıma, mekâna, şehre ya da spora göre fikstür — ve index'e ulaşılamadığında bunu yüksek sesle söyler, çağıranın düz listeye baktığını gizlemez | `GET /api/v1/matches/search` |
 | `get_seat_availability` | kalan koltuk, en ucuz fiyat, blok başına sayılar ve fiyat aralıkları | `GET /api/v1/matches/{id}/seats` |
 | `get_match_revenue` | satılan ve iade edilen bilet, net ciro, doluluk — **yalnızca personel**, aşağıya bak | `GET /api/v1/matches/{id}/revenue` |
+| `search_policies` | kural belgelerinin bir soruya en yakın bölümleri — **yalnızca personel**; bir model seçmez, politika asistanının kodu çağırır, [aşağıya](#-politika-asistanı--kural-kitapçığından-alıntılı-cevap) bak | `GET /api/v1/knowledge/search` |
 
 Bu projeyi dört karar taşıyor:
 
@@ -240,7 +246,8 @@ Bu projeyi dört karar taşıyor:
 
 **Kimlik gerektiren tool, ciro tool'u oldu.** Gezinmek herkese açıktır; bir fikstürün ne kadar sattığı
 değildir. API bunu kendi izniyle korur, sunucu da bunu karşılamak için bir Keycloak service account'u tutar
-(`stadiapass-mcp`, client credentials, tek izin, sırrı Vault'tan). Buradan kopyalamaya değer iki şey çıkıyor:
+(`stadiapass-mcp`, client credentials, sırrı Vault'tan, ve yalnızca personele özel iki tool'unun ihtiyaç
+duyduğu iki izin — ciro ve kural belgelerini okuma). Buradan kopyalamaya değer iki şey çıkıyor:
 tool **yalnızca o sır yapılandırıldığında kaydedilir** — duyurulup sonra API tarafından reddedilen bir tool,
 asistana asla sorulmasına izin verilmeyecek bir soruyu tekrar tekrar sormayı öğretir — ve *iade edilmiş
 bilet ciro değildir* kuralı, tool açıklamasında değil, API'nin arkasındaki query handler'da, bir testin
@@ -282,6 +289,106 @@ tahmin etmez, doğrular — kart için Luhn, hesap için mod-97, kimlik için ke
 tutucuya çeviren bir filtreyi eninde sonunda biri kapatır. Eval'ler de bu hattın içinden geçiyor, yani
 ölçülen şey çalışan hat; token metriklerinin yanındaki bir sayaç kaç kez devreye girdiğini söylüyor.
 
+## 📚 Politika asistanı — kural kitapçığından, alıntılı cevap
+
+Gişenin arkasında sorular veriyle değil kurallarla ilgilidir: *maç iptal oldu, müşteri parasını ne zaman
+alır? Fikstürü ben iptal edebilir miyim? Tutulan koltuk ne kadar bekler?* Cevaplar
+[`docs/knowledge`](docs/knowledge) altındaki dört kural belgesinde duruyor — iade politikası, rezervasyon ve
+satış koşulları, gişe işlem rehberi, stadyum giriş kuralları. Politika asistanı bunları, yeni başlayan bir
+çalışanın okumak zorunda kalmaması için okur ve cevabındaki her cümlenin nereden geldiğini gösterir. Bu,
+retrieval-augmented generation (RAG): baştan sona anlatılabilecek kadar küçük tutuldu.
+
+```
+indeksle  belge ──► her "## " bölümü bir parça ──► bge-m3 embedding ──► PostgreSQL (pgvector)
+sor       soru ──► kişisel veriyi maskele ──► embed et ──► en yakın 3 parça ──► model okur ──► cevap + [n] alıntı
+```
+
+```powershell
+$body = @{ question = "Maç iptal olursa param ne zaman iade edilir?" } | ConvertTo-Json
+Invoke-RestMethod http://localhost:5399/policy/ask -Method Post -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes($body))
+```
+
+```json
+{
+  "question": "Maç iptal olursa param ne zaman iade edilir?",
+  "answer": "Maç iptal edildiğinde bilet bedeli, ödemede kullanılan karta otomatik olarak iade edilir [1]. …",
+  "sources": [
+    { "number": 1, "document": "iade-politikasi", "heading": "Maç iptal edildiğinde", "score": 0.77 },
+    { "number": 2, "document": "iade-politikasi", "heading": "Müşterinin kendi isteğiyle vazgeçmesi", "score": 0.69 },
+    { "number": 3, "document": "gise-islem-rehberi", "heading": "Maç iptali", "score": 0.68 }
+  ]
+}
+```
+
+`sources` hem okuyan hem de hata ayıklayan için orada: doğru bölümü listede **olmayan** yanlış bir cevap
+getirme sorunudur, belgede düzeltilir; doğru bölümü listede **olan** yanlış bir cevap modelin okumamasıdır,
+talimatta düzeltilir. Aşağıdaki her kusur bu tek bakışla ayrıştırıldı.
+
+Bunu taşıyan kararlar:
+
+- **Beş yüz karakter başına değil, bölüm başına bir parça.** Belgeler her `##` başlığının altına tek kural
+  gelecek şekilde yazıldı; başlık zaten getirmenin saygı duyması gereken sınır. Karakter sayısıyla bölmek
+  kuralı istisnasından koparırdı, kuralın ortasında biten parçayı da model hayalinden tamamlar. Her parça
+  bir `Belge adı > Başlık` satırıyla başlar ve onunla birlikte embed edilir: "iade yapılmaz" cümlesi, tam
+  tersini söyleyen paragraf kadar "iade"ye yakın durur; ikisini ayıran o satırdır.
+- **Vektörler zaten var olan veritabanında.** Aynı PostgreSQL'de `pgvector`, tek bir
+  `ORDER BY embedding <=> @soru LIMIT 3`, indeks yok — birkaç düzine satır bir taramadır, HNSW indeksi öyle
+  olmadığı gün içindir. Bir belge yalnızca **metni ya da embedding modeli** değiştiğinde yeniden embed edilir;
+  ikincisi önemli, çünkü iki farklı modelin vektörleri karşılaştırılamaz, yani değişmemiş bir metnin de
+  yeniden yapılması gerekir.
+- **Getirme koddur, modelin atlayabileceği bir tool değil.** Asistan bilerek bir ajan *değildir*: adımlar
+  hep aynı — maskele, getir, oku, cevapla — ve hep aynı olan bir adım, soru başına verilen bir karar
+  olmaktansa kod olarak daha ucuz ve öngörülebilirdir. DevUI'a kayıtlı değil, çünkü oradaki sohbet kutusu
+  modele, asıl varlık sebebi olan getirme olmadan ulaşırdı; `search_policies` de analistin tool listesinin
+  dışında bırakıldı, böylece analist eval'lerinin ölçtüğü dört tool'da kalıyor.
+- **Agent host'un hâlâ veritabanı yok.** Getirme MCP sunucusunun `search_policies` tool'u üzerinden geçer;
+  kural belgelerini okumaya yetkili servis hesabı oradadır. Tek tool katmanı, üçüncü bir tüketici.
+- **Benzerlik eşiği yok.** En yakın bir parça her zaman vardır, o yüzden skor "kapsanmıyor" diyemez. Ölçülen
+  bir koşuda belgelerin kapsamadığı *"maç ertelenirse ne olur?"* sorusu iptal kuralına karşı 0.64 aldı;
+  belgelerin kapsadığı *"koltuk ne kadar tutulur?"* sorusu ise 0.66. Bu ikisinin arasına konacak her eşik
+  birisi için yanlıştır. Skor parçaları sıralar; soruyu cevaplayıp cevaplamadıklarına, iptal edilen maçlarla
+  ilgili bir kuralı ertelenenlere esnetmek yerine `Bu konuda belgelerde bilgi yok.` deme talimatı altında
+  model karar verir.
+- **Yalnızca modelden önce değil, getirmeden önce maskelenir.** Guardrail sohbet istemcisini sarar, ama
+  getirme ondan önce çalışır — yazıldığı haliyle soru MCP sunucusuna, API'ye, loglarına ve embedding modeline
+  gidiyordu. Test ederken bulundu, akışın en başında maskelenerek kapatıldı.
+
+**Birbirinden bağımsız bozulabilen üç şey üzerinden ölçülür.** On sekiz opsiyonel vaka — sekizi belgenin
+kendi kelimeleriyle, üçü başka kelimelerle, ikisi Türkçe metne karşı İngilizce sorulmuş, beşi belgelerin
+kapsamadığı — her biri **getirme** (doğru bölüm üçün içinde mi), **dayanak** (cevap o bölümün numarasını
+alıntılıyor mu) ve **ret** (kapsanmayan soru uydurma değil, kararlaştırılan cümleyi alıyor mu) için denetlenir.
+
+```powershell
+$env:STADIAPASS_RUN_POLICY_EVALS = "1"; dotnet test tests/StadiaPass.Knowledge.Evals
+```
+
+İlk koşu 17'de 15 verdi ve iki hata da değerliydi. Biri düpedüz yanlış bir vakaydı — belgelerin, fiyatın
+nasıl belirlendiğini söyleyerek cevapladığı bir fiyat sorusu için ret bekliyordu. Diğeri gerçekti: ödeme
+bölümü "kaybedilen koltukta kart çekilmez" diyordu, istisna iki bölüm ötedeydi ve model yalnızca ilkinden
+cevapladı — yeni bir çalışanın yapacağı hatanın aynısı. Düzeltme **belgeye** konan bir çapraz gönderme ve
+soruyla ilgili her pasajı kapsamayı söyleyen tek bir talimat cümlesi oldu. Sonra eval'in kendisi sınandı:
+koltuk tutma bölümü çıkarıldığında, düşeceği önceden söylenen üç vaka düştü, diğer on beşi tuttu; bölüm geri
+konunca 18'de 18 geri geldi.
+
+**Belgeler yeniden dağıtım olmadan yüklenebilir.** `{ "markdown": "…" }` gövdesiyle
+`PUT /api/v1/knowledge/documents/{ad}` bir belgeyi parçalar, embed eder ve saklar; asistan bir sonraki soruda
+ondan cevaplar. `DELETE` belgeyi geri çeker. İkisi de yalnızca yöneticinin sahip olduğu `Knowledge.Manage`
+izninin arkasındadır — belgeyi yükleyen, herkese kuralların ne olduğunun söyleneceğine karar verir. Her belge
+**kaynağını** kaydeder, çünkü iki sahip birbirine karışmamalı: *library* belgesi dosyasına aittir — dosya
+değişince yükleyici onu değiştirir, dosya gidince kaldırır, böylece yürürlükten kalkan bir kural alıntılanmaya
+devam etmez — *uploaded* belgenin ise hiç dosyası olmamıştır ve yeniden başlatmadan sağ çıkar. Bir library
+belgesinin adıyla yüklemek ya da bir library belgesini API'den silmek `409` ile reddedilir: ikisi de o an
+kabul edilip bir sonraki açılışta sessizce geri alınmış olurdu.
+
+**Dil üzerine.** Geliştiricinin okuduğu her şey İngilizcedir: kod, yorumlar, commit'ler, ana README. Türk bir
+gişenin yazacağı ya da okuyacağı şeyler Türkçedir: kural belgeleri ve eval sorularının çoğu. `bge-m3` çok
+dillidir; İngilizce bir sorunun doğru Türkçe bölümü bulmasının sebebi budur. Bilinen ve olduğu gibi bırakılan
+bir sınır var: yerel modelde İngilizce bir soru bazen Türkçe cevaplanır, çünkü pasajlar tek satırlık sorudan
+ağır basar. Dili talimatla zorlamak denendi ve ölçüldü — model bu sefer Türkçe soruları İngilizce reddetmeye
+başladı, ve ret sallanmaması gereken tek davranıştır — o yüzden geri alındı. Ret her dilde tek ve sabit bir
+cümledir; cevapların içeriği iki durumda da doğrudur.
+
 ## 📐 Mimari kararlar
 
 Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **ölçülen** bir hatanın üstüne var.
@@ -304,6 +411,10 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | **Rolleri Keycloak, izinleri kod tutar** | Rol adları realm'de, izin dizgileri `SharedKernel`'de yaşar | İki tarafın aynı hakkın farklı yazımlarını uydurması |
 | **Sırlar için Vault, fallback yok** | Sır taşıyan option'lar `[Required]` + `ValidateOnStart` | Birisi yapılandırmayı unuttuktan sonra sessizce çalışmaya devam eden bir varsayılan |
 | **Ajana tool verilir, connection string asla** | Tipli bir yüzeyden seçim gözden geçirilebilir; üretilen SQL geçirilemez | Modelin kimsenin açmayı düşünmediği bir kolona uzanması ve bir iş kuralının prompt'ta yaşaması |
+| **Getirme kodda, modele bırakılmadı** | Politika asistanının adımları hiç değişmiyor; o yüzden bir karar değil, bir metot | Getirmeyi atlayıp kural sorusunu ezberinden cevaplayan bir model |
+| **Getirmede benzerlik eşiği yok** | Ölçüldü: kapsanmayan bir soru 0.64, kapsanan bir soru 0.66 aldı | Ya uydurma bir cevabı geçiren ya da gerçek bir cevabı reddeden bir eşik |
+| **Ret, tek ve sabit bir cümle** | Eval onu doğrulayabiliyor; iki cümle arasında seçim yapması istenen model yanlış seçmeye başladı | "Emin değilim ama…" diye başlayıp tahminle biten cevap |
+| **Belge nereden geldiğini kaydeder** | Açılıştaki temizlik, dosyası giden library belgelerini kaldırır | Yüklenen belgenin yeniden başlatmada kaybolması — ya da geri çekilen bir kuralın alıntılanmaya devam etmesi |
 
 ### Bilerek yapılmayanlar
 
@@ -315,6 +426,9 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | **Kubernetes manifest'leri** | `/health` ve `/alive` bir orkestratörün sorduğu iki soruyu zaten cevaplıyor; hiçbir cluster'a karşı yazılmış bir manifest, kimsenin size söyleyemeyeceği şekillerde yanlıştır. |
 | **Sekiz ince handler'a test** | Tek bir repository çağrısını iletiyorlar; test, mock'un çağrıldığını doğrular, implementasyonu kilitler ve hiçbir hata yakalayamazdı. |
 | **Zaman dilimi modeli** | Sunucunun yerel saatiyle yazılıp okunuyor — simetrik, ama `TZ=UTC` konteynerinde Türk ziyaretçi saatleri üç saat kayık görür. Biliniyor, kabul edildi. |
+| **Ayrı bir vektör veritabanı** | Dört belge ve birkaç düzine parça. Zaten çalışan PostgreSQL'de `pgvector`; başlatılacak, güvenliği sağlanacak, yedeği alınacak yeni bir servis yok — depo da bir portun arkasında, yani derlem bunu aştığı gün yalnızca adaptör değişir. |
+| **Reranking** | Doğru bölüm 18 vakanın 18'inde zaten getirilen üçün içinde; bir reranker, eval'lerin var olmadığını söylediği bir sıralama sorununu düzelten, soru başına ikinci bir model çağrısı olurdu. Derlem büyüyüp ilk üç yetmemeye başladığında eklenecek ilk şey odur. |
+| **Cevap dilini zorlamak** | Denendi ve ölçüldü: daha önemli olan reddi kararsızlaştırdı. Bkz. [Dil üzerine](#-politika-asistanı--kural-kitapçığından-alıntılı-cevap). |
 
 ## 🛠️ Teknoloji yığını
 
@@ -323,12 +437,13 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | Runtime | .NET / C# | 10 / 14 | çözüm genelinde `uyarılar hata` ve nullable açık |
 | Orkestrasyon | .NET Aspire | 13.5.2 | her bağımlılığı başlatır, bağlantı dizgilerini bağlar, dashboard |
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` keşfi, Scalar referans arayüzü |
-| AI yüzeyi | ModelContextProtocol.AspNetCore | 2.2.0 | streamable HTTP üzerinden MCP sunucusu, üç salt-okuma katalog tool'u |
+| AI yüzeyi | ModelContextProtocol.AspNetCore | 2.2.0 | streamable HTTP üzerinden MCP sunucusu, beş salt-okuma tool |
 | Ajan | Microsoft Agent Framework | 1.20.0 | analist host'u, OpenAI uyumlu endpoint'leri ve DevUI |
 | Model erişimi | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | sağlayıcı-bağımsız `IChatClient`, yerel `qwen3:30b-a3b`, GenAI telemetrisi |
+| Getirme | pgvector + Pgvector.EntityFrameworkCore · `bge-m3` | 0.3.0 | 1024 boyutlu çok dilli embedding, PostgreSQL içinde cosine en yakın komşu |
 | Arayüz | ASP.NET Core MVC + Razor | 10.0.11 | sunucuda render, elle yazılmış tek stylesheet |
 | Use case'ler | MediatR + FluentValidation | 12.5.0 / 12.1.1 | komutlar, sorgular, pipeline behavior'ları |
-| Kalıcılık | EF Core + Npgsql → PostgreSQL 17 | 10.0.11 | aggregate'ler, owned type'lar, `xmin` token'ı, outbox ve inbox tabloları |
+| Kalıcılık | EF Core + Npgsql → PostgreSQL 18 (`pgvector/pgvector` imajı) | 10.0.11 | aggregate'ler, owned type'lar, `xmin` token'ı, outbox ve inbox tabloları |
 | Önbellek / kilit | Redis | latest | 15 saniyelik liste önbelleği, `SET NX PX` koltuk kirası |
 | Mesajlaşma | MassTransit + RabbitMQ | 8.5.10 | consumer'lar, retry politikası (5 deneme, 1 sn → 30 sn), hata kuyrukları |
 | Arama | Elasticsearch | 9.x | Türkçe analyzer, search-then-fetch |
@@ -338,7 +453,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | Sırlar | HashiCorp Vault | 1.21 | açılışta konfigürasyon olarak enjekte edilir |
 | Telemetri | OpenTelemetry + Serilog | 1.15 / 10.0 | trace'ler, metrikler, yapılandırılmış loglar |
 | Panolar | Prometheus + Grafana | 3.6 / 12.2 | scrape edilen metrikler, provision edilmiş paneller ve alarm kuralları |
-| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 247 test, artı 36 opsiyonel ajan eval’i |
+| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 292 test, artı 36 opsiyonel ajan eval’i ve 18 opsiyonel politika eval’i |
 
 **Koddaki desenler:** Clean Architecture · DDD aggregate'leri · domain event'ler · CQRS · pipeline
 behavior'ları · repository + unit of work · portlar ve adaptörler · transactional outbox · idempotent inbox ·
@@ -386,8 +501,9 @@ Jenerik runtime seti yerine *bu sistem için* yazılmış sayılar:
 
 ## ✅ Testler
 
-**247 test** — 57 domain, 156 application, 34 guardrail — veritabanı, broker ya da ağ olmadan yaklaşık
-200 ms'de koşuyor.
+**292 test** — 57 domain, 190 application, 45 agent host (guardrail, politika asistanı, analistin tool
+listesi) — veritabanı, broker, model ya da ağ olmadan yaklaşık 250 ms'de koşuyor. İki eval takımı ayrıdır ve
+opsiyoneldir, çünkü model çağırırlar: analist için 36, politika asistanı için 18 vaka.
 
 Nasıl yazıldıklarına dair iki şey sayının kendisinden daha değerli:
 
@@ -423,14 +539,17 @@ açılışta şema kurulup tohumlanır ve Keycloak realm'i içe aktarılır.
 | API + Scalar referansı | http://localhost:5042 · `/scalar/v1` |
 | MCP endpoint'i | http://localhost:5299/mcp |
 | Ajan DevUI | http://localhost:5399/devui |
+| Politika asistanı | `POST` http://localhost:5399/policy/ask |
 | Keycloak | https://localhost:8080 |
 | Vault arayüzü | http://localhost:8200 |
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |
 | RabbitMQ, Elasticsearch | portlar Aspire dashboard'unda kendi kaynaklarının üstünde |
 
-**Ollama'ya yalnızca ajan ihtiyaç duyar** — `ollama pull qwen3:30b-a3b`, `http://localhost:11434` üzerinde;
-Aspire konteyneri değil sizin kendi kurulumunuz, çünkü model bir koşudan uzun yaşaması gereken
-gigabyte'lardır. O olmadan da her şey ayağa kalkar; cevap veremeyen tek şey ajan olur.
+**Ollama'ya yalnızca AI özellikleri ihtiyaç duyar** — analist ve politika asistanı için
+`ollama pull qwen3:30b-a3b`, embedding için `ollama pull bge-m3`, `http://localhost:11434` üzerinde. Aspire
+konteyneri değil sizin kendi kurulumunuz, çünkü model bir koşudan uzun yaşaması gereken gigabyte'lardır. O
+olmadan da her şey ayağa kalkar ve bilet satılmaya devam eder: ajan cevap veremez, kural kütüphanesi
+yüklenmez — yükleyici bir dakika boyunca tekrar dener, vazgeçtiğini loglar ve API'ye başka bir maliyeti olmaz.
 
 **Ödeme hiçbir yapılandırma istemez.** Sağlayıcı, Stripe'ın kendi test numaralarını izleyen bir mock'a
 varsayılan olarak ayarlıdır: `4242 4242 4242 4242` başarılı olur, `4000 0000 0000 9995` anahtar ve ağ
@@ -445,7 +564,7 @@ hıçkırığı API'yi yeniden başlatmaz.
 
 | Kullanıcı | Şifre | Rol | Yapabildiği |
 |---|---|---|---|
-| `mudur` | `mudur` | Administrator | her şey, maç iptali dahil |
+| `mudur` | `mudur` | Administrator | her şey, maç iptali ve kural belgesi yükleme dahil |
 | `organizator` | `organizator` | MatchManager | mekânlar, kategoriler, maç açmak |
 | `gise` | `gise` | BoxOffice | koltuk tutmak ve satın almak, herkesin biletini okumak |
 | `musteri` | `musteri` | Customer | gezinmek, tutmak, satın almak, kendi biletlerini okumak |
@@ -486,6 +605,20 @@ aç. Beklenen: harita çizilir ama hiçbir şey tutulamaz ve satın alınamaz.
 **8 · Analiste sor.** Ollama çalışırken http://localhost:5399/devui adresini aç ve *"Fenerbahçe maçında en
 ucuz koltuk kaç para?"* diye sor. Beklenen: iki tool çağrısı — `search_matches`, ardından az önce bulduğu
 id ile `get_seat_availability` — ve diğer sekmedeki koltuk haritasıyla uyuşan bir fiyat.
+
+**9 · Kural kitapçığına sor.** http://localhost:5399/policy/ask adresine
+`{ "question": "Maç iptal olursa param ne zaman iade edilir?" }` gövdesiyle `POST` at. Beklenen: `[1]` ile
+biten kısa bir cevap ve `sources` içinde ilk sırada iade politikasının *Maç iptal edildiğinde* bölümü. Şimdi
+*"Maç ertelenirse ne olur?"* diye sor — iptal değil, erteleme. Beklenen: iptal kuralı yüksek bir skorla
+getirilir, cevap yine de `Bu konuda belgelerde bilgi yok.` olur. Sonra soruya bir e-posta adresi yaz.
+Beklenen: `question` alanında `[redacted email address]` olarak geri gelir, cevap etkilenmez.
+
+**10 · Bir kural belgesi yükle, sonra geri çek.** `mudur` olarak, içinde bir `## ` başlığı olan küçük bir
+Markdown belgesiyle `PUT /api/v1/knowledge/documents/grup-satis-kurallari` çağır ve hemen ardından asistana o
+belgeyle ilgili bir soru sor. Beklenen: yeniden başlatma olmadan, yeni belge `sources` içinde ilk sırada.
+AppHost'u yeniden başlat ve tekrar sor. Beklenen: hâlâ orada. `DELETE` ile kaldır ve bir kez daha sor.
+Beklenen: `Bu konuda belgelerde bilgi yok.` Aynı `PUT`'u `gise` olarak (`403`) ve `iade-politikasi` adıyla
+(`409` — o belge dosyasına ait) dene.
 
 ---
 
