@@ -1,0 +1,98 @@
+{
+  "$comment": "Policy assistant golden dataset. Each case: a question a member of staff might type, and either the section the answer must be written from ('expected': document + heading, checked against the sources the assistant returns and the [n] it cites) - a list, because a rule and its exception may each state the answer and either is a right place to read it from - or 'expected': null, meaning the documents do not cover it and the assistant must say so instead of answering. Three kinds of question with an answer: 'direct' uses the document's own words, 'paraphrase' asks the same thing in different words (what the embedding is for), 'english' asks in English against Turkish documents. The 'absent' cases are the ones that matter most: 'absent-postponed' is deliberately next door to a rule that exists. Two lessons are written into the cases themselves: 'direct-price-by-block' was first asked as 'kaç lira?' and the assistant answered it both ways on different runs - 'varies by block' and 'the documents do not say' - and both are defensible, because the documents say how a price is set and never what it is; a question whose right answer is a judgement call does not belong in a golden set, so it now asks what the documents state. 'direct-charged-but-lost-seat' accepts two sections because the payment rule and its exception each state the answer.",
+  "cases": [
+    {
+      "id": "direct-cancelled-refund",
+      "question": "Maç iptal oldu, müşteri parasını nasıl alacak?",
+      "expected": [ { "document": "iade-politikasi", "heading": "Maç iptal edildiğinde" } ]
+    },
+    {
+      "id": "direct-customer-changes-mind",
+      "question": "Müşteri maça gidemeyecek, bilet iadesi var mı?",
+      "expected": [ { "document": "iade-politikasi", "heading": "Müşterinin kendi isteğiyle vazgeçmesi" } ]
+    },
+    {
+      "id": "direct-hold-duration",
+      "question": "Koltuğu tuttum, ne kadar sürem var?",
+      "expected": [ { "document": "rezervasyon-ve-satis-kosullari", "heading": "Koltuk tutma süresi" } ]
+    },
+    {
+      "id": "direct-charged-but-lost-seat",
+      "question": "Ödeme yaparken koltuk alınmış hatası aldı, para çekildi mi?",
+      "expected": [
+        { "document": "rezervasyon-ve-satis-kosullari", "heading": "Aynı koltuğu aynı anda iki kişi almaya çalışırsa" },
+        { "document": "rezervasyon-ve-satis-kosullari", "heading": "Ödeme" }
+      ]
+    },
+    {
+      "id": "direct-buy-for-someone-else",
+      "question": "Başkası adına bilet alabilir miyim?",
+      "expected": [ { "document": "gise-islem-rehberi", "heading": "Gişeden bilet satışı" } ]
+    },
+    {
+      "id": "direct-who-cancels",
+      "question": "Maçı ben iptal edebilir miyim?",
+      "expected": [ { "document": "gise-islem-rehberi", "heading": "Maç iptali" } ]
+    },
+    {
+      "id": "direct-gates-open",
+      "question": "Kapılar kaç saat önce açılıyor?",
+      "expected": [ { "document": "stadyum-giris-kurallari", "heading": "Kapı açılış saati" } ]
+    },
+    {
+      "id": "direct-price-by-block",
+      "question": "Bilet fiyatı neye göre belirleniyor?",
+      "expected": [ { "document": "rezervasyon-ve-satis-kosullari", "heading": "Bilet fiyatı" } ]
+    },
+    {
+      "id": "paraphrase-refund-timing",
+      "question": "Ücret geri ödemesi ne zaman yapılır?",
+      "expected": [ { "document": "iade-politikasi", "heading": "Maç iptal edildiğinde" } ]
+    },
+    {
+      "id": "paraphrase-hold-wording",
+      "question": "Yer ayırttım, kaç dakika bekler?",
+      "expected": [ { "document": "rezervasyon-ve-satis-kosullari", "heading": "Koltuk tutma süresi" } ]
+    },
+    {
+      "id": "paraphrase-umbrella",
+      "question": "Yanımda şemsiye getirebilir miyim?",
+      "expected": [ { "document": "stadyum-giris-kurallari", "heading": "Yasak eşyalar" } ]
+    },
+    {
+      "id": "english-hold-duration",
+      "question": "How long is a seat held before it is released?",
+      "expected": [ { "document": "rezervasyon-ve-satis-kosullari", "heading": "Koltuk tutma süresi" } ]
+    },
+    {
+      "id": "english-who-cancels",
+      "question": "Who is allowed to cancel a match?",
+      "expected": [ { "document": "gise-islem-rehberi", "heading": "Maç iptali" } ]
+    },
+    {
+      "id": "absent-parking",
+      "question": "Otopark ücretli mi?",
+      "expected": null
+    },
+    {
+      "id": "absent-fan-buses",
+      "question": "Taraftar otobüsleri nereden kalkıyor?",
+      "expected": null
+    },
+    {
+      "id": "absent-next-match",
+      "question": "Fenerbahçe'nin gelecek maçı ne zaman?",
+      "expected": null
+    },
+    {
+      "id": "absent-postponed",
+      "question": "Maç ertelenirse ne olur?",
+      "expected": null
+    },
+    {
+      "id": "absent-weather",
+      "question": "Maç günü hava nasıl olacak?",
+      "expected": null
+    }
+  ]
+}

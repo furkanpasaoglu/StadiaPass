@@ -27,5 +27,6 @@
     <Project Path="tests/StadiaPass.AgentHost.UnitTests/StadiaPass.AgentHost.UnitTests.csproj" />
     <Project Path="tests/StadiaPass.Application.UnitTests/StadiaPass.Application.UnitTests.csproj" />
     <Project Path="tests/StadiaPass.Domain.UnitTests/StadiaPass.Domain.UnitTests.csproj" />
+    <Project Path="tests/StadiaPass.Knowledge.Evals/StadiaPass.Knowledge.Evals.csproj" />
   </Folder>
 </Solution>
