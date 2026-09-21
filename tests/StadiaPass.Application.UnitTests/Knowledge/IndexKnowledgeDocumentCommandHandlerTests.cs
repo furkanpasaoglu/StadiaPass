@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using StadiaPass.Application.Common.Exceptions;
 using StadiaPass.Application.Knowledge;
 using StadiaPass.Application.Knowledge.Commands.IndexKnowledgeDocument;
 
@@ -56,6 +57,7 @@ public sealed class IndexKnowledgeDocumentCommandHandlerTests
             "iade",
             KnowledgeContentHash.Of(Markdown),
             "bge-m3",
+            KnowledgeOrigin.Library,
             Arg.Is<IReadOnlyList<EmbeddedKnowledgeChunk>>(chunks =>
                 chunks.Count == 2
                 && chunks.All(chunk => chunk.Embedding.SequenceEqual(VectorFor(chunk.Chunk.Text)))),
@@ -80,14 +82,14 @@ public sealed class IndexKnowledgeDocumentCommandHandlerTests
     public async Task Should_LeaveTheDocumentAlone_When_NeitherTextNorModelChanged()
     {
         _store.StateOfAsync("iade", Arg.Any<CancellationToken>())
-            .Returns(new KnowledgeDocumentState(KnowledgeContentHash.Of(Markdown), "bge-m3"));
+            .Returns(new KnowledgeDocumentState(KnowledgeContentHash.Of(Markdown), "bge-m3", KnowledgeOrigin.Library));
 
         var result = await _handler.Handle(new IndexKnowledgeDocumentCommand("iade", Markdown), CancellationToken.None);
 
         result.Unchanged.Should().BeTrue();
         await _embedder.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _store.DidNotReceive().ReplaceDocumentAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<KnowledgeOrigin>(),
             Arg.Any<IReadOnlyList<EmbeddedKnowledgeChunk>>(), Arg.Any<CancellationToken>());
     }
 
@@ -95,13 +97,13 @@ public sealed class IndexKnowledgeDocumentCommandHandlerTests
     public async Task Should_EmbedAgain_When_OnlyTheModelChanged()
     {
         _store.StateOfAsync("iade", Arg.Any<CancellationToken>())
-            .Returns(new KnowledgeDocumentState(KnowledgeContentHash.Of(Markdown), "nomic-embed-text"));
+            .Returns(new KnowledgeDocumentState(KnowledgeContentHash.Of(Markdown), "nomic-embed-text", KnowledgeOrigin.Library));
 
         var result = await _handler.Handle(new IndexKnowledgeDocumentCommand("iade", Markdown), CancellationToken.None);
 
         result.Unchanged.Should().BeFalse();
         await _store.Received(1).ReplaceDocumentAsync(
-            "iade", Arg.Any<string>(), "bge-m3",
+            "iade", Arg.Any<string>(), "bge-m3", KnowledgeOrigin.Library,
             Arg.Any<IReadOnlyList<EmbeddedKnowledgeChunk>>(), Arg.Any<CancellationToken>());
     }
 
@@ -109,13 +111,47 @@ public sealed class IndexKnowledgeDocumentCommandHandlerTests
     public async Task Should_EmbedAgain_When_TheTextChanged()
     {
         _store.StateOfAsync("iade", Arg.Any<CancellationToken>())
-            .Returns(new KnowledgeDocumentState(KnowledgeContentHash.Of("eski metin"), "bge-m3"));
+            .Returns(new KnowledgeDocumentState(KnowledgeContentHash.Of("eski metin"), "bge-m3", KnowledgeOrigin.Library));
 
         var result = await _handler.Handle(new IndexKnowledgeDocumentCommand("iade", Markdown), CancellationToken.None);
 
         result.Unchanged.Should().BeFalse();
         await _store.Received(1).ReplaceDocumentAsync(
-            "iade", KnowledgeContentHash.Of(Markdown), "bge-m3",
+            "iade", KnowledgeContentHash.Of(Markdown), "bge-m3", KnowledgeOrigin.Library,
+            Arg.Any<IReadOnlyList<EmbeddedKnowledgeChunk>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_RecordThatTheDocumentWasUploaded_When_ItCameThroughTheApi()
+    {
+        // Where a document came from is what the start-up clean-up goes by: it removes library documents
+        // whose file has gone, and an uploaded one never had a file to begin with.
+        _store.StateOfAsync("kampanya", Arg.Any<CancellationToken>()).Returns((KnowledgeDocumentState?)null);
+
+        await _handler.Handle(
+            new IndexKnowledgeDocumentCommand("kampanya", Markdown, KnowledgeOrigin.Uploaded),
+            CancellationToken.None);
+
+        await _store.Received(1).ReplaceDocumentAsync(
+            "kampanya", Arg.Any<string>(), "bge-m3", KnowledgeOrigin.Uploaded,
+            Arg.Any<IReadOnlyList<EmbeddedKnowledgeChunk>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_RefuseAnUpload_When_TheNameBelongsToALibraryDocument()
+    {
+        // The file would win on the next start and the upload would silently vanish; better to say so now.
+        _store.StateOfAsync("iade", Arg.Any<CancellationToken>())
+            .Returns(new KnowledgeDocumentState(KnowledgeContentHash.Of("eski metin"), "bge-m3", KnowledgeOrigin.Library));
+
+        var upload = () => _handler.Handle(
+            new IndexKnowledgeDocumentCommand("iade", Markdown, KnowledgeOrigin.Uploaded),
+            CancellationToken.None);
+
+        await upload.Should().ThrowAsync<ConflictException>();
+        await _embedder.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _store.DidNotReceive().ReplaceDocumentAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<KnowledgeOrigin>(),
             Arg.Any<IReadOnlyList<EmbeddedKnowledgeChunk>>(), Arg.Any<CancellationToken>());
     }
 

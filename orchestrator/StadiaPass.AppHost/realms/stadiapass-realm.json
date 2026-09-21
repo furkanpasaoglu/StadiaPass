@@ -49,6 +49,10 @@
         "description": "Read the policy documents behind the counter: refunds, seat holds, who may do what"
       },
       {
+        "name": "StadiaPass.Knowledge.Manage",
+        "description": "Upload and withdraw policy documents: decide what the assistant tells staff the rules are"
+      },
+      {
         "name": "StadiaPass.Tickets",
         "description": "Ticket module"
       },
@@ -133,7 +137,8 @@
             "StadiaPass.Categories.Create",
             "StadiaPass.Categories.Update",
             "StadiaPass.Categories.Delete",
-            "StadiaPass.Knowledge.Search"
+            "StadiaPass.Knowledge.Search",
+            "StadiaPass.Knowledge.Manage"
           ]
         }
       },

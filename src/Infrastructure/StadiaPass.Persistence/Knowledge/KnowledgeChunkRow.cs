@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Pgvector;
+using StadiaPass.Application.Knowledge;
 
 namespace StadiaPass.Persistence.Knowledge;
 
@@ -32,6 +33,11 @@ public sealed class KnowledgeChunkRow
     /// <summary>The embedding model that produced <see cref="Embedding"/>; rows from another are not comparable.</summary>
     public string Model { get; init; } = null!;
 
+    /// <summary>
+    /// Whether the document came from the library folder or through the API; the same on every row of it.
+    /// </summary>
+    public KnowledgeOrigin Origin { get; init; }
+
     public Vector Embedding { get; init; } = null!;
 }
 
@@ -57,6 +63,15 @@ internal sealed class KnowledgeChunkRowConfiguration : IEntityTypeConfiguration<
         builder.Property(row => row.Position).HasColumnName("position").IsRequired();
         builder.Property(row => row.ContentHash).HasColumnName("content_hash").HasMaxLength(64).IsRequired();
         builder.Property(row => row.Model).HasColumnName("model").HasMaxLength(80).IsRequired();
+
+        // Kept as its name rather than its number: "Uploaded" in a row says what it means to whoever is
+        // reading the table, and adding a third origin later cannot renumber the two that are there.
+        builder.Property(row => row.Origin)
+            .HasColumnName("origin")
+            .HasConversion<string>()
+            .HasMaxLength(16)
+            .HasDefaultValue(KnowledgeOrigin.Library)
+            .IsRequired();
 
         builder.Property(row => row.Embedding)
             .HasColumnName("embedding")

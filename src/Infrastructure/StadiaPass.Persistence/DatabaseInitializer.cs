@@ -129,9 +129,15 @@ internal sealed partial class DatabaseInitializer(
                  position integer NOT NULL,
                  content_hash character varying(64) NOT NULL,
                  model character varying(80) NOT NULL,
+                 origin character varying(16) NOT NULL DEFAULT 'Library',
                  embedding vector({KnowledgeChunkRowConfiguration.Dimensions}) NOT NULL,
                  CONSTRAINT pk_knowledge_chunks PRIMARY KEY (id)
              );
+
+             -- For a table made before documents could be uploaded. Everything in it then came from the
+             -- library folder, which is what the default says.
+             ALTER TABLE {StadiaPassDbContext.Schema}.knowledge_chunks
+                 ADD COLUMN IF NOT EXISTS origin character varying(16) NOT NULL DEFAULT 'Library';
 
              CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_document
                  ON {StadiaPassDbContext.Schema}.knowledge_chunks (document);

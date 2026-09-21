@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.Extensions.Logging;
+using StadiaPass.Application.Common.Exceptions;
 
 namespace StadiaPass.Application.Knowledge.Commands.IndexKnowledgeDocument;
 
@@ -26,7 +27,20 @@ internal sealed partial class IndexKnowledgeDocumentCommandHandler(
         var contentHash = KnowledgeContentHash.Of(request.Markdown);
         var held = await store.StateOfAsync(request.Document, cancellationToken);
 
-        if (held is not null && held.ContentHash == contentHash && held.Model == embedder.Model)
+        // A library document is owned by its file. An upload under the same name would last until the next
+        // start, when the loader reads the file and puts the file's text back - so it is refused now, while
+        // there is somebody to tell, rather than accepted and quietly undone later.
+        if (held is not null && held.Origin == KnowledgeOrigin.Library && request.Origin == KnowledgeOrigin.Uploaded)
+        {
+            throw new ConflictException(
+                $"'{request.Document}' is part of the library that ships with the API. Change its file, "
+                + "or upload under a different name.");
+        }
+
+        if (held is not null
+            && held.ContentHash == contentHash
+            && held.Model == embedder.Model
+            && held.Origin == request.Origin)
         {
             Unchanged(logger, request.Document);
 
@@ -43,7 +57,13 @@ internal sealed partial class IndexKnowledgeDocumentCommandHandler(
             embedded.Add(new EmbeddedKnowledgeChunk(chunk, await embedder.EmbedAsync(chunk.Text, cancellationToken)));
         }
 
-        await store.ReplaceDocumentAsync(request.Document, contentHash, embedder.Model, embedded, cancellationToken);
+        await store.ReplaceDocumentAsync(
+            request.Document,
+            contentHash,
+            embedder.Model,
+            request.Origin,
+            embedded,
+            cancellationToken);
 
         Indexed(logger, request.Document, embedded.Count, embedder.Model);
 

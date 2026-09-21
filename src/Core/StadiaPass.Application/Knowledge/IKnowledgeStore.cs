@@ -4,9 +4,10 @@ namespace StadiaPass.Application.Knowledge;
 public sealed record EmbeddedKnowledgeChunk(KnowledgeChunk Chunk, float[] Embedding);
 
 /// <summary>
-/// What the store knows about a document it holds: which text it was cut from and which model read it.
+/// What the store knows about a document it holds: which text it was cut from, which model read it, and
+/// whether it came from the library folder or through the API.
 /// </summary>
-public sealed record KnowledgeDocumentState(string ContentHash, string Model);
+public sealed record KnowledgeDocumentState(string ContentHash, string Model, KnowledgeOrigin Origin);
 
 /// <summary>
 /// A chunk the store found near a question.
@@ -47,11 +48,13 @@ public interface IKnowledgeStore
         string document,
         string contentHash,
         string model,
+        KnowledgeOrigin origin,
         IReadOnlyList<EmbeddedKnowledgeChunk> chunks,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Takes out every document whose name is not in <paramref name="documents"/>, and says which went.
+    /// Takes out every library document whose name is not in <paramref name="documents"/>, and says which
+    /// went. Uploaded documents are left alone: they never had a file, so having none says nothing.
     /// </summary>
     /// <remarks>
     /// The counterpart of <see cref="ReplaceDocumentAsync"/>: replacing keeps a document that changed up
@@ -60,6 +63,9 @@ public interface IKnowledgeStore
     Task<IReadOnlyList<string>> RemoveDocumentsNotInAsync(
         IReadOnlyCollection<string> documents,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Takes out everything held under <paramref name="document"/>.</summary>
+    Task RemoveDocumentAsync(string document, CancellationToken cancellationToken = default);
 
     /// <summary>The <paramref name="limit"/> chunks nearest to <paramref name="query"/>, nearest first.</summary>
     Task<IReadOnlyList<KnowledgeHit>> NearestAsync(

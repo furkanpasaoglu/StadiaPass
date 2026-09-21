@@ -19,20 +19,21 @@ internal sealed class KnowledgeStore(StadiaPassDbContext context) : IKnowledgeSt
         string document,
         CancellationToken cancellationToken = default)
     {
-        // Every row of a document carries the same hash and model, so any one of them answers.
+        // Every row of a document carries the same hash, model and origin, so any one of them answers.
         var row = await context.KnowledgeChunks
             .AsNoTracking()
             .Where(chunk => chunk.Document == document)
-            .Select(chunk => new { chunk.ContentHash, chunk.Model })
+            .Select(chunk => new { chunk.ContentHash, chunk.Model, chunk.Origin })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return row is null ? null : new KnowledgeDocumentState(row.ContentHash, row.Model);
+        return row is null ? null : new KnowledgeDocumentState(row.ContentHash, row.Model, row.Origin);
     }
 
     public async Task ReplaceDocumentAsync(
         string document,
         string contentHash,
         string model,
+        KnowledgeOrigin origin,
         IReadOnlyList<EmbeddedKnowledgeChunk> chunks,
         CancellationToken cancellationToken = default)
     {
@@ -46,6 +47,7 @@ internal sealed class KnowledgeStore(StadiaPassDbContext context) : IKnowledgeSt
             Position = embedded.Chunk.Position,
             ContentHash = contentHash,
             Model = model,
+            Origin = origin,
             Embedding = new Vector(embedded.Embedding)
         }).ToArray();
 
@@ -78,9 +80,10 @@ internal sealed class KnowledgeStore(StadiaPassDbContext context) : IKnowledgeSt
 
         // Asked for by name first, so the caller can be told what went; a bare delete would only say how
         // many rows it removed, and "three rows" is not something anybody can check against the folder.
+        // Library documents only: an uploaded one has no file, so "its file is gone" is true of all of them.
         var withdrawn = await context.KnowledgeChunks
             .AsNoTracking()
-            .Where(chunk => !kept.Contains(chunk.Document))
+            .Where(chunk => chunk.Origin == KnowledgeOrigin.Library && !kept.Contains(chunk.Document))
             .Select(chunk => chunk.Document)
             .Distinct()
             .ToListAsync(cancellationToken);
@@ -96,6 +99,11 @@ internal sealed class KnowledgeStore(StadiaPassDbContext context) : IKnowledgeSt
 
         return withdrawn;
     }
+
+    public async Task RemoveDocumentAsync(string document, CancellationToken cancellationToken = default) =>
+        await context.KnowledgeChunks
+            .Where(chunk => chunk.Document == document)
+            .ExecuteDeleteAsync(cancellationToken);
 
     public async Task<IReadOnlyList<KnowledgeHit>> NearestAsync(
         float[] query,
