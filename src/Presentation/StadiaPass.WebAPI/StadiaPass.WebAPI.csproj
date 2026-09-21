@@ -9,6 +9,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The policy documents the knowledge loader reads at start-up. Kept in docs/ so they read as documents
+         and not as code, and copied beside the binaries so the running API does not depend on the repo layout. -->
+    <Content Include="..\..\..\docs\knowledge\*.md" Link="knowledge\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Aspire.Keycloak.Authentication" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />

@@ -2,10 +2,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using StadiaPass.Domain.Categories;
 using StadiaPass.Domain.Common.ValueObjects;
 using StadiaPass.Domain.Matches;
 using StadiaPass.Domain.Venues;
+using StadiaPass.Persistence.Knowledge;
 
 namespace StadiaPass.Persistence;
 
@@ -20,6 +22,7 @@ internal sealed partial class DatabaseInitializer(
 
         await context.Database.EnsureCreatedAsync(stoppingToken);
         await ApplySchemaStopgapsAsync(context, stoppingToken);
+        await ReloadTypesAsync(context, stoppingToken);
         SchemaReady(logger);
 
         if (await context.SportCategories.AnyAsync(stoppingToken))
@@ -70,6 +73,35 @@ internal sealed partial class DatabaseInitializer(
     }
 
     /// <summary>
+    /// Tells Npgsql to read the database's type catalogue again, now that the vector extension is in it.
+    /// </summary>
+    /// <remarks>
+    /// Npgsql reads the catalogue once, on the first connection the data source opens, and every pooled
+    /// connection after that shares it. The first connection here is the one that creates the extension - so
+    /// the catalogue was read a moment before <c>vector</c> existed, and the first write of a Vector fails
+    /// with "cannot resolve 'vector' to a fully qualified datatype name" until the process restarts. Reloading
+    /// once, on the data source, is what a restart would have done.
+    /// </remarks>
+    private static async Task ReloadTypesAsync(StadiaPassDbContext context, CancellationToken cancellationToken)
+    {
+        if (context.Database.GetDbConnection() is not NpgsqlConnection connection)
+        {
+            return;
+        }
+
+        await context.Database.OpenConnectionAsync(cancellationToken);
+
+        try
+        {
+            await connection.ReloadTypesAsync(cancellationToken);
+        }
+        finally
+        {
+            await context.Database.CloseConnectionAsync();
+        }
+    }
+
+    /// <summary>
     /// Every schema change made since the first run, said again in SQL. EnsureCreated builds the schema once
     /// and never looks at it again, so a table, a column or an index added to the model afterwards simply
     /// never appears on a database that already exists. Each statement here is written to be harmless on a
@@ -84,6 +116,26 @@ internal sealed partial class DatabaseInitializer(
         CancellationToken cancellationToken) =>
         await context.Database.ExecuteSqlRawAsync(
             $"""
+             -- pgvector, for the policy chunks. Said here as well as in the model because EnsureCreated
+             -- only runs its CREATE EXTENSION on a database it is creating.
+             CREATE EXTENSION IF NOT EXISTS vector;
+
+             CREATE TABLE IF NOT EXISTS {StadiaPassDbContext.Schema}.knowledge_chunks (
+                 id uuid NOT NULL,
+                 document character varying(120) NOT NULL,
+                 title character varying(200) NOT NULL,
+                 heading character varying(200) NOT NULL,
+                 text text NOT NULL,
+                 position integer NOT NULL,
+                 content_hash character varying(64) NOT NULL,
+                 model character varying(80) NOT NULL,
+                 embedding vector({KnowledgeChunkRowConfiguration.Dimensions}) NOT NULL,
+                 CONSTRAINT pk_knowledge_chunks PRIMARY KEY (id)
+             );
+
+             CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_document
+                 ON {StadiaPassDbContext.Schema}.knowledge_chunks (document);
+
              CREATE TABLE IF NOT EXISTS {StadiaPassDbContext.Schema}.outbox_messages (
                  id uuid NOT NULL,
                  occurred_on_utc timestamp with time zone NOT NULL,

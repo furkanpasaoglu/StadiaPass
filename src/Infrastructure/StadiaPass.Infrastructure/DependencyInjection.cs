@@ -5,11 +5,13 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using StadiaPass.Application.Common.Abstractions;
 using StadiaPass.Application.Identity;
+using StadiaPass.Application.Knowledge;
 using StadiaPass.Application.Infrastructure.Abstractions;
 using StadiaPass.Application.Matches.Search;
 using StadiaPass.Infrastructure.Caching;
 using StadiaPass.Infrastructure.Email;
 using StadiaPass.Infrastructure.Identity;
+using StadiaPass.Infrastructure.Knowledge;
 using StadiaPass.Infrastructure.Locking;
 using StadiaPass.Infrastructure.Messaging;
 using StadiaPass.Infrastructure.Payments;
@@ -67,10 +69,38 @@ public static class DependencyInjection
 
         builder.AddPayments();
         builder.AddSearch();
+        builder.AddKnowledge();
         builder.AddMessaging();
         builder.AddEmail();
 
         return builder;
+    }
+
+    /// <summary>
+    /// The policy documents: an embedding model to read them and a loader that puts them in the store.
+    /// </summary>
+    /// <remarks>
+    /// The store itself is registered with the rest of persistence - it is a table - and Ollama is reached
+    /// over plain HTTP, so the only thing wired here is the client and the start-up load.
+    /// </remarks>
+    private static void AddKnowledge(this IHostApplicationBuilder builder)
+    {
+        builder.Services
+            .AddOptions<KnowledgeOptions>()
+            .Bind(builder.Configuration.GetSection(KnowledgeOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        builder.Services
+            .AddHttpClient<IKnowledgeEmbedder, OllamaKnowledgeEmbedder>((provider, client) =>
+            {
+                var options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value;
+
+                client.BaseAddress = new Uri(options.OllamaEndpoint);
+                client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+            });
+
+        builder.Services.AddHostedService<KnowledgeLibraryLoader>();
     }
 
     /// <summary>

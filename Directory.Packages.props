@@ -1,11 +1,6 @@
 <Project>
   <ItemGroup Label="Domain">
     <PackageVersion Include="MediatR.Contracts" Version="2.0.1" />
-    
-    
-    
-    
-    
   </ItemGroup>
   <ItemGroup Label="Application">
     <PackageVersion Include="MediatR" Version="12.5.0" />
@@ -20,6 +15,7 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageVersion Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.5.2" />
+    <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
   </ItemGroup>
   <ItemGroup Label="Infrastructure">
     <PackageVersion Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.5.2" />

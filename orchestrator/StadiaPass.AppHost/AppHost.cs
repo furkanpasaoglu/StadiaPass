@@ -2,8 +2,15 @@ using System.Net.Http.Json;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
+// The official image plus the pgvector extension, for the policy chunks. Same PostgreSQL major as the data
+// volume was created with, so the existing data opens as it is.
+//
+// The volume is mounted by hand rather than with WithDataVolume: from 18 the image keeps its data under
+// /var/lib/postgresql/<major>/docker and refuses to start when it finds data at the old path, and Aspire
+// only picks the new mount point for an image it recognises as "postgres". This one it does not.
 var postgres = builder.AddPostgres("postgres")
-    .WithDataVolume("stadiapass-pgdata")
+    .WithImage("pgvector/pgvector", "pg18")
+    .WithVolume("stadiapass-pgdata", "/var/lib/postgresql")
     .WithPgAdmin()
     .WithLifetime(ContainerLifetime.Persistent);
 

@@ -104,6 +104,17 @@ public static class StadiaPassPermissions
     }
 
     /// <summary>Identity portal: business roles and the permissions bound to them.</summary>
+    /// <summary>
+    /// The policy documents behind the counter: refund rules, seat holds, who may do what. Its own
+    /// permission rather than a ticket one, because reading the rules and reading other people's tickets
+    /// are different things to be trusted with - an organiser needs the first and not the second.
+    /// </summary>
+    public static class Knowledge
+    {
+        public const string Default = GroupName + ".Knowledge";
+        public const string Search = Default + ".Search";
+    }
+
     public static class Roles
     {
         public const string Default = GroupName + ".Roles";

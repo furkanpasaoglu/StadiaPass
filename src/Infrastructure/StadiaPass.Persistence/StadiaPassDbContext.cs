@@ -4,6 +4,7 @@ using StadiaPass.Domain.Matches;
 using StadiaPass.Domain.Tickets;
 using StadiaPass.Domain.Venues;
 using StadiaPass.Persistence.Inbox;
+using StadiaPass.Persistence.Knowledge;
 using StadiaPass.Persistence.Outbox;
 
 namespace StadiaPass.Persistence;
@@ -26,9 +27,13 @@ public sealed class StadiaPassDbContext(DbContextOptions<StadiaPassDbContext> op
 
     public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
 
+    public DbSet<KnowledgeChunkRow> KnowledgeChunks => Set<KnowledgeChunkRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
+
+        modelBuilder.HasPostgresExtension("vector");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(StadiaPassDbContext).Assembly);
 
         base.OnModelCreating(modelBuilder);
