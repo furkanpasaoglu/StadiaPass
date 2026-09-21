@@ -57,6 +57,9 @@ internal static class ToolSurface
         public Task<MatchRevenue?> GetMatchRevenueAsync(
             Guid matchId, CancellationToken cancellationToken = default) => throw Refusal();
 
+        public Task<PolicySearchResult?> SearchPoliciesAsync(
+            string question, int limit, CancellationToken cancellationToken = default) => throw Refusal();
+
         private static NotSupportedException Refusal() =>
             new("The eval measures tool selection only; nothing should ever execute a tool.");
     }

@@ -58,4 +58,15 @@ internal sealed class CatalogueApiClient(HttpClient httpClient) : ICatalogueApiC
 
         return await response.Content.ReadFromJsonAsync<MatchRevenue>(cancellationToken);
     }
+
+    public async Task<PolicySearchResult?> SearchPoliciesAsync(
+        string question,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var route = $"/api/v1/knowledge/search?q={Uri.EscapeDataString(question)}&limit={limit}";
+
+        return await httpClient.GetFromJsonAsync<PolicySearchResult>(
+            new Uri(route, UriKind.Relative), cancellationToken);
+    }
 }

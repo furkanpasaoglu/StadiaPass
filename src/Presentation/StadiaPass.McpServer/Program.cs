@@ -44,12 +44,13 @@ try
     if (serviceAccount.IsConfigured)
     {
         tools.WithTools<AnalyticsTools>();
+        tools.WithTools<KnowledgeTools>();
     }
     else
     {
         Log.Warning(
-            "No service-account secret configured; the analytics tool is not being offered. The public "
-            + "catalogue tools are unaffected.");
+            "No service-account secret configured; the analytics and policy tools are not being offered. "
+            + "The public catalogue tools are unaffected.");
     }
 
     builder.Services.AddProblemDetails();

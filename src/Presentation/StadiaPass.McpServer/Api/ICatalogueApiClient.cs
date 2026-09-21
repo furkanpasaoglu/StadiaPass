@@ -23,4 +23,10 @@ public interface ICatalogueApiClient
     /// </summary>
     /// <returns><see langword="null"/> when the match does not exist.</returns>
     Task<MatchRevenue?> GetMatchRevenueAsync(Guid matchId, CancellationToken cancellationToken = default);
+
+    /// <summary>The sections of the policy documents nearest to a question, nearest first.</summary>
+    Task<PolicySearchResult?> SearchPoliciesAsync(
+        string question,
+        int limit,
+        CancellationToken cancellationToken = default);
 }
