@@ -9,6 +9,7 @@ using OllamaSharp;
 using Serilog;
 using StadiaPass.AgentHost;
 using StadiaPass.AgentHost.Guardrails;
+using StadiaPass.AgentHost.Policy;
 using StadiaPass.ServiceDefaults.Logging;
 
 // Same bootstrap-logger window as every other host in the solution.
@@ -78,6 +79,12 @@ try
             });
     });
 
+    // The policy assistant: retrieval in code through the MCP server's search tool, then the same
+    // guarded, metered chat client the analyst runs on. Not registered as an agent - it has no tools to
+    // choose between, and DevUI would offer it a chat box that skipped the retrieval it exists for.
+    builder.Services.AddSingleton<IPolicyRetriever, McpPolicyRetriever>();
+    builder.Services.AddSingleton<PolicyAssistant>();
+
     // DevUI and the OpenAI-compatible endpoints it drives. Development-only by design - this is the
     // playground in front of the agent, not the product; the admin panel comes later and comes separately.
     builder.AddOpenAIResponses();
@@ -95,6 +102,16 @@ try
     app.MapDefaultEndpoints();
     app.MapOpenAIResponses();
     app.MapOpenAIConversations();
+
+    // Staff-facing, like everything on this host, and unauthenticated for the same reason the DevUI is:
+    // the host is not exposed beyond the developer's machine. The day it is, the token the portal already
+    // carries is what this endpoint checks.
+    app.MapPost("/policy/ask", async (PolicyQuestion request, PolicyAssistant assistant, CancellationToken cancellationToken) =>
+        string.IsNullOrWhiteSpace(request.Question)
+            ? Results.ValidationProblem(new Dictionary<string, string[]> { ["question"] = ["A question is required."] })
+            : Results.Ok(await assistant.AskAsync(request.Question.Trim(), cancellationToken)))
+        .WithName("AskPolicy")
+        .WithSummary("Answers a staff question from the policy documents, citing the passages it read.");
 
     if (app.Environment.IsDevelopment())
     {
@@ -142,3 +159,6 @@ static async Task<IList<McpClientTool>> ConnectToMcpAsync(string endpoint)
         }
     }
 }
+
+/// <summary>The body of a policy question.</summary>
+internal sealed record PolicyQuestion(string Question);
