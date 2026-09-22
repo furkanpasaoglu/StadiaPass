@@ -1,0 +1,34 @@
+{
+  "$comment": "Support router golden dataset. Each case: a question a member of staff might type, and the one topic it belongs to - 'catalogue' (facts about specific matches: the analyst), 'policy' (the rules: the policy assistant), 'mixed' (both in one message: both assistants, side by side) or 'other' (neither). The mixed cases are the questions that, before 'mixed' existed, were sent to one assistant and answered by half - measured, and the half that won was not predictable. The pairs are the point: the same word lands in both topics depending on whether the question asks about a match or about a rule - cancelled, refund, price, cancel. A router that keys on the word instead of the question fails exactly those pairs.",
+  "cases": [
+    { "id": "catalogue-upcoming-tr", "question": "Yaklaşan maçlar neler?", "expected": "catalogue" },
+    { "id": "catalogue-upcoming-en", "question": "Is there a basketball game this weekend?", "expected": "catalogue" },
+    { "id": "catalogue-cheapest-seat", "question": "Fenerbahçe maçında en ucuz koltuk kaç para?", "expected": "catalogue" },
+    { "id": "catalogue-seats-left", "question": "Derbide kaç boş koltuk kaldı?", "expected": "catalogue" },
+    { "id": "catalogue-revenue", "question": "What has the Galatasaray match taken so far?", "expected": "catalogue" },
+
+    { "id": "pair-cancelled-matches", "question": "Bu ay iptal edilen maçlar hangileri?", "expected": "catalogue" },
+    { "id": "pair-cancel-rule", "question": "Maç iptal olursa müşterinin parası ne olur?", "expected": "policy" },
+    { "id": "pair-refund-count", "question": "Galatasaray maçında kaç bilet iade edildi?", "expected": "catalogue" },
+    { "id": "pair-refund-rule", "question": "Müşteri maça gidemeyecek, bileti iade edebilir mi?", "expected": "policy" },
+    { "id": "pair-price-of-match", "question": "How much does a VIP seat cost for Saturday's match?", "expected": "catalogue" },
+    { "id": "pair-price-rule", "question": "Bilet fiyatı neye göre belirleniyor?", "expected": "policy" },
+    { "id": "pair-who-cancels", "question": "Who is allowed to cancel a match?", "expected": "policy" },
+
+    { "id": "policy-hold", "question": "Koltuğu tuttum, ne kadar sürem var?", "expected": "policy" },
+    { "id": "policy-umbrella", "question": "Stadyuma şemsiye sokabilir miyim?", "expected": "policy" },
+    { "id": "policy-box-office", "question": "Gişe personeli iade başlatabilir mi?", "expected": "policy" },
+    { "id": "policy-guardrail", "question": "Mailim ali@test.com, koltuk ne kadar süre tutulur?", "expected": "policy" },
+
+    { "id": "mixed-seats-and-cancel", "question": "Fenerbahçe maçında kaç boş koltuk var, maç iptal olursa param ne olur?", "expected": "mixed" },
+    { "id": "mixed-cancel-then-seats", "question": "Maç iptal olursa param ne olur, bir de derbide kaç koltuk kaldı?", "expected": "mixed" },
+    { "id": "mixed-price-and-hold", "question": "Cumartesi maçının en ucuz bileti ne kadar ve koltuğu kaç dakika tutabilirim?", "expected": "mixed" },
+    { "id": "mixed-en-matches-and-umbrella", "question": "Which matches are on this weekend, and can I bring an umbrella?", "expected": "mixed" },
+    { "id": "mixed-refund-count-and-rule", "question": "Galatasaray maçında kaç bilet iade edildi ve müşteri kendi isteğiyle iade alabilir mi?", "expected": "mixed" },
+
+    { "id": "other-greeting", "question": "Merhaba, nasılsın?", "expected": "other" },
+    { "id": "other-thanks", "question": "Thanks, that's all I needed.", "expected": "other" },
+    { "id": "other-poem", "question": "Bana futbol hakkında bir şiir yazar mısın?", "expected": "other" },
+    { "id": "other-weather", "question": "Yarın İstanbul'da hava nasıl olacak?", "expected": "other" }
+  ]
+}
