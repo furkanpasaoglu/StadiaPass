@@ -1,0 +1,71 @@
+### Policy documents: upload, ask, withdraw.
+### Run the AppHost first. Then send the requests top to bottom: the first one signs in as the
+### administrator, and every request after it reuses that token.
+
+@api = http://localhost:5042
+@agent = http://localhost:5399
+@keycloak = https://localhost:8080/realms/stadiapass/protocol/openid-connect/token
+
+### 1. Sign in as the administrator (mudur / mudur) and keep the token.
+### The client secret is the development one from the realm file in this repository.
+# @name admin
+POST {{keycloak}}
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=stadiapass-mvc&client_secret=stadiapass-mvc-dev-secret&username=mudur&password=mudur
+
+### 2. Upload a document. Expect 200, chunkCount 2, unchanged false.
+### Send it twice: the second time says unchanged true and embeds nothing.
+PUT {{api}}/api/v1/knowledge/documents/grup-satis-kurallari
+Authorization: Bearer {{admin.response.body.$.access_token}}
+Content-Type: application/json; charset=utf-8
+
+{
+  "markdown": "# Grup Satış Kuralları\n\n## Grup bileti\n\nOn ve üzeri bilet isteyen gruplar için satış yalnızca gişeden yapılır. Çevrimiçi satışta tek seferde en çok altı koltuk alınabilir.\n\n## Grup indirimi\n\nGrup alımlarında indirim uygulanmaz. Her koltuk kendi bloğunun fiyatından satılır."
+}
+
+### 3. Ask the assistant. Expect grup-satis-kurallari first in sources, and a [1] in the answer.
+POST {{agent}}/policy/ask
+Content-Type: application/json; charset=utf-8
+
+{
+  "question": "Grup olarak 15 kişi bilet almak istiyoruz, internetten alabilir miyiz?"
+}
+
+### 4. Withdraw it. Expect 204. Then send request 3 again: the document is gone from sources.
+DELETE {{api}}/api/v1/knowledge/documents/grup-satis-kurallari
+Authorization: Bearer {{admin.response.body.$.access_token}}
+
+### 5. Refused: this name belongs to a document in the library folder. Expect 409.
+PUT {{api}}/api/v1/knowledge/documents/iade-politikasi
+Authorization: Bearer {{admin.response.body.$.access_token}}
+Content-Type: application/json; charset=utf-8
+
+{
+  "markdown": "# Deneme\n\n## Bölüm\n\nBu yükleme reddedilmeli."
+}
+
+### 6. Refused: not a valid document name. Expect 400.
+PUT {{api}}/api/v1/knowledge/documents/Grup_Satis
+Authorization: Bearer {{admin.response.body.$.access_token}}
+Content-Type: application/json; charset=utf-8
+
+{
+  "markdown": "# Deneme\n\n## Bölüm\n\nBu yükleme reddedilmeli."
+}
+
+### 7. Sign in as box office staff (gise / gise). They may read the rules, not change them.
+# @name boxOffice
+POST {{keycloak}}
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=stadiapass-mvc&client_secret=stadiapass-mvc-dev-secret&username=gise&password=gise
+
+### 8. Refused: box office staff cannot upload. Expect 403.
+PUT {{api}}/api/v1/knowledge/documents/gise-denemesi
+Authorization: Bearer {{boxOffice.response.body.$.access_token}}
+Content-Type: application/json; charset=utf-8
+
+{
+  "markdown": "# Deneme\n\n## Bölüm\n\nBu yükleme reddedilmeli."
+}
