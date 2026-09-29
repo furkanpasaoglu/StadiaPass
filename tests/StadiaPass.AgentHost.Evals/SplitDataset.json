@@ -1,0 +1,47 @@
+{
+  "$comment": "Policy question splitter golden dataset. Each case: a message from staff, how many RULE questions it holds ('expectedCount'), and a word that has to appear in one of the split questions for each rule asked ('mustCover', matched case-insensitively). Questions about specific matches and greetings are not rule questions and must not be listed. A one-question message counts as one - in that case retrieval uses the message as typed, so the exact rewording does not matter, only the count. The first case is the paragraph that exposed the problem: asked as one message, the three sections it needed ranked 3rd, 10th and 12th of 26.",
+  "cases": [
+    {
+      "id": "paragraph-four-questions",
+      "question": "Merhaba, ben gişede yeni başladım. Önümüzdeki günlerde hangi maçlar var, onu öğrenmem lazım. Bir de bir müşteri bana maç iptal olursa parasının ne olacağını sordu, ne diyeyim? Ayrıca müşteri başka bir kişi adına bilet alabilir mi? Son olarak stadyuma şemsiye sokulabiliyor mu, onu da merak ediyorlar.",
+      "expectedCount": 3,
+      "mustCover": [ "iptal", "başka", "şemsiye" ]
+    },
+    {
+      "id": "two-rules-one-sentence",
+      "question": "Maç iptal olursa para ne olur ve müşteri başkası adına bilet alabilir mi?",
+      "expectedCount": 2,
+      "mustCover": [ "iptal", "başka" ]
+    },
+    {
+      "id": "two-rules-english",
+      "question": "How long is a seat held, and can I bring an umbrella into the stadium?",
+      "expectedCount": 2,
+      "mustCover": [ "seat", "umbrella" ]
+    },
+    {
+      "id": "one-rule-with-greeting",
+      "question": "Merhaba, iyi günler. Koltuğu tuttum, ne kadar sürem var?",
+      "expectedCount": 1,
+      "mustCover": [ ]
+    },
+    {
+      "id": "one-rule-plain",
+      "question": "Müşteri maça gidemeyecek, bilet iadesi var mı?",
+      "expectedCount": 1,
+      "mustCover": [ ]
+    },
+    {
+      "id": "one-rule-plus-match-facts",
+      "question": "Derbide kaç boş koltuk kaldı, bir de maç iptal olursa param ne olur?",
+      "expectedCount": 1,
+      "mustCover": [ "iptal" ]
+    },
+    {
+      "id": "three-rules-list",
+      "question": "Üç sorum var: bilet fiyatı neye göre belirleniyor, gişe personeli iade başlatabilir mi, kapılar kaç saat önce açılıyor?",
+      "expectedCount": 3,
+      "mustCover": [ "fiyat", "iade", "kapı" ]
+    }
+  ]
+}

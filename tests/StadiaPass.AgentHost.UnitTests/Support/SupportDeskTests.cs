@@ -145,7 +145,11 @@ public sealed class SupportDeskTests
             new SupportMerger(mergeModel ?? new FakeChatClient("42 koltuk. Karta iade edilir [1].")));
 
     private static PolicyAssistant Policy(FakeRetriever retriever) =>
-        new(retriever, new FakeChatClient("Karta iade edilir [1]."), NullLogger<PolicyAssistant>.Instance);
+        new(
+            retriever,
+            new PolicyQuestionSplitter(new FakeChatClient("Tek bir soru?")),
+            new FakeChatClient("Karta iade edilir [1]."),
+            NullLogger<PolicyAssistant>.Instance);
 
     private sealed class FakeAnalyst(string reply, TaskCompletionSource? started = null, TaskCompletionSource? waitFor = null)
         : IAnalyst

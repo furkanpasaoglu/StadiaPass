@@ -84,6 +84,7 @@ try
     // guarded, metered chat client the analyst runs on. Not registered as an agent - it has no tools to
     // choose between, and DevUI would offer it a chat box that skipped the retrieval it exists for.
     builder.Services.AddSingleton<IPolicyRetriever, McpPolicyRetriever>();
+    builder.Services.AddSingleton<PolicyQuestionSplitter>();
     builder.Services.AddSingleton<PolicyAssistant>();
 
     // The support desk: one door in front of both. A router picks the analyst, the policy assistant or -

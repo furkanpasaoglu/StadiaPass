@@ -24,6 +24,7 @@
     <None Include="GoldenDataset.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="RoutingDataset.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="MergeDataset.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="SplitDataset.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

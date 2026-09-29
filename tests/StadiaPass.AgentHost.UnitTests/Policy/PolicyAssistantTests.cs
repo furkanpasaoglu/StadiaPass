@@ -77,7 +77,7 @@ public sealed class PolicyAssistantTests
         // assistant masks first, and everything downstream - retrieval, prompt, answer - sees the placeholder.
         var retriever = new RecordingRetriever();
         var model = new FakeChatClient("İade yapılmaz [1].");
-        var assistant = new PolicyAssistant(retriever, model, NullLogger<PolicyAssistant>.Instance);
+        var assistant = new PolicyAssistant(retriever, SingleQuestion(), model, NullLogger<PolicyAssistant>.Instance);
 
         var answer = await assistant.AskAsync("ahmet@example.com gelemeyecek, iade var mı?", CancellationToken.None);
 
@@ -98,8 +98,125 @@ public sealed class PolicyAssistantTests
         }
     }
 
+    [Fact]
+    public async Task Should_RetrieveWithTheQuestionAsAsked_When_ItHoldsOnlyOneRuleQuestion()
+    {
+        // One rule question is the case every existing eval measures, and it must not change: the splitter
+        // may reword it, but retrieval still runs on what the member of staff actually typed.
+        var retriever = new PerQuestionRetriever();
+        var assistant = new PolicyAssistant(
+            retriever,
+            Splitter("Maç iptal olursa param ne olur?"),
+            new FakeChatClient("Karta iade edilir [1]."),
+            NullLogger<PolicyAssistant>.Instance);
+
+        await assistant.AskAsync("Merhaba, maç iptal olursa param?", CancellationToken.None);
+
+        retriever.Asked.Should().Equal("Merhaba, maç iptal olursa param?");
+    }
+
+    [Fact]
+    public async Task Should_RetrieveForEachRuleQuestion_When_TheMessageAsksSeveral()
+    {
+        var retriever = new PerQuestionRetriever();
+        var assistant = new PolicyAssistant(
+            retriever,
+            Splitter("Maç iptal olursa para ne olur?\nŞemsiye sokulabilir mi?"),
+            new FakeChatClient("Karta iade edilir [1]. Şemsiye alınmaz [2]."),
+            NullLogger<PolicyAssistant>.Instance);
+
+        await assistant.AskAsync("İptal olursa param ne olur, şemsiye sokabilir miyim?", CancellationToken.None);
+
+        retriever.Asked.Should().BeEquivalentTo("Maç iptal olursa para ne olur?", "Şemsiye sokulabilir mi?");
+    }
+
+    [Fact]
+    public async Task Should_PutEachQuestionsBestPassageFirst_AndDropRepeats_When_TheMessageAsksSeveral()
+    {
+        // Taken in turns - the best of each question, then the second of each - so that every question has
+        // its best passage in front of the model even when one question drags in several near neighbours.
+        var retriever = new PerQuestionRetriever
+        {
+            ["Maç iptal olursa para ne olur?"] = [Passage("İptal"), Passage("Vazgeçme"), Passage("Bildirim")],
+            ["Şemsiye sokulabilir mi?"] = [Passage("Yasak eşyalar"), Passage("İptal"), Passage("Yeniden giriş")]
+        };
+        var assistant = new PolicyAssistant(
+            retriever,
+            Splitter("Maç iptal olursa para ne olur?\nŞemsiye sokulabilir mi?"),
+            new FakeChatClient("cevap [1] [2]"),
+            NullLogger<PolicyAssistant>.Instance);
+
+        var answer = await assistant.AskAsync("İptalde para, şemsiye?", CancellationToken.None);
+
+        answer.Sources.Select(source => source.Heading)
+            .Should().Equal("İptal", "Yasak eşyalar", "Vazgeçme", "Bildirim", "Yeniden giriş");
+        answer.Sources.Select(source => source.Number).Should().Equal(1, 2, 3, 4, 5);
+    }
+
+    [Fact]
+    public async Task Should_KeepAtMostTheLimitOfPassages_When_TheMessageAsksSeveral()
+    {
+        var retriever = new PerQuestionRetriever
+        {
+            ["A?"] = [Passage("A1"), Passage("A2"), Passage("A3")],
+            ["B?"] = [Passage("B1"), Passage("B2"), Passage("B3")],
+            ["C?"] = [Passage("C1"), Passage("C2"), Passage("C3")]
+        };
+        var assistant = new PolicyAssistant(
+            retriever,
+            Splitter("A?\nB?\nC?"),
+            new FakeChatClient("cevap [1]"),
+            NullLogger<PolicyAssistant>.Instance);
+
+        var answer = await assistant.AskAsync("A, B ve C?", CancellationToken.None);
+
+        answer.Sources.Select(source => source.Heading)
+            .Should().Equal("A1", "B1", "C1", "A2", "B2", "C2");
+    }
+
+    [Fact]
+    public async Task Should_WriteTheAnswerToTheQuestionAsAsked_NotToTheSplitQuestions()
+    {
+        var model = new FakeChatClient("cevap [1]");
+        var assistant = new PolicyAssistant(
+            new PerQuestionRetriever(),
+            Splitter("Maç iptal olursa para ne olur?\nŞemsiye sokulabilir mi?"),
+            model,
+            NullLogger<PolicyAssistant>.Instance);
+
+        await assistant.AskAsync("İptal olursa param ne olur, şemsiye sokabilir miyim?", CancellationToken.None);
+
+        model.Received.Should().ContainSingle()
+            .Which.Text.Should().Contain("İptal olursa param ne olur, şemsiye sokabilir miyim?");
+    }
+
+    private static PolicyPassage Passage(string heading) =>
+        new("belge", "Belge", heading, $"Belge > {heading}\n\n{heading} metni.", 0.7);
+
+    /// <summary>A retriever that answers each question from its own list, and remembers what it was asked.</summary>
+    private sealed class PerQuestionRetriever : Dictionary<string, IReadOnlyList<PolicyPassage>>, IPolicyRetriever
+    {
+        public List<string> Asked { get; } = [];
+
+        public Task<IReadOnlyList<PolicyPassage>> RetrieveAsync(string question, CancellationToken cancellationToken)
+        {
+            lock (Asked)
+            {
+                Asked.Add(question);
+            }
+
+            return Task.FromResult(TryGetValue(question, out var passages) ? passages : [Refund]);
+        }
+    }
+
+    /// <summary>A splitter whose model always finds exactly these questions.</summary>
+    private static PolicyQuestionSplitter Splitter(string reply) => new(new FakeChatClient(reply));
+
+    /// <summary>A splitter that finds one rule question - which leaves retrieval exactly as it was.</summary>
+    private static PolicyQuestionSplitter SingleQuestion() => Splitter("Tek bir soru?");
+
     private static PolicyAssistant Assistant(IChatClient model, IReadOnlyList<PolicyPassage> passages) =>
-        new(new FixedRetriever(passages), model, NullLogger<PolicyAssistant>.Instance);
+        new(new FixedRetriever(passages), SingleQuestion(), model, NullLogger<PolicyAssistant>.Instance);
 
     private sealed class FixedRetriever(IReadOnlyList<PolicyPassage> passages) : IPolicyRetriever
     {

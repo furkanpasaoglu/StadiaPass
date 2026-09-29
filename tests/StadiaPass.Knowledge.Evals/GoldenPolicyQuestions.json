@@ -1,5 +1,5 @@
 {
-  "$comment": "Policy assistant golden dataset. Each case: a question a member of staff might type, and either the section the answer must be written from ('expected': document + heading, checked against the sources the assistant returns and the [n] it cites) - a list, because a rule and its exception may each state the answer and either is a right place to read it from - or 'expected': null, meaning the documents do not cover it and the assistant must say so instead of answering. Three kinds of question with an answer: 'direct' uses the document's own words, 'paraphrase' asks the same thing in different words (what the embedding is for), 'english' asks in English against Turkish documents. The 'absent' cases are the ones that matter most: 'absent-postponed' is deliberately next door to a rule that exists. Two lessons are written into the cases themselves: 'direct-price-by-block' was first asked as 'kaç lira?' and the assistant answered it both ways on different runs - 'varies by block' and 'the documents do not say' - and both are defensible, because the documents say how a price is set and never what it is; a question whose right answer is a judgement call does not belong in a golden set, so it now asks what the documents state. 'direct-charged-but-lost-seat' accepts two sections because the payment rule and its exception each state the answer.",
+  "$comment": "Policy assistant golden dataset. Each case: a question a member of staff might type, and either the section the answer must be written from ('expected': document + heading, checked against the sources the assistant returns and the [n] it cites) - a list, because a rule and its exception may each state the answer and either is a right place to read it from - or 'expected': null, meaning the documents do not cover it and the assistant must say so instead of answering. Three kinds of question with an answer: 'direct' uses the document's own words, 'paraphrase' asks the same thing in different words (what the embedding is for), 'english' asks in English against Turkish documents. The 'absent' cases are the ones that matter most: 'absent-postponed' is deliberately next door to a rule that exists. Two lessons are written into the cases themselves: 'direct-price-by-block' was first asked as 'kaç lira?' and the assistant answered it both ways on different runs - 'varies by block' and 'the documents do not say' - and both are defensible, because the documents say how a price is set and never what it is; a question whose right answer is a judgement call does not belong in a golden set, so it now asks what the documents state. 'direct-charged-but-lost-seat' accepts two sections because the payment rule and its exception each state the answer. The 'several' cases ask more than one rule question in one message and use 'requiredAll': every listed section must be retrieved AND cited. Before the question splitter, a paragraph like 'several-paragraph' ranked its three sections 3rd, 10th and 12th of 26, and only one reached the model.",
   "cases": [
     {
       "id": "direct-cancelled-refund",
@@ -93,6 +93,25 @@
       "id": "absent-weather",
       "question": "Maç günü hava nasıl olacak?",
       "expected": null
+    },
+    {
+      "id": "several-paragraph",
+      "question": "Merhaba, ben gişede yeni başladım. Bir müşteri bana maç iptal olursa parasının ne olacağını sordu, ne diyeyim? Ayrıca müşteri başka bir kişi adına bilet alabilir mi? Son olarak stadyuma şemsiye sokulabiliyor mu, onu da merak ediyorlar.",
+      "expected": null,
+      "requiredAll": [
+        { "document": "iade-politikasi", "heading": "Maç iptal edildiğinde" },
+        { "document": "gise-islem-rehberi", "heading": "Gişeden bilet satışı" },
+        { "document": "stadyum-giris-kurallari", "heading": "Yasak eşyalar" }
+      ]
+    },
+    {
+      "id": "several-one-sentence",
+      "question": "Koltuğu kaç dakika tutabilirim ve stadyuma şemsiye sokabilir miyim?",
+      "expected": null,
+      "requiredAll": [
+        { "document": "rezervasyon-ve-satis-kosullari", "heading": "Koltuk tutma süresi" },
+        { "document": "stadyum-giris-kurallari", "heading": "Yasak eşyalar" }
+      ]
     }
   ]
 }

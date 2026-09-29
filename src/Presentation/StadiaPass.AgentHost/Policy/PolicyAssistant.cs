@@ -22,10 +22,15 @@ namespace StadiaPass.AgentHost.Policy;
 /// </remarks>
 internal sealed partial class PolicyAssistant(
     IPolicyRetriever retriever,
+    PolicyQuestionSplitter splitter,
     IChatClient chatClient,
     ILogger<PolicyAssistant> logger)
 {
-    public const string NoPassagesAnswer = "This topic is not covered in the documents.";
+    /// <summary>
+    /// The same sentence the instructions ask the model for, so an empty store and an uncovered question read
+    /// alike to staff - and to the evals, which look for exactly these words.
+    /// </summary>
+    public const string NoPassagesAnswer = "Bu konuda belgelerde bilgi yok.";
 
     /// <summary>
     /// Three is what an answer is written from: the section that has it, and two neighbours that
@@ -33,6 +38,12 @@ internal sealed partial class PolicyAssistant(
     /// passage about a nearby topic starts to look like an answer.
     /// </summary>
     private const int PassageCount = 3;
+
+    /// <summary>
+    /// The ceiling when a message asks several rule questions: room for the best two of three questions, or
+    /// the best one of up to six, without handing the model a wall of sections to wade through.
+    /// </summary>
+    private const int SplitPassageCount = 6;
 
     public async Task<PolicyAnswer> AskAsync(string question, CancellationToken cancellationToken)
     {
@@ -48,7 +59,7 @@ internal sealed partial class PolicyAssistant(
 
         question = redaction.Text;
 
-        var passages = await retriever.RetrieveAsync(question, cancellationToken);
+        var passages = await RetrievePassagesAsync(question, cancellationToken);
 
         if (passages.Count is 0)
         {
@@ -57,7 +68,9 @@ internal sealed partial class PolicyAssistant(
             return new PolicyAnswer(question, NoPassagesAnswer, []);
         }
 
-        var prompt = PolicyPrompt.Build(question, passages.Take(PassageCount).ToArray());
+        // The model answers the question as it was asked, whatever it was split into for retrieval: the
+        // splitting decides what the model reads, never what it is answering.
+        var prompt = PolicyPrompt.Build(question, passages.ToArray());
 
         var response = await chatClient.GetResponseAsync(
             [new ChatMessage(ChatRole.User, prompt)],
@@ -70,7 +83,6 @@ internal sealed partial class PolicyAssistant(
             cancellationToken);
 
         var sources = passages
-            .Take(PassageCount)
             .Select((passage, index) =>
                 new PolicySource(index + 1, passage.Document, passage.Title, passage.Heading, passage.Score))
             .ToArray();
@@ -79,6 +91,68 @@ internal sealed partial class PolicyAssistant(
 
         return new PolicyAnswer(question, response.Text.Trim(), sources);
     }
+
+    /// <summary>
+    /// One rule question: retrieve with the message as it was typed, exactly as before splitting existed.
+    /// Several: retrieve for each on its own, then take the passages in turns - the best of every question
+    /// first, then the second of every question - so no question is crowded out by another's neighbours.
+    /// </summary>
+    private async Task<List<PolicyPassage>> RetrievePassagesAsync(string question, CancellationToken cancellationToken)
+    {
+        var ruleQuestions = await splitter.SplitAsync(question, cancellationToken);
+
+        if (ruleQuestions.Count <= 1)
+        {
+            var found = await retriever.RetrieveAsync(question, cancellationToken);
+
+            return found.Take(PassageCount).ToList();
+        }
+
+        SplitInto(logger, ruleQuestions.Count);
+
+        // Side by side, not one after the other: each retrieval is a round trip to the MCP server and an
+        // embedding, and none of them depends on another.
+        var retrievals = ruleQuestions.Select(ruleQuestion => retriever.RetrieveAsync(ruleQuestion, cancellationToken));
+        var results = await Task.WhenAll(retrievals);
+
+        var passages = new List<PolicyPassage>();
+        var longest = results.Max(result => result.Count);
+
+        for (var rank = 0; rank < longest; rank++)
+        {
+            foreach (var result in results)
+            {
+                if (rank >= result.Count)
+                {
+                    continue;
+                }
+
+                var candidate = result[rank];
+                var alreadyTaken = passages.Any(passage =>
+                    passage.Document == candidate.Document && passage.Heading == candidate.Heading);
+
+                if (alreadyTaken)
+                {
+                    continue;
+                }
+
+                passages.Add(candidate);
+
+                if (passages.Count == SplitPassageCount)
+                {
+                    return passages;
+                }
+            }
+        }
+
+        return passages;
+    }
+
+    [LoggerMessage(
+        EventId = 9203,
+        Level = LogLevel.Information,
+        Message = "Policy question split into {Count} rule questions, each retrieved for on its own")]
+    private static partial void SplitInto(ILogger logger, int count);
 
     [LoggerMessage(
         EventId = 9200,

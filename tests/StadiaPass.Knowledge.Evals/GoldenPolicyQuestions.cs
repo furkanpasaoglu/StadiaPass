@@ -6,9 +6,17 @@ namespace StadiaPass.Knowledge.Evals;
 /// A question, and the sections any of which it may be answered from - or none, when the documents do not
 /// cover it. More than one when a rule and its exception each state the answer.
 /// </summary>
-public sealed record PolicyEvalCase(string Id, string Question, IReadOnlyList<ExpectedSection>? Expected)
+/// <param name="RequiredAll">
+/// For a message that asks several rule questions: sections that must ALL be retrieved and ALL be cited,
+/// one per question. Used instead of <paramref name="Expected"/>, which is satisfied by any one section.
+/// </param>
+public sealed record PolicyEvalCase(
+    string Id,
+    string Question,
+    IReadOnlyList<ExpectedSection>? Expected,
+    IReadOnlyList<ExpectedSection>? RequiredAll = null)
 {
-    public bool DocumentsCoverIt => Expected is { Count: > 0 };
+    public bool DocumentsCoverIt => Expected is { Count: > 0 } || RequiredAll is { Count: > 0 };
 }
 
 public sealed record ExpectedSection(string Document, string Heading);

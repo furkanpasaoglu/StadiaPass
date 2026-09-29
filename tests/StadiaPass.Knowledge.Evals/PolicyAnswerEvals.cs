@@ -61,6 +61,27 @@ public sealed partial class PolicyAnswerEvals(PolicyAssistantFixture assistant, 
             return;
         }
 
+        if (evalCase.RequiredAll is { Count: > 0 })
+        {
+            // A message with several rule questions: every one of them has its own section, and an answer
+            // that covers some of them and calls the rest "not in the documents" is the failure being measured.
+            foreach (var required in evalCase.RequiredAll)
+            {
+                var source = answer.Sources.FirstOrDefault(candidate =>
+                    candidate.Document == required.Document && candidate.Heading == required.Heading);
+
+                source.Should().NotBeNull(
+                    $"'{required.Document} > {required.Heading}' answers one of the questions asked and has to "
+                    + "be among the passages the assistant reads");
+
+                citations.Should().Contain(
+                    source!.Number,
+                    $"the answer has to cite [{source.Number}] ({required.Heading}) for the question it answers");
+            }
+
+            return;
+        }
+
         var expected = evalCase.Expected!;
         var wanted = string.Join(" | ", expected.Select(section => $"{section.Document} > {section.Heading}"));
 
