@@ -1,0 +1,69 @@
+{
+  "$comment": "Support merger golden dataset. Each case: a mixed staff question, the analyst's reply and the policy assistant's reply exactly as they might come back - including the noise the merge exists to remove, a sentence where one side says it knows nothing about the half the other side answered. 'mustContain' is what the one merged answer has to keep (facts from both sides, and every citation); 'mustNotContain' is the noise it has to drop. Matching is case-insensitive. A merge that loses a citation is thrown away by the merger itself and the two replies are shown as they were; that fallback counts as a failure here, because it means the model did not do the job. Two cases come from a live run with a four-question paragraph: 'analyst-invents-a-rule' - the analyst, which never sees the rule documents, answered a rule question from nowhere and the merge kept it, uncited; and 'name-the-unanswered-part' - a bare 'no information on this' that left the reader guessing which part it meant.",
+  "cases": [
+    {
+      "id": "seats-and-cancel",
+      "question": "Derbide kaç boş koltuk kaldı, maç iptal olursa param ne olur?",
+      "analyst": "Kasımpaşa - Trabzonspor maçında 108 boş koltuk var.",
+      "policy": "Yaklaşan maçlar ve koltuk sayıları hakkında belgelerde bilgi yok. Maç iptal edilirse bilet bedeli, ödemede kullanılan karta otomatik olarak iade edilir [1].",
+      "mustContain": [ "108", "karta", "[1]" ],
+      "mustNotContain": [ "belgelerde bilgi yok" ]
+    },
+    {
+      "id": "price-and-hold",
+      "question": "Cumartesi maçının en ucuz bileti ne kadar ve koltuğu kaç dakika tutabilirim?",
+      "analyst": "Cumartesi günkü Galatasaray - Fenerbahçe maçında en ucuz koltuk 250 TL, KALE bloğunda.",
+      "policy": "Bilet fiyatları hakkında belgelerde bilgi yok. Koltuk seçildiğinde 10 dakika boyunca tutulur [1].",
+      "mustContain": [ "250", "10 dakika", "[1]" ],
+      "mustNotContain": [ "belgelerde bilgi yok" ]
+    },
+    {
+      "id": "analyst-says-no-rules",
+      "question": "Galatasaray maçında kaç bilet iade edildi ve müşteri kendi isteğiyle iade alabilir mi?",
+      "analyst": "Galatasaray - Fenerbahçe maçında 12 bilet iade edildi. İade kuralları hakkında bilgim yok.",
+      "policy": "Müşteri maça gidemeyeceği için bileti iade etmek isterse iade yapılmaz [1].",
+      "mustContain": [ "12", "iade yapılmaz", "[1]" ],
+      "mustNotContain": [ "bilgim yok" ]
+    },
+    {
+      "id": "two-citations",
+      "question": "Yaklaşan maçlar neler, iptal olursa para ne zaman hesaba geçer?",
+      "analyst": "Yaklaşan maçlar: Kasımpaşa - Trabzonspor (23 Eylül) ve Gençlerbirliği - Göztepe (23 Eylül).",
+      "policy": "Maç iptal edilirse bilet bedeli karta otomatik iade edilir [1]. İadenin hesap özetinde görünmesi bankaya bağlı olarak birkaç gün sürebilir [2].",
+      "mustContain": [ "Kasımpaşa", "Göztepe", "[1]", "[2]" ],
+      "mustNotContain": [ ]
+    },
+    {
+      "id": "a-part-nobody-answered",
+      "question": "Yaklaşan maçlar neler, maç iptal olursa param ne olur, bir de maç günü hava nasıl olacak?",
+      "analyst": "Yaklaşan maç: Kasımpaşa - Trabzonspor, 23 Eylül.",
+      "policy": "Maç iptal edilirse bilet bedeli karta otomatik iade edilir [1].",
+      "mustContain": [ "Kasımpaşa", "[1]", "hava" ],
+      "mustNotContain": [ ]
+    },
+    {
+      "id": "english-question",
+      "question": "Which matches are on this weekend, and can I bring an umbrella?",
+      "analyst": "This weekend: Kasımpaşa vs Trabzonspor on Saturday. I have no information about stadium entry rules.",
+      "policy": "Maçlar hakkında belgelerde bilgi yok. Şemsiye stadyuma alınmaz [1].",
+      "mustContain": [ "Kasımpaşa", "[1]" ],
+      "mustNotContain": [ "no information", "belgelerde bilgi yok" ]
+    },
+    {
+      "id": "analyst-invents-a-rule",
+      "question": "Önümüzdeki maçlar hangileri, maç iptal olursa para ne olur, ve müşteri başka biri adına bilet alabilir mi?",
+      "analyst": "Önümüzdeki maçlar: Kasımpaşa - Trabzonspor (23 Eylül) ve Fenerbahçe - Beşiktaş (25 Eylül). Başka kişi adına bilet alınabilir.",
+      "policy": "Maç iptal edilirse bilet bedeli karta otomatik iade edilir [1]. Bu konuda belgelerde bilgi yok.",
+      "mustContain": [ "Kasımpaşa", "[1]", "başka" ],
+      "mustNotContain": [ "alınabilir" ]
+    },
+    {
+      "id": "name-the-unanswered-part",
+      "question": "Yaklaşan maçlar neler, iptal olursa para ne olur, stadyuma şemsiye sokulabilir mi?",
+      "analyst": "Yaklaşan maç: Kasımpaşa - Trabzonspor, 23 Eylül.",
+      "policy": "Maç iptal edilirse bilet bedeli karta otomatik iade edilir [1]. Bu konuda belgelerde bilgi yok.",
+      "mustContain": [ "Kasımpaşa", "[1]", "şemsiye" ],
+      "mustNotContain": [ "Bu konuda belgelerde bilgi yok" ]
+    }
+  ]
+}

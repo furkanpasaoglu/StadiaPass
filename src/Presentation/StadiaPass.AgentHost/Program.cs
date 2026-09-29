@@ -10,6 +10,7 @@ using Serilog;
 using StadiaPass.AgentHost;
 using StadiaPass.AgentHost.Guardrails;
 using StadiaPass.AgentHost.Policy;
+using StadiaPass.AgentHost.Support;
 using StadiaPass.ServiceDefaults.Logging;
 
 // Same bootstrap-logger window as every other host in the solution.
@@ -85,6 +86,15 @@ try
     builder.Services.AddSingleton<IPolicyRetriever, McpPolicyRetriever>();
     builder.Services.AddSingleton<PolicyAssistant>();
 
+    // The support desk: one door in front of both. A router picks the analyst, the policy assistant or -
+    // when the question asks both things - both at once, as the branches of a workflow, and a merger turns
+    // those two replies into one answer.
+    builder.Services.AddSingleton<SupportRouter>();
+    builder.Services.AddSingleton<SupportMerger>();
+    builder.Services.AddSingleton<IAnalyst>(provider =>
+        new AgentAnalyst(provider.GetRequiredKeyedService<AIAgent>(AnalystAgent.Name)));
+    builder.Services.AddSingleton<SupportDesk>();
+
     // DevUI and the OpenAI-compatible endpoints it drives. Development-only by design - this is the
     // playground in front of the agent, not the product; the admin panel comes later and comes separately.
     builder.AddOpenAIResponses();
@@ -112,6 +122,13 @@ try
             : Results.Ok(await assistant.AskAsync(request.Question.Trim(), cancellationToken)))
         .WithName("AskPolicy")
         .WithSummary("Answers a staff question from the policy documents, citing the passages it read.");
+
+    app.MapPost("/support/ask", async (PolicyQuestion request, SupportDesk desk, CancellationToken cancellationToken) =>
+        string.IsNullOrWhiteSpace(request.Question)
+            ? Results.ValidationProblem(new Dictionary<string, string[]> { ["question"] = ["A question is required."] })
+            : Results.Ok(await desk.AskAsync(request.Question.Trim(), cancellationToken)))
+        .WithName("AskSupport")
+        .WithSummary("Routes a staff question to the analyst, the policy assistant or both, and returns every reply.");
 
     if (app.Environment.IsDevelopment())
     {
@@ -160,5 +177,5 @@ static async Task<IList<McpClientTool>> ConnectToMcpAsync(string endpoint)
     }
 }
 
-/// <summary>The body of a policy question.</summary>
+/// <summary>The body of a staff question, for the policy assistant and for the support desk alike.</summary>
 internal sealed record PolicyQuestion(string Question);

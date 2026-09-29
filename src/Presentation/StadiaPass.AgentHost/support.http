@@ -1,0 +1,45 @@
+### The support desk: one door for every staff question.
+### Run the AppHost first. Each request shows where the question was routed ("topic")
+### and one reply per assistant that answered it.
+
+@agent = http://localhost:5399
+
+### 1. A rule. Expect topic "policy" and one reply from the policy assistant, with sources.
+POST {{agent}}/support/ask
+Content-Type: application/json; charset=utf-8
+
+{
+  "question": "Maç iptal olursa müşterinin parası ne olur?"
+}
+
+### 2. A fact about matches. Expect topic "catalogue" and one reply from the analyst.
+POST {{agent}}/support/ask
+Content-Type: application/json; charset=utf-8
+
+{
+  "question": "Yaklaşan maçlar neler?"
+}
+
+### 3. Both in one message. Expect topic "mixed" and two replies: the analyst first, then the policy assistant.
+POST {{agent}}/support/ask
+Content-Type: application/json; charset=utf-8
+
+{
+  "question": "Yaklaşan maçlar neler, ve maç iptal olursa param ne olur?"
+}
+
+### 4. Neither. Expect topic "other" and the desk's own short reply, with no model answering it.
+POST {{agent}}/support/ask
+Content-Type: application/json; charset=utf-8
+
+{
+  "question": "Merhaba, nasılsın?"
+}
+
+### 5. Personal data. Expect the address to come back masked in "question".
+POST {{agent}}/support/ask
+Content-Type: application/json; charset=utf-8
+
+{
+  "question": "Mailim ali@test.com, koltuğu kaç dakika tutabilirim?"
+}

@@ -23,6 +23,7 @@
   <ItemGroup>
     <None Include="GoldenDataset.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="RoutingDataset.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="MergeDataset.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
