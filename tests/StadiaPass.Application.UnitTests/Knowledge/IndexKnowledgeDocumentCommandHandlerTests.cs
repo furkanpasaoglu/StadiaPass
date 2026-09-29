@@ -155,6 +155,36 @@ public sealed class IndexKnowledgeDocumentCommandHandlerTests
             Arg.Any<IReadOnlyList<EmbeddedKnowledgeChunk>>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Should_LetTheFileWin_AndSaySo_When_ALibraryFileTakesAnUploadedDocumentsName()
+    {
+        // The reverse of the refusal above, and it cannot be refused: nobody is waiting at the start-up to be
+        // told. The file wins - it is the reviewed, committed copy - but the upload it replaced is reported
+        // rather than overwritten without a trace.
+        _store.StateOfAsync("kampanya", Arg.Any<CancellationToken>())
+            .Returns(new KnowledgeDocumentState(KnowledgeContentHash.Of("yüklenen metin"), "bge-m3", KnowledgeOrigin.Uploaded));
+
+        var result = await _handler.Handle(
+            new IndexKnowledgeDocumentCommand("kampanya", Markdown, KnowledgeOrigin.Library),
+            CancellationToken.None);
+
+        result.ReplacedAnUpload.Should().BeTrue();
+        await _store.Received(1).ReplaceDocumentAsync(
+            "kampanya", KnowledgeContentHash.Of(Markdown), "bge-m3", KnowledgeOrigin.Library,
+            Arg.Any<IReadOnlyList<EmbeddedKnowledgeChunk>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_NotReportAReplacedUpload_When_ALibraryDocumentIsSimplyUpdated()
+    {
+        _store.StateOfAsync("iade", Arg.Any<CancellationToken>())
+            .Returns(new KnowledgeDocumentState(KnowledgeContentHash.Of("eski metin"), "bge-m3", KnowledgeOrigin.Library));
+
+        var result = await _handler.Handle(new IndexKnowledgeDocumentCommand("iade", Markdown), CancellationToken.None);
+
+        result.ReplacedAnUpload.Should().BeFalse();
+    }
+
     /// <summary>A stand-in vector that differs per text, so a wrong embedding is visible in an assertion.</summary>
     private static float[] VectorFor(string text) => [text.Length, text[0]];
 }

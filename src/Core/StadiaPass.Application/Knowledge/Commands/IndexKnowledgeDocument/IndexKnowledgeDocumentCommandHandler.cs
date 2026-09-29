@@ -67,8 +67,23 @@ internal sealed partial class IndexKnowledgeDocumentCommandHandler(
 
         Indexed(logger, request.Document, embedded.Count, embedder.Model);
 
-        return new IndexKnowledgeDocumentResultDto(request.Document, embedded.Count, Unchanged: false);
+        var replacedAnUpload = held is not null
+            && held.Origin == KnowledgeOrigin.Uploaded
+            && request.Origin == KnowledgeOrigin.Library;
+
+        if (replacedAnUpload)
+        {
+            UploadReplacedByFile(logger, request.Document);
+        }
+
+        return new IndexKnowledgeDocumentResultDto(request.Document, embedded.Count, Unchanged: false, replacedAnUpload);
     }
+
+    [LoggerMessage(
+        EventId = 9002,
+        Level = LogLevel.Warning,
+        Message = "Knowledge document {Document} had been uploaded through the API and was replaced by the library file of the same name")]
+    private static partial void UploadReplacedByFile(ILogger logger, string document);
 
     [LoggerMessage(
         EventId = 9000,

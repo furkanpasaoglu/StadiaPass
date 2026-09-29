@@ -17,4 +17,12 @@ public sealed record IndexKnowledgeDocumentCommand(
 /// <param name="Unchanged">
 /// <see langword="true"/> when the store already held this text as read by this model, and nothing was done.
 /// </param>
-public sealed record IndexKnowledgeDocumentResultDto(string Document, int ChunkCount, bool Unchanged);
+/// <param name="ReplacedAnUpload">
+/// <see langword="true"/> when a library file took the name of a document somebody had uploaded, and the
+/// upload was replaced by the file's text.
+/// </param>
+public sealed record IndexKnowledgeDocumentResultDto(
+    string Document,
+    int ChunkCount,
+    bool Unchanged,
+    bool ReplacedAnUpload = false);
