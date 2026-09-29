@@ -85,6 +85,7 @@ try
     // choose between, and DevUI would offer it a chat box that skipped the retrieval it exists for.
     builder.Services.AddSingleton<IPolicyRetriever, McpPolicyRetriever>();
     builder.Services.AddSingleton<PolicyQuestionSplitter>();
+    builder.Services.AddSingleton<PolicyReranker>();
     builder.Services.AddSingleton<PolicyAssistant>();
 
     // The support desk: one door in front of both. A router picks the analyst, the policy assistant or -

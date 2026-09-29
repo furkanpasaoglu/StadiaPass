@@ -18,6 +18,12 @@ internal sealed class McpPolicyRetriever(IList<McpClientTool> tools) : IPolicyRe
 {
     public const string ToolName = "search_policies";
 
+    /// <summary>
+    /// Wider than the three the model reads, so the reranker has a section ranked fourth or seventh by the
+    /// vectors to choose from. Ten is also the most the search endpoint will hand back in one call.
+    /// </summary>
+    public const int CandidateCount = 10;
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public async Task<IReadOnlyList<PolicyPassage>> RetrieveAsync(string question, CancellationToken cancellationToken)
@@ -28,7 +34,7 @@ internal sealed class McpPolicyRetriever(IList<McpClientTool> tools) : IPolicyRe
                 + "service-account secret to read the policies with.");
 
         var result = await tool.CallAsync(
-            new Dictionary<string, object?>(StringComparer.Ordinal) { ["question"] = question },
+            new Dictionary<string, object?>(StringComparer.Ordinal) { ["question"] = question, ["limit"] = CandidateCount },
             cancellationToken: cancellationToken);
 
         if (result.IsError is true)

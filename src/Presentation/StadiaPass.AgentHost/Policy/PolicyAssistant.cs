@@ -23,6 +23,7 @@ namespace StadiaPass.AgentHost.Policy;
 internal sealed partial class PolicyAssistant(
     IPolicyRetriever retriever,
     PolicyQuestionSplitter splitter,
+    PolicyReranker reranker,
     IChatClient chatClient,
     ILogger<PolicyAssistant> logger)
 {
@@ -96,6 +97,7 @@ internal sealed partial class PolicyAssistant(
     /// One rule question: retrieve with the message as it was typed, exactly as before splitting existed.
     /// Several: retrieve for each on its own, then take the passages in turns - the best of every question
     /// first, then the second of every question - so no question is crowded out by another's neighbours.
+    /// Either way, each retrieval is reranked down to three before anything is taken from it.
     /// </summary>
     private async Task<List<PolicyPassage>> RetrievePassagesAsync(string question, CancellationToken cancellationToken)
     {
@@ -103,16 +105,16 @@ internal sealed partial class PolicyAssistant(
 
         if (ruleQuestions.Count <= 1)
         {
-            var found = await retriever.RetrieveAsync(question, cancellationToken);
+            var found = await RetrieveAndRerankAsync(question, cancellationToken);
 
-            return found.Take(PassageCount).ToList();
+            return found.ToList();
         }
 
         SplitInto(logger, ruleQuestions.Count);
 
-        // Side by side, not one after the other: each retrieval is a round trip to the MCP server and an
-        // embedding, and none of them depends on another.
-        var retrievals = ruleQuestions.Select(ruleQuestion => retriever.RetrieveAsync(ruleQuestion, cancellationToken));
+        // Side by side, not one after the other: each retrieval is a round trip to the MCP server, an
+        // embedding and a rerank, and none of them depends on another.
+        var retrievals = ruleQuestions.Select(ruleQuestion => RetrieveAndRerankAsync(ruleQuestion, cancellationToken));
         var results = await Task.WhenAll(retrievals);
 
         var passages = new List<PolicyPassage>();
@@ -147,6 +149,32 @@ internal sealed partial class PolicyAssistant(
 
         return passages;
     }
+
+    /// <summary>Wide retrieval, then the reranker's pick of the three the model will read.</summary>
+    private async Task<IReadOnlyList<PolicyPassage>> RetrieveAndRerankAsync(
+        string question,
+        CancellationToken cancellationToken)
+    {
+        var candidates = await retriever.RetrieveAsync(question, cancellationToken);
+        var chosen = await reranker.RerankAsync(question, candidates, PassageCount, cancellationToken);
+
+        // Logged only when the reranker changed what the model reads, which is the only case it earned its
+        // model call: a passage from beyond the vectors' own top three was brought in.
+        var promoted = chosen.Count(passage => !candidates.Take(PassageCount).Contains(passage));
+
+        if (promoted > 0)
+        {
+            Promoted(logger, promoted, candidates.Count);
+        }
+
+        return chosen;
+    }
+
+    [LoggerMessage(
+        EventId = 9204,
+        Level = LogLevel.Information,
+        Message = "Reranker brought {Count} passage(s) into the three from beyond the vectors' top three, out of {Candidates} candidates")]
+    private static partial void Promoted(ILogger logger, int count, int candidates);
 
     [LoggerMessage(
         EventId = 9203,

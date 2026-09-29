@@ -148,6 +148,7 @@ public sealed class SupportDeskTests
         new(
             retriever,
             new PolicyQuestionSplitter(new FakeChatClient("Tek bir soru?")),
+            new PolicyReranker(new FakeChatClient("1")),
             new FakeChatClient("Karta iade edilir [1]."),
             NullLogger<PolicyAssistant>.Instance);
 

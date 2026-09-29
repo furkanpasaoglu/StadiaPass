@@ -77,7 +77,7 @@ public sealed class PolicyAssistantTests
         // assistant masks first, and everything downstream - retrieval, prompt, answer - sees the placeholder.
         var retriever = new RecordingRetriever();
         var model = new FakeChatClient("İade yapılmaz [1].");
-        var assistant = new PolicyAssistant(retriever, SingleQuestion(), model, NullLogger<PolicyAssistant>.Instance);
+        var assistant = new PolicyAssistant(retriever, SingleQuestion(), PassThrough(), model, NullLogger<PolicyAssistant>.Instance);
 
         var answer = await assistant.AskAsync("ahmet@example.com gelemeyecek, iade var mı?", CancellationToken.None);
 
@@ -107,6 +107,7 @@ public sealed class PolicyAssistantTests
         var assistant = new PolicyAssistant(
             retriever,
             Splitter("Maç iptal olursa param ne olur?"),
+            PassThrough(),
             new FakeChatClient("Karta iade edilir [1]."),
             NullLogger<PolicyAssistant>.Instance);
 
@@ -122,6 +123,7 @@ public sealed class PolicyAssistantTests
         var assistant = new PolicyAssistant(
             retriever,
             Splitter("Maç iptal olursa para ne olur?\nŞemsiye sokulabilir mi?"),
+            PassThrough(),
             new FakeChatClient("Karta iade edilir [1]. Şemsiye alınmaz [2]."),
             NullLogger<PolicyAssistant>.Instance);
 
@@ -143,6 +145,7 @@ public sealed class PolicyAssistantTests
         var assistant = new PolicyAssistant(
             retriever,
             Splitter("Maç iptal olursa para ne olur?\nŞemsiye sokulabilir mi?"),
+            PassThrough(),
             new FakeChatClient("cevap [1] [2]"),
             NullLogger<PolicyAssistant>.Instance);
 
@@ -165,6 +168,7 @@ public sealed class PolicyAssistantTests
         var assistant = new PolicyAssistant(
             retriever,
             Splitter("A?\nB?\nC?"),
+            PassThrough(),
             new FakeChatClient("cevap [1]"),
             NullLogger<PolicyAssistant>.Instance);
 
@@ -181,6 +185,7 @@ public sealed class PolicyAssistantTests
         var assistant = new PolicyAssistant(
             new PerQuestionRetriever(),
             Splitter("Maç iptal olursa para ne olur?\nŞemsiye sokulabilir mi?"),
+            PassThrough(),
             model,
             NullLogger<PolicyAssistant>.Instance);
 
@@ -215,8 +220,33 @@ public sealed class PolicyAssistantTests
     /// <summary>A splitter that finds one rule question - which leaves retrieval exactly as it was.</summary>
     private static PolicyQuestionSplitter SingleQuestion() => Splitter("Tek bir soru?");
 
+    /// <summary>A reranker that names nothing usable, which keeps retrieval's own order.</summary>
+    private static PolicyReranker PassThrough() => new(new FakeChatClient("0"));
+
+    [Fact]
+    public async Task Should_LetTheRerankerBringInAPassageFromBeyondTheFirstThree()
+    {
+        // The whole point of retrieving ten: the section the vectors ranked fifth can still be read.
+        var retriever = new PerQuestionRetriever
+        {
+            ["Stadyuma şemsiye sokabilir miyim?"] =
+                [Passage("Yeniden giriş"), Passage("Kayıp eşya"), Passage("Kapı saati"), Passage("Engelli"), Passage("Yasak eşyalar")]
+        };
+        var assistant = new PolicyAssistant(
+            retriever,
+            SingleQuestion(),
+            new PolicyReranker(new FakeChatClient("5")),
+            new FakeChatClient("Şemsiye alınmaz [1]."),
+            NullLogger<PolicyAssistant>.Instance);
+
+        var answer = await assistant.AskAsync("Stadyuma şemsiye sokabilir miyim?", CancellationToken.None);
+
+        answer.Sources.Select(source => source.Heading)
+            .Should().Equal("Yasak eşyalar", "Yeniden giriş", "Kayıp eşya");
+    }
+
     private static PolicyAssistant Assistant(IChatClient model, IReadOnlyList<PolicyPassage> passages) =>
-        new(new FixedRetriever(passages), SingleQuestion(), model, NullLogger<PolicyAssistant>.Instance);
+        new(new FixedRetriever(passages), SingleQuestion(), PassThrough(), model, NullLogger<PolicyAssistant>.Instance);
 
     private sealed class FixedRetriever(IReadOnlyList<PolicyPassage> passages) : IPolicyRetriever
     {
