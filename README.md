@@ -2,13 +2,14 @@
 
 **English** · [Türkçe](README.tr.md)
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 292](https://img.shields.io/badge/tests-292-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![tests 342](https://img.shields.io/badge/tests-342-success) ![warnings 0](https://img.shields.io/badge/warnings-0-success) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
 
 Stadium and arena ticketing, built as a reference-grade Clean Architecture solution: Minimal API backend,
 Razor MVC front end, DDD domain model, CQRS with MediatR, Keycloak-backed dynamic permissions, Elasticsearch
 behind the search box, .NET Aspire orchestration — and an MCP tool layer with two in-house consumers on top
 of it: an analyst agent that chooses its tools, and a policy assistant that answers staff from the rule book
-with citations (retrieval-augmented generation over pgvector).
+with citations (retrieval-augmented generation over pgvector, with query splitting and reranking). A support
+desk in front of both routes each question to the right one — or to both at once — as a multi-agent workflow.
 
 ## 🎯 What it is
 
@@ -29,7 +30,8 @@ refunds have to be issued against a provider that can refuse, rate-limit, or sim
 | **Cancelling a fixture** | Selling stops in one small transaction; every sold ticket is then settled one at a time off the broker, each with its own retry. |
 | **Search that degrades** | Elasticsearch is a convenience over a system that sells tickets perfectly well without it. If the cluster is gone, the search box hands back the listing and says so. |
 | **AI without a second source of truth** | The catalogue is published once as MCP tools. Claude and an in-house agent on a local model consume the same tools, over the same API — and the agent's tool selection is scored, not trusted. |
-| **Answers that can be checked** | Staff ask the rule book in plain language. The assistant reads the three nearest sections, answers only from them, cites each by number — and says "the documents do not cover this" rather than guess. Retrieval, grounding and refusal are each scored. |
+| **Answers that can be checked** | Staff ask the rule book in plain language. The assistant finds the sections that answer each question asked, answers only from them, cites each by number — and says "the documents do not cover this" rather than guess. Retrieval, grounding and refusal are each scored. |
+| **One door for every question** | Staff do not have to know which assistant to ask. A router sends a question about matches to the analyst and a question about rules to the policy assistant; a message that asks both goes to both at once, and the two replies come back as one answer. |
 
 ## 📸 Screenshots
 
@@ -93,7 +95,7 @@ StadiaPass.slnx
 │       ├── StadiaPass.WebAPI        # Minimal API + Scalar reference
 │       ├── StadiaPass.WebMVC        # Razor MVC — consumes the API over HTTP only
 │       ├── StadiaPass.McpServer     # Model Context Protocol server — the catalogue, for AI clients
-│       └── StadiaPass.AgentHost     # the analyst agent and the policy assistant — a local model over those tools
+│       └── StadiaPass.AgentHost     # the analyst agent, the policy assistant and the support desk in front of them
 ├── orchestrator
 │   ├── StadiaPass.AppHost           # Aspire: Postgres, Redis, RabbitMQ, Keycloak, Elastic, Vault, Grafana
 │   └── StadiaPass.ServiceDefaults   # Vault config, Serilog, OpenTelemetry, health checks
@@ -120,7 +122,7 @@ not a rule, and reaches the system only through the MCP tools every other AI cli
 flowchart LR
   Browser --> WebMVC
   AI([AI client — Claude, Copilot, …]) -->|MCP| McpServer
-  Staff([Staff]) -->|DevUI · /policy/ask| AgentHost
+  Staff([Staff]) -->|DevUI · /policy/ask · /support/ask| AgentHost
   AgentHost -->|MCP| McpServer
   AgentHost -->|chat + tool calls| Ollama([Ollama — local models])
   WebAPI -->|embeddings| Ollama
@@ -302,7 +304,9 @@ enough to explain end to end.
 
 ```
 index   document ──► one chunk per "## " section ──► bge-m3 embedding ──► PostgreSQL (pgvector)
-ask     question ──► mask personal data ──► embed ──► 3 nearest chunks ──► model reads them ──► answer + [n] citations
+ask     question ──► mask personal data ──► split into its rule questions
+                 ──► for each: embed ──► 10 nearest chunks ──► rerank to 3
+                 ──► model reads them all ──► answer + [n] citations
 ```
 
 ```powershell
@@ -335,7 +339,7 @@ The decisions that carry it:
   Each chunk starts with a `Title > Heading` line, embedded along with it: "no refund" sits as close to
   "refund" as the paragraph saying the opposite, and that line is what tells them apart.
 - **The vectors live in the database that was already there.** `pgvector` in the same PostgreSQL, one
-  `ORDER BY embedding <=> @question LIMIT 3`, no index — a few dozen rows is a scan, and an HNSW index is for
+  `ORDER BY embedding <=> @question LIMIT 10`, no index — a few dozen rows is a scan, and an HNSW index is for
   when it is not. A document is re-embedded only when its **text or the embedding model** changes; the second
   matters because vectors from two models cannot be compared, so an unchanged text still has to be redone.
 - **Retrieval is code, not a tool the model may skip.** The assistant is deliberately *not* an agent: the
@@ -354,11 +358,33 @@ The decisions that carry it:
 - **Masked before retrieval, not only before the model.** The guardrail wraps the chat client, but retrieval
   runs first — the question as typed was travelling to the MCP server, the API, its logs and the embedding
   model. Found while testing, closed by redacting at the top of the flow.
+- **A message with several questions is split before it is searched.** One vector for a paragraph that asks
+  four things is a blurred average of all four. Measured on such a paragraph: the three sections it needed
+  ranked 3rd, 10th and 12th of 26, every score squeezed between 0.55 and 0.69, and only one of them reached
+  the model — which then said the documents cover nothing about the other two. Asked one at a time, each
+  question found its section first, with a clear margin. So one model call now lists the rule questions in a
+  message (leaving out anything about specific matches, and greetings), each is retrieved for on its own, and
+  the passages are taken in turns — the best of every question first — up to six. A message with one rule
+  question is retrieved for exactly as before, as typed, and the model always answers the message as asked.
+  This is query decomposition.
+- **Retrieval is widened, then reranked.** Ten candidates come back instead of three, and a second, slower
+  look picks the three the model reads: the question and every candidate read side by side, the ones that
+  answer it moved to the front. The usual tool is a small cross-encoder, but Ollama has no endpoint for one
+  (0.30 answers `404` on `/api/rerank`), so the chat model does it — one call, the passages numbered, the
+  numbers of the useful ones back, which is listwise reranking. It can only help: its picks go first, the rest
+  are filled in the vectors' order, and a reply it makes nothing of leaves that order alone. Compared against
+  a run without it, it changed what the model read in 5 of 20 cases, each for the better — the section on
+  roles brought in for *"may I cancel a match?"*, the right section lifted to first for *"may I buy for
+  someone else?"*. The price is time: on the local model the median answer went from about 5 s to about 9 s.
+  It stays on, because reading the right rule matters more than answering a few seconds sooner.
 
-**It is measured on three things that fail independently.** Eighteen opt-in cases — eight in the documents'
-own words, three paraphrased, two asked in English against the Turkish text, five the documents do not cover —
-each checked for **retrieval** (the right section is among the three), **grounding** (the answer cites that
-section's number) and **refusal** (an uncovered question gets the agreed sentence and nothing made up).
+**It is measured on three things that fail independently.** Twenty opt-in cases — eight in the documents'
+own words, three paraphrased, two asked in English against the Turkish text, five the documents do not cover,
+and two that ask several rule questions in one message — each checked for **retrieval** (the right section is
+among those read), **grounding** (the answer cites that section's number) and **refusal** (an uncovered
+question gets the agreed sentence and nothing made up). The several-question cases require *every* section to
+be retrieved and cited, not any one of them. The splitter has seven cases of its own, scored on whether it
+finds exactly the rule questions a message asks.
 
 ```powershell
 $env:STADIAPASS_RUN_POLICY_EVALS = "1"; dotnet test tests/StadiaPass.Knowledge.Evals
@@ -391,6 +417,62 @@ began refusing Turkish questions in English, and the refusal is the one behaviou
 it was reverted. The refusal is a single fixed sentence in any language, and the content of the answers is
 correct either way.
 
+## 🧭 Support desk — one door, both assistants
+
+Two assistants means staff have to know which one to ask, and the messages they actually write do not
+respect that line: *"how many seats are left for the derby, and what happens to my money if it is
+cancelled?"* is half catalogue, half rule. The support desk is one door in front of both. It is a
+[Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) **workflow**: four steps joined by a
+switch.
+
+```
+question ──► mask ──► router ──┬─ catalogue ─► analyst agent
+                               ├─ policy    ─► policy assistant
+                               ├─ mixed     ─► both, in the same step ─► merger ─► one answer
+                               └─ other     ─► a short fixed reply, no model
+```
+
+```powershell
+$body = @{ question = "Yaklaşan maçlar neler, ve maç iptal olursa param ne olur?" } | ConvertTo-Json
+Invoke-RestMethod http://localhost:5399/support/ask -Method Post -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes($body))
+```
+
+The response carries the topic it was routed to, the one `answer` to show, the policy `sources` its citations
+point at, and — for whoever is debugging — every assistant's reply as it came back.
+
+- **The router answers with one word.** One model call returns `catalogue`, `policy`, `mixed` or `other`,
+  and nothing else. Keeping it that small is what makes routing measurable on its own: a wrong answer can be
+  traced to the routing or to the assistant behind it, not both. A reply that names no topic, or more than
+  one, is read as `other` rather than guessed at. The hard cases are pairs where the same word belongs to both
+  sides — *"which matches were cancelled?"* is catalogue, *"what happens if a match is cancelled?"* is policy;
+  a refund count is catalogue, a refund rule is policy.
+- **A mixed question goes both ways at once.** The switch sends it to both assistants in the same workflow
+  step, so they run side by side rather than one after the other. A unit test pins that down: each fake
+  assistant refuses to finish until the other has started, which only running them together can satisfy. On
+  the local model the gain is real but partial — both assistants share one Ollama, which queues part of the
+  work — so a mixed question took about 34 s against 42 s for its two halves asked separately.
+- **The two replies are merged into one answer.** Each assistant reads the whole message, so each may say it
+  knows nothing about the half the other one answered — *"the documents say nothing about upcoming matches"*
+  right under the list of upcoming matches. One more model call merges the two. Two rules came out of
+  measuring it. **Rules come from the policy reply only:** in a live run the analyst, which never sees the
+  rule documents, answered a rule question anyway, from nowhere, and a merge that kept it would have told
+  staff an uncited rule. **A part neither reply answered is named:** *"there is nothing in the documents about
+  umbrellas"*, never a bare *"no information on this"*. And the merge is checked in code before it is used:
+  if any `[n]` from the policy reply is missing, it is thrown away and the two replies are shown as they were.
+- **A greeting costs nothing.** `other` gets a fixed sentence from the desk itself; no assistant and no model
+  is asked.
+
+Measured in three opt-in suites against the real model, alongside the analyst's and the policy assistant's
+own: **25 routing cases** (including seven same-word pairs and five mixed questions, which scored 0 of 5
+before `mixed` existed), **8 merge cases** with both replies fixed so only the merge is scored (two of them
+are the invented rule and the unnamed gap from the live run, and both failed before the rules above), and
+the **7 splitter cases** of the policy assistant.
+
+```powershell
+$env:STADIAPASS_RUN_EVALS = "1"; dotnet test tests/StadiaPass.AgentHost.Evals
+```
+
 ## 📐 Architectural decisions
 
 Every row is a decision that cost something, and most of them exist because of a defect that was measured
@@ -418,6 +500,10 @@ rather than imagined.
 | **No similarity threshold on retrieval** | Measured: an uncovered question scored 0.64, a covered one 0.66 | A cut-off that either lets a made-up answer through or refuses a real one |
 | **The refusal is one fixed sentence** | An eval can assert it, and a model asked to choose between two began choosing wrongly | "I am not sure, but…" followed by a guess |
 | **A document records where it came from** | The start-up clean-up removes library documents whose file is gone | An uploaded document vanishing on restart — or a withdrawn policy still being quoted |
+| **A message is split into its rule questions before retrieval** | Measured: a four-question paragraph ranked its three sections 3rd, 10th and 12th; asked one by one, each came first | A colleague told "the documents say nothing" about a rule the documents state |
+| **Retrieve ten, rerank to three** | Measured: it changed what the model read in 5 of 20 cases, each for the better | The section that answers the question sitting fourth, just out of reach |
+| **A router in front, a workflow behind it** | Routing is one word and measured on its own; the branches are code | Staff having to know which assistant to ask — and half of a two-part question going unanswered |
+| **The merger takes rules from the policy reply only** | Measured: the analyst answered a rule question from nowhere | An uncited rule told to staff as if it were one |
 
 ### Deliberately not done
 
@@ -430,7 +516,7 @@ rather than imagined.
 | **Tests on eight thin handlers** | They forward one call to a repository; a test would assert that a mock was called and lock the implementation without being able to catch a defect. |
 | **A time zone model** | Written and read with the server's local time — symmetric, but in a `TZ=UTC` container a Turkish visitor sees times three hours out. Known, accepted. |
 | **A separate vector database** | Four documents and a few dozen chunks. `pgvector` in the PostgreSQL that is already running means no new service to start, secure and back up — and the store sits behind a port, so the day the corpus outgrows it only the adapter changes. |
-| **Reranking** | The right section is already among the three retrieved in 18 of 18 cases, so a reranker would be a second model call per question fixing an ordering problem the evals say is not there. It is the first thing to add when the corpus grows and the top three stop being enough. |
+| **A cross-encoder reranker** | The usual reranking model reads the question and a passage together and scores them. Ollama 0.30 has no endpoint for one, and running it inside .NET means a model file, a tokenizer and a runtime of its own; the chat model reranks listwise instead. The day Ollama serves `/api/rerank`, only the reranker class changes. |
 | **Forcing the answer's language** | Tried and measured: it destabilised the refusal, which matters more. See [On language](#-policy-assistant--answers-from-the-rule-book-with-citations). |
 
 ## 🛠️ Technology stack
@@ -442,6 +528,7 @@ rather than imagined.
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` discovery, Scalar reference UI |
 | AI surface | ModelContextProtocol.AspNetCore | 2.2.0 | MCP server over streamable HTTP, five read-only tools |
 | Agent | Microsoft Agent Framework | 1.20.0 | the analyst host, its OpenAI-compatible endpoints and DevUI |
+| Workflow | Microsoft.Agents.AI.Workflows | 1.20.0 | the support desk: executors, a switch, both assistants in one step |
 | Model access | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | provider-agnostic `IChatClient`, local `qwen3:30b-a3b`, GenAI telemetry |
 | Retrieval | pgvector + Pgvector.EntityFrameworkCore · `bge-m3` | 0.3.0 | 1024-dimension multilingual embeddings, cosine nearest-neighbour in PostgreSQL |
 | UI | ASP.NET Core MVC + Razor | 10.0.11 | server-rendered, one hand-written stylesheet |
@@ -456,7 +543,7 @@ rather than imagined.
 | Secrets | HashiCorp Vault | 1.21 | injected as configuration at startup |
 | Telemetry | OpenTelemetry + Serilog | 1.15 / 10.0 | traces, metrics, structured logs |
 | Dashboards | Prometheus + Grafana | 3.6 / 12.2 | scraped metrics, provisioned panels and alert rules |
-| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 292 tests, plus 36 opt-in agent evals and 18 opt-in policy evals |
+| Tests | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 342 tests, plus 96 opt-in evals across five suites |
 
 **Patterns in the code:** Clean Architecture · DDD aggregates · domain events · CQRS · pipeline behaviours ·
 repository + unit of work · ports and adapters · transactional outbox · idempotent inbox · compensating
@@ -505,9 +592,18 @@ The numbers written *for this system*, rather than the generic runtime set:
 
 ## ✅ Tests
 
-**292 tests** — 57 domain, 190 application, 45 agent host (the guardrail, the policy assistant, the analyst's
-tool list) — running in about 250 ms with no database, broker, model or network. The two eval suites are
-separate and opt-in, because they call a model: 36 cases for the analyst, 18 for the policy assistant.
+**342 tests** — 57 domain, 190 application, 95 agent host (the guardrail, the policy assistant with its
+splitter and reranker, the analyst's tool list, the router, the support desk and the merger) — running in
+about 300 ms with no database, broker, model or network. The eval suites are separate and opt-in, because they
+call a model:
+
+| Suite | Cases | Scores |
+|---|---|---|
+| Analyst | 36 | the tool it reaches for, and its arguments |
+| Policy assistant | 20 | retrieval, grounding and refusal, end to end over HTTP |
+| Router | 25 | where a question is sent, including same-word pairs and mixed questions |
+| Question splitter | 7 | exactly the rule questions a message asks |
+| Merger | 8 | both answers kept, every citation kept, the noise dropped |
 
 Two things about how they are written are worth more than the number:
 
@@ -544,6 +640,7 @@ On first start the schema is created and seeded, and the Keycloak realm is impor
 | MCP endpoint | http://localhost:5299/mcp |
 | Agent DevUI | http://localhost:5399/devui |
 | Policy assistant | `POST` http://localhost:5399/policy/ask |
+| Support desk | `POST` http://localhost:5399/support/ask |
 | Keycloak | https://localhost:8080 |
 | Vault UI | http://localhost:8200 |
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |
@@ -621,6 +718,19 @@ with a small Markdown document that has a `## ` heading, and ask the assistant a
 the new document first in `sources`, with no restart. Restart the AppHost and ask again. Expect: it is still
 there. `DELETE` it and ask once more. Expect: `Bu konuda belgelerde bilgi yok.` Try the same `PUT` as `gise`
 (`403`), and under the name `iade-politikasi` (`409` — that one belongs to its file).
+
+**11 · One door.** Open `src/Presentation/StadiaPass.AgentHost/support.http` and send its requests, or `POST`
+to http://localhost:5399/support/ask. *"Maç iptal olursa müşterinin parası ne olur?"* Expect: topic `policy`
+and an answer with `[1]`. *"Yaklaşan maçlar neler?"* Expect: topic `catalogue` and the listing. *"Yaklaşan
+maçlar neler, ve maç iptal olursa param ne olur?"* Expect: topic `mixed`, one answer with the listing first and
+the rule second, its `[1]` intact, and no line saying the documents know nothing about matches. *"Merhaba"*
+Expect: topic `other` and the desk's own reply in about a second.
+
+**12 · A paragraph of questions.** Ask the policy assistant *"Bir müşteri maç iptal olursa parasının ne
+olacağını sordu. Ayrıca başka bir kişi adına bilet alabilir mi? Son olarak stadyuma şemsiye sokulabiliyor
+mu?"* Expect: all three rules answered, each with its own citation, and `sources` holding the refund, box
+office and forbidden-items sections — the three that, asked as one blurred question, never reached the model
+together.
 
 ---
 

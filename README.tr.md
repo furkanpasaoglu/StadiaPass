@@ -2,14 +2,15 @@
 
 [English](README.md) · **Türkçe**
 
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 292](https://img.shields.io/badge/test-292-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success) ![lisans MIT](https://img.shields.io/badge/lisans-MIT-blue)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4) ![C# 14](https://img.shields.io/badge/C%23-14-239120) ![test 342](https://img.shields.io/badge/test-342-success) ![uyarı 0](https://img.shields.io/badge/uyar%C4%B1-0-success) ![lisans MIT](https://img.shields.io/badge/lisans-MIT-blue)
 
 Stadyum ve arena biletleme; referans niteliğinde bir Clean Architecture çözümü olarak yazıldı: Minimal API
 backend, Razor MVC ön yüz, DDD domain modeli, MediatR ile CQRS, Keycloak destekli dinamik izinler, arama
 kutusunun arkasında Elasticsearch, .NET Aspire orkestrasyonu — ve bunların üstünde bir MCP tool katmanı ile
 onu tüketen iki kurum içi parça: tool'larını kendi seçen bir analist ajan ve personelin sorusunu kural
 kitapçığından, alıntı göstererek cevaplayan bir politika asistanı (pgvector üzerinde retrieval-augmented
-generation, yani RAG).
+generation, yani RAG; soru bölme ve reranking ile). İkisinin önündeki destek masası her soruyu doğru olana —
+ya da ikisine birden, aynı anda — yönlendiren çoklu ajanlı bir workflow'dur.
 
 ## 🎯 Bu ne
 
@@ -30,7 +31,8 @@ sınırı koyabilen ya da düpedüz yavaş olabilen bir sağlayıcıya karşı y
 | **Fikstürü iptal etmek** | Satış tek küçük transaction'da durur; satılmış her bilet sonra broker üzerinde, her biri kendi retry'ıyla tek tek yerleştirilir. |
 | **Zarifçe bozulan arama** | Elasticsearch, onsuz da gayet iyi bilet satan bir sistemin üstünde bir konfor. Cluster yoksa arama kutusu listeyi verir ve bunu söyler. |
 | **İkinci bir doğruluk kaynağı yaratmadan AI** | Katalog bir kez MCP tool'u olarak yayınlanır. Claude da, yerel model üzerinde çalışan kurum içi ajan da aynı tool'ları, aynı API üzerinden tüketir — ve ajanın tool seçimine güvenilmez, ölçülür. |
-| **Doğrulanabilen cevaplar** | Personel kural kitapçığına düz dille sorar. Asistan en yakın üç bölümü okur, yalnızca onlardan cevaplar, her birini numarasıyla alıntılar — ve tahmin etmek yerine "bu konuda belgelerde bilgi yok" der. Getirme, dayanak ve ret ayrı ayrı ölçülür. |
+| **Doğrulanabilen cevaplar** | Personel kural kitapçığına düz dille sorar. Asistan sorulan her sorunun cevabını içeren bölümleri bulur, yalnızca onlardan cevaplar, her birini numarasıyla alıntılar — ve tahmin etmek yerine "bu konuda belgelerde bilgi yok" der. Getirme, dayanak ve ret ayrı ayrı ölçülür. |
+| **Her soru için tek kapı** | Personelin hangi asistana soracağını bilmesi gerekmez. Yönlendirici maç sorusunu analiste, kural sorusunu politika asistanına gönderir; ikisini birden soran mesaj ikisine aynı anda gider ve iki cevap tek cevap olarak döner. |
 
 ## 📸 Ekran görüntüleri
 
@@ -94,7 +96,7 @@ StadiaPass.slnx
 │       ├── StadiaPass.WebAPI        # Minimal API + Scalar referansı
 │       ├── StadiaPass.WebMVC        # Razor MVC — API'yi yalnızca HTTP üzerinden tüketir
 │       ├── StadiaPass.McpServer     # Model Context Protocol sunucusu — katalog, AI istemcileri için
-│       └── StadiaPass.AgentHost     # analist ajan ve politika asistanı — o tool'ların üstünde yerel bir model
+│       └── StadiaPass.AgentHost     # analist ajan, politika asistanı ve önlerindeki destek masası
 ├── orchestrator
 │   ├── StadiaPass.AppHost           # Aspire: Postgres, Redis, RabbitMQ, Keycloak, Elastic, Vault, Grafana
 │   └── StadiaPass.ServiceDefaults   # Vault config, Serilog, OpenTelemetry, health check'ler
@@ -121,7 +123,7 @@ değil model tutar ve sisteme yalnızca her AI istemcisinin kullandığı MCP to
 flowchart LR
   Browser --> WebMVC
   AI([AI istemcisi — Claude, Copilot, …]) -->|MCP| McpServer
-  Personel([Personel]) -->|DevUI · /policy/ask| AgentHost
+  Personel([Personel]) -->|DevUI · /policy/ask · /support/ask| AgentHost
   AgentHost -->|MCP| McpServer
   AgentHost -->|sohbet + tool çağrıları| Ollama([Ollama — yerel modeller])
   WebAPI -->|embedding| Ollama
@@ -300,7 +302,9 @@ retrieval-augmented generation (RAG): baştan sona anlatılabilecek kadar küç�
 
 ```
 indeksle  belge ──► her "## " bölümü bir parça ──► bge-m3 embedding ──► PostgreSQL (pgvector)
-sor       soru ──► kişisel veriyi maskele ──► embed et ──► en yakın 3 parça ──► model okur ──► cevap + [n] alıntı
+sor       soru ──► kişisel veriyi maskele ──► kural sorularına böl
+                 ──► her biri için: embed et ──► en yakın 10 parça ──► rerank ile 3'e indir
+                 ──► model hepsini okur ──► cevap + [n] alıntı
 ```
 
 ```powershell
@@ -333,7 +337,7 @@ Bunu taşıyan kararlar:
   bir `Belge adı > Başlık` satırıyla başlar ve onunla birlikte embed edilir: "iade yapılmaz" cümlesi, tam
   tersini söyleyen paragraf kadar "iade"ye yakın durur; ikisini ayıran o satırdır.
 - **Vektörler zaten var olan veritabanında.** Aynı PostgreSQL'de `pgvector`, tek bir
-  `ORDER BY embedding <=> @soru LIMIT 3`, indeks yok — birkaç düzine satır bir taramadır, HNSW indeksi öyle
+  `ORDER BY embedding <=> @soru LIMIT 10`, indeks yok — birkaç düzine satır bir taramadır, HNSW indeksi öyle
   olmadığı gün içindir. Bir belge yalnızca **metni ya da embedding modeli** değiştiğinde yeniden embed edilir;
   ikincisi önemli, çünkü iki farklı modelin vektörleri karşılaştırılamaz, yani değişmemiş bir metnin de
   yeniden yapılması gerekir.
@@ -353,11 +357,33 @@ Bunu taşıyan kararlar:
 - **Yalnızca modelden önce değil, getirmeden önce maskelenir.** Guardrail sohbet istemcisini sarar, ama
   getirme ondan önce çalışır — yazıldığı haliyle soru MCP sunucusuna, API'ye, loglarına ve embedding modeline
   gidiyordu. Test ederken bulundu, akışın en başında maskelenerek kapatıldı.
+- **Birden fazla soru içeren mesaj, aranmadan önce bölünür.** Dört şey soran bir paragrafın tek vektörü,
+  dördünün bulanık bir ortalamasıdır. Böyle bir paragrafta ölçüldü: ihtiyaç duyduğu üç bölüm 26 bölüm içinde
+  3., 10. ve 12. sıraya düştü, bütün skorlar 0.55 ile 0.69 arasına sıkıştı ve yalnızca biri modele ulaştı —
+  model de diğer ikisi için belgelerde bilgi olmadığını söyledi. Tek tek sorulunca her soru kendi bölümünü
+  birinci sırada ve belirgin farkla buldu. Bu yüzden artık bir model çağrısı mesajdaki kural sorularını
+  listeliyor (belirli maçlarla ilgili kısımları ve selamlaşmayı atarak), her biri için ayrı getirme yapılıyor
+  ve pasajlar sırayla alınıyor — önce her sorunun en iyisi — en fazla altı. Tek kural sorusu olan mesajda
+  getirme eskisi gibi, yazıldığı haliyle yapılır; model de her zaman mesajın kendisini cevaplar. Bunun adı
+  query decomposition, yani sorgu ayrıştırma.
+- **Getirme genişletilir, sonra rerank edilir.** Üç yerine on aday gelir, ve ikinci, daha yavaş bir bakış
+  modelin okuyacağı üçünü seçer: soru ve her aday yan yana okunur, soruyu cevaplayanlar öne alınır. Bunun
+  için genelde küçük bir cross-encoder model kullanılır, ama Ollama'da bunun için bir endpoint yok (0.30,
+  `/api/rerank` isteğine `404` döner). O yüzden işi sohbet modeli yapıyor — tek çağrı, pasajlar numaralı,
+  faydalı olanların numaraları geri döner; buna listwise reranking denir. Zarar veremez: seçtikleri öne geçer,
+  gerisi vektör sırasıyla tamamlanır, anlamsız bir cevapta o sıra hiç değişmez. Reranker'sız bir koşuyla
+  karşılaştırıldığında 20 vakanın 5'inde modelin okuduklarını değiştirdi, beşinde de daha iyi yönde — *"maçı
+  ben iptal edebilir miyim?"* için roller bölümü dışarıdan getirildi, *"başkası adına bilet alabilir miyim?"*
+  için doğru bölüm birinci sıraya çıktı. Bedeli süre: yerel modelde ortanca cevap yaklaşık 5 saniyeden
+  yaklaşık 9 saniyeye çıktı. Açık kalıyor, çünkü doğru kuralı okumak birkaç saniye erken cevaplamaktan önemli.
 
-**Birbirinden bağımsız bozulabilen üç şey üzerinden ölçülür.** On sekiz opsiyonel vaka — sekizi belgenin
-kendi kelimeleriyle, üçü başka kelimelerle, ikisi Türkçe metne karşı İngilizce sorulmuş, beşi belgelerin
-kapsamadığı — her biri **getirme** (doğru bölüm üçün içinde mi), **dayanak** (cevap o bölümün numarasını
-alıntılıyor mu) ve **ret** (kapsanmayan soru uydurma değil, kararlaştırılan cümleyi alıyor mu) için denetlenir.
+**Birbirinden bağımsız bozulabilen üç şey üzerinden ölçülür.** Yirmi opsiyonel vaka — sekizi belgenin kendi
+kelimeleriyle, üçü başka kelimelerle, ikisi Türkçe metne karşı İngilizce sorulmuş, beşi belgelerin kapsamadığı,
+ikisi tek mesajda birden fazla kural sorusu soran — her biri **getirme** (doğru bölüm okunanların içinde mi),
+**dayanak** (cevap o bölümün numarasını alıntılıyor mu) ve **ret** (kapsanmayan soru uydurma değil,
+kararlaştırılan cümleyi alıyor mu) için denetlenir. Çok sorulu vakalar, bölümlerin herhangi birini değil
+*hepsinin* getirilip alıntılanmasını ister. Soru bölücünün de kendi yedi vakası var: bir mesajın sorduğu kural
+sorularını tam olarak bulup bulmadığı ölçülür.
 
 ```powershell
 $env:STADIAPASS_RUN_POLICY_EVALS = "1"; dotnet test tests/StadiaPass.Knowledge.Evals
@@ -389,6 +415,62 @@ ağır basar. Dili talimatla zorlamak denendi ve ölçüldü — model bu sefer 
 başladı, ve ret sallanmaması gereken tek davranıştır — o yüzden geri alındı. Ret her dilde tek ve sabit bir
 cümledir; cevapların içeriği iki durumda da doğrudur.
 
+## 🧭 Destek masası — tek kapı, iki asistan
+
+İki asistan olması, personelin hangisine soracağını bilmesi gerektiği anlamına gelir; personelin gerçekte
+yazdığı mesajlar ise bu çizgiye uymaz: *"derbide kaç boş koltuk kaldı, maç iptal olursa param ne olur?"*
+yarı katalog, yarı kural. Destek masası ikisinin önündeki tek kapıdır. Bir
+[Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) **workflow**'u: bir switch ile
+birbirine bağlanmış dört adım.
+
+```
+soru ──► maskele ──► yönlendirici ──┬─ catalogue ─► analist ajan
+                                    ├─ policy    ─► politika asistanı
+                                    ├─ mixed     ─► ikisi, aynı adımda ─► birleştirici ─► tek cevap
+                                    └─ other     ─► kısa sabit bir cevap, model yok
+```
+
+```powershell
+$body = @{ question = "Yaklaşan maçlar neler, ve maç iptal olursa param ne olur?" } | ConvertTo-Json
+Invoke-RestMethod http://localhost:5399/support/ask -Method Post -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes($body))
+```
+
+Cevapta sorunun yönlendirildiği konu, gösterilecek tek `answer`, alıntıların işaret ettiği politika
+`sources` listesi ve — hata ayıklayan için — her asistanın geldiği haliyle cevabı bulunur.
+
+- **Yönlendirici tek kelimeyle cevap verir.** Tek bir model çağrısı `catalogue`, `policy`, `mixed` ya da
+  `other` döndürür, başka bir şey değil. Bu kadar küçük tutmak, yönlendirmeyi kendi başına ölçülebilir kılar:
+  yanlış bir cevap yönlendirmeye ya da arkasındaki asistana bağlanabilir, ikisine birden değil. Hiçbir konu
+  adı vermeyen ya da birden fazla veren cevap tahmin edilmez, `other` sayılır. Zor vakalar, aynı kelimenin iki
+  tarafa da ait olduğu çiftlerdir — *"hangi maçlar iptal edildi?"* katalog, *"maç iptal olursa ne olur?"*
+  kural; bir iade sayısı katalog, bir iade kuralı kural.
+- **Karışık soru iki yöne birden gider.** Switch onu aynı workflow adımında iki asistana da gönderir, yani
+  sırayla değil yan yana çalışırlar. Bir birim testi bunu sabitler: her sahte asistan, diğeri başlamadan
+  bitmeyi reddeder, bunu ancak ikisini birlikte çalıştırmak karşılayabilir. Yerel modelde kazanç gerçek ama
+  kısmi — iki asistan tek bir Ollama'yı paylaşıyor ve işin bir kısmı kuyruğa giriyor — karışık bir soru yaklaşık
+  34 saniye sürdü, iki yarısı ayrı sorulunca toplam 42 saniye.
+- **İki cevap tek cevaba birleştirilir.** Her asistan mesajın tamamını okur, o yüzden her biri öbürünün
+  cevapladığı yarı hakkında bir şey bilmediğini söyleyebilir — yaklaşan maçların listesinin hemen altında
+  *"yaklaşan maçlar hakkında belgelerde bilgi yok"*. Bir model çağrısı daha ikisini birleştirir. Ölçerken iki
+  kural çıktı. **Kurallar yalnızca politika cevabından alınır:** canlı bir koşuda kural belgelerini hiç görmeyen
+  analist, bir kural sorusunu yine de, kaynağı olmadan cevapladı; bunu tutan bir birleştirme personele alıntısız
+  bir kural söylemiş olurdu. **Hiçbir cevabın cevaplamadığı kısım adıyla söylenir:** *"şemsiye konusunda
+  belgelerde bilgi yok"*, asla çıplak bir *"bu konuda bilgi yok"* değil. Birleştirme kullanılmadan önce kodda da
+  denetlenir: politika cevabındaki herhangi bir `[n]` eksikse atılır ve iki cevap geldiği haliyle gösterilir.
+- **Selamlaşmanın maliyeti yok.** `other`, masanın kendisinden sabit bir cümle alır; ne bir asistana ne bir
+  modele sorulur.
+
+Analistin ve politika asistanının kendi takımlarının yanında, gerçek modele karşı üç opsiyonel takımla
+ölçülür: **25 yönlendirme vakası** (yedi aynı-kelime çifti ve `mixed` yokken 5'te 0 alan beş karışık soru
+dahil), yalnızca birleştirmenin ölçülmesi için iki cevabın sabitlendiği **8 birleştirme vakası** (ikisi canlı
+koşudaki uydurulan kural ve adı konmamış boşluk; ikisi de yukarıdaki kurallardan önce düştü), ve politika
+asistanının **7 soru bölücü vakası**.
+
+```powershell
+$env:STADIAPASS_RUN_EVALS = "1"; dotnet test tests/StadiaPass.AgentHost.Evals
+```
+
 ## 📐 Mimari kararlar
 
 Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **ölçülen** bir hatanın üstüne var.
@@ -415,6 +497,10 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | **Getirmede benzerlik eşiği yok** | Ölçüldü: kapsanmayan bir soru 0.64, kapsanan bir soru 0.66 aldı | Ya uydurma bir cevabı geçiren ya da gerçek bir cevabı reddeden bir eşik |
 | **Ret, tek ve sabit bir cümle** | Eval onu doğrulayabiliyor; iki cümle arasında seçim yapması istenen model yanlış seçmeye başladı | "Emin değilim ama…" diye başlayıp tahminle biten cevap |
 | **Belge nereden geldiğini kaydeder** | Açılıştaki temizlik, dosyası giden library belgelerini kaldırır | Yüklenen belgenin yeniden başlatmada kaybolması — ya da geri çekilen bir kuralın alıntılanmaya devam etmesi |
+| **Mesaj, getirmeden önce kural sorularına bölünür** | Ölçüldü: dört sorulu bir paragraf üç bölümünü 3., 10. ve 12. sıraya koydu; tek tek sorulunca her biri birinci geldi | Belgelerin açıkça yazdığı bir kural için personele "belgelerde bilgi yok" denmesi |
+| **On aday getir, üçe rerank et** | Ölçüldü: 20 vakanın 5'inde modelin okuduğunu değiştirdi, beşinde de daha iyi yönde | Soruyu cevaplayan bölümün dördüncü sırada, hemen erişimin dışında kalması |
+| **Önde yönlendirici, arkada workflow** | Yönlendirme tek kelime ve kendi başına ölçülüyor; dallar kod | Personelin hangi asistana soracağını bilmek zorunda kalması — ve iki parçalı bir sorunun yarısının cevapsız kalması |
+| **Birleştirici kuralları yalnızca politika cevabından alır** | Ölçüldü: analist bir kural sorusunu kaynaksız cevapladı | Alıntısız bir kuralın personele kuralmış gibi söylenmesi |
 
 ### Bilerek yapılmayanlar
 
@@ -427,7 +513,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | **Sekiz ince handler'a test** | Tek bir repository çağrısını iletiyorlar; test, mock'un çağrıldığını doğrular, implementasyonu kilitler ve hiçbir hata yakalayamazdı. |
 | **Zaman dilimi modeli** | Sunucunun yerel saatiyle yazılıp okunuyor — simetrik, ama `TZ=UTC` konteynerinde Türk ziyaretçi saatleri üç saat kayık görür. Biliniyor, kabul edildi. |
 | **Ayrı bir vektör veritabanı** | Dört belge ve birkaç düzine parça. Zaten çalışan PostgreSQL'de `pgvector`; başlatılacak, güvenliği sağlanacak, yedeği alınacak yeni bir servis yok — depo da bir portun arkasında, yani derlem bunu aştığı gün yalnızca adaptör değişir. |
-| **Reranking** | Doğru bölüm 18 vakanın 18'inde zaten getirilen üçün içinde; bir reranker, eval'lerin var olmadığını söylediği bir sıralama sorununu düzelten, soru başına ikinci bir model çağrısı olurdu. Derlem büyüyüp ilk üç yetmemeye başladığında eklenecek ilk şey odur. |
+| **Cross-encoder reranker** | Alışılmış reranking modeli soruyu ve bir pasajı birlikte okuyup puanlar. Ollama 0.30'da bunun için endpoint yok; .NET içinde çalıştırmak ise ayrı bir model dosyası, tokenizer ve runtime demek. Onun yerine sohbet modeli listwise rerank ediyor. Ollama `/api/rerank` sunduğu gün yalnızca reranker sınıfı değişir. |
 | **Cevap dilini zorlamak** | Denendi ve ölçüldü: daha önemli olan reddi kararsızlaştırdı. Bkz. [Dil üzerine](#-politika-asistanı--kural-kitapçığından-alıntılı-cevap). |
 
 ## 🛠️ Teknoloji yığını
@@ -439,6 +525,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | API | ASP.NET Core Minimal API | 10.0.11 | `MapGroup` + `IEndpoint` keşfi, Scalar referans arayüzü |
 | AI yüzeyi | ModelContextProtocol.AspNetCore | 2.2.0 | streamable HTTP üzerinden MCP sunucusu, beş salt-okuma tool |
 | Ajan | Microsoft Agent Framework | 1.20.0 | analist host'u, OpenAI uyumlu endpoint'leri ve DevUI |
+| Workflow | Microsoft.Agents.AI.Workflows | 1.20.0 | destek masası: executor'lar, bir switch, iki asistan tek adımda |
 | Model erişimi | Microsoft.Extensions.AI + OllamaSharp | 10.9.0 / 5.4.30 | sağlayıcı-bağımsız `IChatClient`, yerel `qwen3:30b-a3b`, GenAI telemetrisi |
 | Getirme | pgvector + Pgvector.EntityFrameworkCore · `bge-m3` | 0.3.0 | 1024 boyutlu çok dilli embedding, PostgreSQL içinde cosine en yakın komşu |
 | Arayüz | ASP.NET Core MVC + Razor | 10.0.11 | sunucuda render, elle yazılmış tek stylesheet |
@@ -453,7 +540,7 @@ Her satır bir bedeli olmuş bir karardır ve çoğu, hayal edilen değil **öl�
 | Sırlar | HashiCorp Vault | 1.21 | açılışta konfigürasyon olarak enjekte edilir |
 | Telemetri | OpenTelemetry + Serilog | 1.15 / 10.0 | trace'ler, metrikler, yapılandırılmış loglar |
 | Panolar | Prometheus + Grafana | 3.6 / 12.2 | scrape edilen metrikler, provision edilmiş paneller ve alarm kuralları |
-| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 292 test, artı 36 opsiyonel ajan eval’i ve 18 opsiyonel politika eval’i |
+| Testler | xUnit, NSubstitute, FluentAssertions | 2.9 / 5.3 / 7.2 | 342 test, artı beş takımda 96 opsiyonel eval |
 
 **Koddaki desenler:** Clean Architecture · DDD aggregate'leri · domain event'ler · CQRS · pipeline
 behavior'ları · repository + unit of work · portlar ve adaptörler · transactional outbox · idempotent inbox ·
@@ -501,9 +588,17 @@ Jenerik runtime seti yerine *bu sistem için* yazılmış sayılar:
 
 ## ✅ Testler
 
-**292 test** — 57 domain, 190 application, 45 agent host (guardrail, politika asistanı, analistin tool
-listesi) — veritabanı, broker, model ya da ağ olmadan yaklaşık 250 ms'de koşuyor. İki eval takımı ayrıdır ve
-opsiyoneldir, çünkü model çağırırlar: analist için 36, politika asistanı için 18 vaka.
+**342 test** — 57 domain, 190 application, 95 agent host (guardrail, soru bölücü ve reranker'ıyla politika
+asistanı, analistin tool listesi, yönlendirici, destek masası ve birleştirici) — veritabanı, broker, model ya da
+ağ olmadan yaklaşık 300 ms'de koşuyor. Eval takımları ayrıdır ve opsiyoneldir, çünkü model çağırırlar:
+
+| Takım | Vaka | Ölçtüğü |
+|---|---|---|
+| Analist | 36 | uzandığı tool ve argümanları |
+| Politika asistanı | 20 | getirme, dayanak ve ret, HTTP üzerinden uçtan uca |
+| Yönlendirici | 25 | sorunun nereye gönderildiği, aynı-kelime çiftleri ve karışık sorular dahil |
+| Soru bölücü | 7 | bir mesajın sorduğu kural sorularının tam olarak bulunması |
+| Birleştirici | 8 | iki cevabın da, her alıntının korunması, gürültünün atılması |
 
 Nasıl yazıldıklarına dair iki şey sayının kendisinden daha değerli:
 
@@ -540,6 +635,7 @@ açılışta şema kurulup tohumlanır ve Keycloak realm'i içe aktarılır.
 | MCP endpoint'i | http://localhost:5299/mcp |
 | Ajan DevUI | http://localhost:5399/devui |
 | Politika asistanı | `POST` http://localhost:5399/policy/ask |
+| Destek masası | `POST` http://localhost:5399/support/ask |
 | Keycloak | https://localhost:8080 |
 | Vault arayüzü | http://localhost:8200 |
 | Prometheus · Grafana | http://localhost:9090 · http://localhost:3000 |
@@ -619,6 +715,18 @@ belgeyle ilgili bir soru sor. Beklenen: yeniden başlatma olmadan, yeni belge `s
 AppHost'u yeniden başlat ve tekrar sor. Beklenen: hâlâ orada. `DELETE` ile kaldır ve bir kez daha sor.
 Beklenen: `Bu konuda belgelerde bilgi yok.` Aynı `PUT`'u `gise` olarak (`403`) ve `iade-politikasi` adıyla
 (`409` — o belge dosyasına ait) dene.
+
+**11 · Tek kapı.** `src/Presentation/StadiaPass.AgentHost/support.http` dosyasını açıp isteklerini gönder,
+ya da http://localhost:5399/support/ask adresine `POST` at. *"Maç iptal olursa müşterinin parası ne olur?"*
+Beklenen: konu `policy` ve `[1]` içeren bir cevap. *"Yaklaşan maçlar neler?"* Beklenen: konu `catalogue` ve
+liste. *"Yaklaşan maçlar neler, ve maç iptal olursa param ne olur?"* Beklenen: konu `mixed`, önce liste sonra
+kural olan tek bir cevap, `[1]`'i yerinde, ve maçlar hakkında belgelerde bilgi olmadığını söyleyen bir satır
+yok. *"Merhaba"* Beklenen: konu `other` ve masanın kendi cevabı, yaklaşık bir saniyede.
+
+**12 · Soru dolu bir paragraf.** Politika asistanına sor: *"Bir müşteri maç iptal olursa parasının ne
+olacağını sordu. Ayrıca başka bir kişi adına bilet alabilir mi? Son olarak stadyuma şemsiye sokulabiliyor
+mu?"* Beklenen: üç kuralın üçü de, her biri kendi alıntısıyla cevaplanmış, ve `sources` içinde iade, gişe ve
+yasak eşyalar bölümleri — tek bulanık bir soru olarak sorulduğunda modele hiç birlikte ulaşamayan üç bölüm.
 
 ---
 
